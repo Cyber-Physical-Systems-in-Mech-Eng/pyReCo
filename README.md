@@ -28,7 +28,7 @@ The ModelAPI is the simplest way to use one of the predefined RC models for trai
 
 The following example illustrates how to translate a sine signal to a cosine signal, i.e. a sequence-to-sequence mapping task. The input is $$x=\sin\left(\pi t\right)$$ and the output is  $$x=2\cos\left(\pi t\right)$$. Thus, The model must learn a phase shift and the amplitude scaling from input to output. Both signals have 3 periods, sampled with 100 steps per period.
 
-```
+```python
 import numpy as np
 from matplotlib import pyplot as plt
 from respy.models import ReservoirComputer as RC
