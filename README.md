@@ -31,7 +31,7 @@ The following example illustrates how to translate a sine signal to a cosine sig
 ```python
 import numpy as np
 from matplotlib import pyplot as plt
-from respy.models import ReservoirComputer as RC
+from pyreco.models import ReservoirComputer as RC
 
 # generate 3 cycles of a sine (input) and of a cosine (output)
 omega = np.pi
@@ -79,9 +79,9 @@ The `CustomModel` API gives the user more flexibility in defining specific prope
 import numpy as np
 from matplotlib import pyplot as plt
 
-from respy.custom_models import RC
-from respy.layers import InputLayer, ReadoutLayer
-from respy.layers import RandomReservoirLayer
+from pyreco.custom_models import RC
+from pyreco.layers import InputLayer, ReadoutLayer
+from pyreco.layers import RandomReservoirLayer
 
 # generate 3 cycles of a sine (input) and of a cosine (output)
 omega = np.pi
