@@ -14,9 +14,11 @@ ResPy is built by researchers for researchers: we aim to develop new RC methods 
 **Compatability**: ResPy follows the syntax of scikit-learn (ResP Model-API), such that an estimator has the methods `.fit()` and `.predict()`. Any more experimental modeling can be realised by ResPy's CustomModel-API, which follows TensorFlow's Sequential-API: a custom ResPy model is compiled using `model.add()` functions for stacking different layers.  
 
 #### Installation
+Simply use pip, or get the source files from this repo.
 
-
-```pip install respy```
+```
+pip install respy
+```
 
 
 ## Minimal Working Examples
