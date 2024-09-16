@@ -17,7 +17,7 @@ ResPy is built by researchers for researchers: we aim to develop new RC methods 
 
 
 ```pip install respy```
----
+
 
 ## Minimal Working Examples
 
