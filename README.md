@@ -1,23 +1,23 @@
-# ReCoPy
+# pyReCo
 
 **A Reservoir Computing Library for Time Series Forecasting and Research**
 
 
 
-ResPy is built by researchers for researchers: we aim to develop new RC methods that allow for fast and efficient learning for sequential data. The main focus is time series prediction, mostly performed in an auto-regressive fashion based on learning discrete flow maps. Another core aspect that motivates the implementation of a new library is *structure-function-relationships* in functional networks. ResPy allows to implement novel ways to generate better reservoir networks than the classical random choice.  Overview of the core capabilities of ResPy:
+pyReCo is built by researchers for researchers: we aim to develop new RC methods that allow for fast and efficient learning for sequential data. The main focus is time series prediction, mostly performed in an auto-regressive fashion based on learning discrete flow maps. Another core aspect that motivates the implementation of a new library is *structure-function-relationships* in functional networks. pyReCo allows to implement novel ways to generate better reservoir networks than the classical random choice.  Overview of the core capabilities of pyReCo:
 
 - [x] **Classical reservoir computing**: using random reservoir layers and training readout-layer weights using Ridge regression
 - [x] **Cross-validation**: built-in functions to k-fold cross-validate any ResPy model for performance evaluation
 - [ ] **auto-regressive time stepping** through feeding the predictions into the input layer (closed-loop prediction system)
 - [ ] **automated hyper-parameter tuning** for leakage rate, activation function, reservoir network properties, etc. 
 
-**Compatability**: ResPy follows the syntax of scikit-learn (ResP Model-API), such that an estimator has the methods `.fit()` and `.predict()`. Any more experimental modeling can be realised by ResPy's CustomModel-API, which follows TensorFlow's Sequential-API: a custom ResPy model is compiled using `model.add()` functions for stacking different layers.  
+**Compatability**: ResPy follows the syntax of scikit-learn (pyReCo Model-API), such that an estimator has the methods `.fit()` and `.predict()`. Any more experimental modeling can be realised by pyReCo's CustomModel-API, which follows TensorFlow's Sequential-API: a custom pyReCo model is compiled using `model.add()` functions for stacking different layers.  
 
 #### Installation
 Simply use pip, or get the source files from this repo.
 
 ```
-pip install respy
+pip install pyreco
 ```
 
 
