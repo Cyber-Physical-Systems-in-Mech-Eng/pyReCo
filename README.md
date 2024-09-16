@@ -2,11 +2,7 @@
 
 **A Reservoir Computing Library for Time Series Forecasting and Research**
 
-#### How to Install
 
-
-```pip install respy```
-___
 
 ResPy is built by researchers for researchers: we aim to develop new RC methods that allow for fast and efficient learning for sequential data. The main focus is time series prediction, mostly performed in an auto-regressive fashion based on learning discrete flow maps. Another core aspect that motivates the implementation of a new library is *structure-function-relationships* in functional networks. ResPy allows to implement novel ways to generate better reservoir networks than the classical random choice.  Overview of the core capabilities of ResPy:
 
@@ -15,7 +11,13 @@ ResPy is built by researchers for researchers: we aim to develop new RC methods 
 - [ ] **auto-regressive time stepping** through feeding the predictions into the input layer (closed-loop prediction system)
 - [ ] **automated hyper-parameter tuning** for leakage rate, activation function, reservoir network properties, etc. 
 
-**Compatability**: ResPy follows the syntax of scikit-learn (ResP Model-API), such that an estimator has the methods `.fit()` and `.predict()`. Any more experimental modeling can be realised by ResPy's CustomModel-API, which follows TensorFlow's Sequential-API: a custom ResPy model is compiled using `model.add()` functions for stacking different layers.   
+**Compatability**: ResPy follows the syntax of scikit-learn (ResP Model-API), such that an estimator has the methods `.fit()` and `.predict()`. Any more experimental modeling can be realised by ResPy's CustomModel-API, which follows TensorFlow's Sequential-API: a custom ResPy model is compiled using `model.add()` functions for stacking different layers.  
+
+#### Installation
+
+
+```pip install respy```
+___
 
 ## Minimal Working Examples
 
