@@ -3,11 +3,10 @@
 **A Reservoir Computing Library for Time Series Forecasting and Research**
 
 #### How to Install
-simply use pip: `pip install respy`
 
-<p align="center">
-<img src="https://github.com/Cyber-Physical-Systems-in-Mech-Eng/ResPy/blob/main/ResPy.png">
-</p>
+
+```pip install respy```
+
 
 ResPy is built by researchers for researchers: we aim to develop new RC methods that allow for fast and efficient learning for sequential data. The main focus is time series prediction, mostly performed in an auto-regressive fashion based on learning discrete flow maps. Another core aspect that motivates the implementation of a new library is *structure-function-relationships* in functional networks. ResPy allows to implement novel ways to generate better reservoir networks than the classical random choice.  Overview of the core capabilities of ResPy:
 
