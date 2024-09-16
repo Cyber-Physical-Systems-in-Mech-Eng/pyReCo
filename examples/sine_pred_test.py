@@ -52,14 +52,28 @@ y_pred_ann = model_ann.predict(X_test)                          # Make predictio
 
 
 """
-Modeling using reservoir computing built on the ResPy library (ours)
+Modeling using reservoir computing built on the pyreco library (ours)
 """
+import sys
+import os
+import platform
 
-from respy.models import RC
-from respy.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
+# make pyReCo available locally
+if platform.system() == 'Windows':  # WINDOWS
+    curr_loc = os.getcwd()
+    pyreco_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
+    sys.path.append(pyreco_path)
+elif platform.system() == 'Darwin':  # MAC
+    curr_loc = os.getcwd()
+    pyreco_path = curr_loc + '/src'
+    sys.path.append(pyreco_path)
+
+
+from pyreco.models import RC
+from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
 
 model_rc = RC()
-model_rc.add(InputLayer(shape=(1,), fraction_input=0.5))
+model_rc.add(InputLayer(input_shape=(1,), fraction_input=0.5))
 model_rc.add(RandomReservoirLayer(nodes=100, density=0.1, activation='sigmoid', alpha=0.2))
 model_rc.add(ReadoutLayer(units=1, fraction_out=0.6))
 

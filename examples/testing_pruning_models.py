@@ -4,18 +4,16 @@ import sys
 import os
 import platform
 
-from cpsmehelper import get_colors
-cpsme_colors = get_colors.get_colors()
 
-# make RESPY available locally
+# make pyreco available locally
 if platform.system() == 'Windows':  # WINDOWS
     curr_loc = os.getcwd()
-    respy_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
-    sys.path.append(respy_path)
+    pyreco_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
+    sys.path.append(pyreco_path)
 elif platform.system() == 'Darwin':  # MAC
     curr_loc = os.getcwd()
-    respy_path = curr_loc + '/src'
-    sys.path.append(respy_path)
+    pyreco_path = curr_loc + '/src'
+    sys.path.append(pyreco_path)
     
 elif platform.system() == 'Linux':  # LINUX
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,12 +21,12 @@ elif platform.system() == 'Linux':  # LINUX
     src_path = os.path.join(project_root, 'src')
     sys.path.insert(0, src_path)
 
-from respy.utils_data import sequence_to_sequence
-from respy.custom_models import RC
-from respy.layers import InputLayer, ReadoutLayer
-from respy.layers import RandomReservoirLayer
-from respy.plotting import r2_scatter
-from respy.network_prop_extractor import NetworkQuantifier
+from pyreco.utils_data import sequence_to_sequence
+from pyreco.custom_models import RC
+from pyreco.layers import InputLayer, ReadoutLayer
+from pyreco.layers import RandomReservoirLayer
+from pyreco.plotting import r2_scatter
+from pyreco.network_prop_extractor import NetworkQuantifier
 
 """
 Classic RC example
@@ -71,7 +69,7 @@ plt.ylabel('loss')
 plt.xlabel('number of nodes')
 plt.title(f'initial reservoir size = {num_init_nodes}, final reservoir size = {history["num_nodes"][-1]}')
 plt.legend()
-plt.savefig('pruning_results.png')
+# plt.savefig('pruning_results.png')
 plt.show()
 
 # Plot network properties
@@ -87,7 +85,7 @@ for i, prop in enumerate(history['network_properties'][0].keys()):
     axs[i].grid(True)
 
 plt.tight_layout()
-plt.savefig('network_properties.png')
+# plt.savefig('network_properties.png')
 plt.show()
 
 # Make predictions for new data using the pruned reservoir
@@ -102,8 +100,8 @@ print(f'Test model loss: {loss_rc}')
 r2_scatter(y_true=y_test, y_pred=y_pred)
 
 plt.figure()
-plt.plot(y_test[0,:,0], label='ground truth', marker='.', color=cpsme_colors['cpsme_blue_4'])
-plt.plot(y_pred[0,:,0], label='prediction', marker='.', color=cpsme_colors['cpsme_red'])
+plt.plot(y_test[0,:,0], label='ground truth', marker='.')
+plt.plot(y_pred[0,:,0], label='prediction', marker='.')
 plt.title('test set')
 plt.legend()
 plt.xlabel('time')

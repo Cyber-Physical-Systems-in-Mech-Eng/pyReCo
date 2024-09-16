@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "respy"
+name = "pyreco"
 version = "0.0.1"
 authors = [
   { name="Merten Stender", email="merten.stender@tu-berlin.de" },
@@ -34,5 +34,5 @@ exclude = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/ResPy"
-Issues = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/ResPy/issues"
+Homepage = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo"
+Issues = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo/issues"

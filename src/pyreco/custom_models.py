@@ -322,7 +322,7 @@ class CustomModel(ABC):
             Args:
                 X (np.ndarray): Input data of shape [n_batch, n_time_in, n_states_in]
                 y (np.ndarray): Target data of shape [n_batch, n_time_out, n_states_out]
-                loss_metric (str): Metric for performance-informed pruning. Must be a member of existing metrics in respy.
+                loss_metric (str): Metric for performance-informed pruning. Must be a member of existing metrics in pyReCo.
                 max_perf_drop (float): Maximum allowed performance drop before stopping pruning. Default: 0.1 (10%)
                 frac_rem_nodes (float): Fraction of nodes to attempt to remove in each iteration. Default: 0.25 (25%)
                 patience (int): Number of consecutive performance decreases allowed before early stopping

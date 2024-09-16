@@ -9,30 +9,30 @@ import sys
 import os
 import platform
 
-# make RESPY available locally
+# make pyReCo available locally
 if platform.system() == 'Windows':  # WINDOWS
     curr_loc = os.getcwd()
-    respy_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
-    sys.path.append(respy_path)
+    pyreco_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
+    sys.path.append(pyreco_path)
 elif platform.system() == 'Darwin':  # MAC
     curr_loc = os.getcwd()
-    respy_path = curr_loc + '/src'
-    sys.path.append(respy_path)
+    pyreco_path = curr_loc + '/src'
+    sys.path.append(pyreco_path)
 
 """+
 generate some training data: map a sine to a cosine (learn a phase shift) with signal amplification (learn to increase 
 the amplitude in the targets)
 """
 
-from respy.utils_data import sequence_to_sequence
+from pyreco.utils_data import sequence_to_sequence
 
-# from respy.utils_data import scalar_to_scalar, vector_to_vector, sequence_to_sequence, x_to_x
+# from pyreco.utils_data import scalar_to_scalar, vector_to_vector, sequence_to_sequence, x_to_x
 X_train, X_test, y_train, y_test = sequence_to_sequence(name='sine_pred', n_batch=20, n_states=2, n_time=150)
 print(f'shape of training data X: {X_train.shape}, shape of test data X: {X_test.shape}')
 print(f'shape of training data y: {y_train.shape}, shape of test data y: {y_test.shape}')
 
-from respy.models import ReservoirComputer as RC
-from respy.plotting import r2_scatter
+from pyreco.models import ReservoirComputer as RC
+from pyreco.plotting import r2_scatter
 
 model = RC(num_nodes=500, activation='tanh')
 model.fit(X_train, y_train)
@@ -55,7 +55,7 @@ metric_value = model.evaluate(X=X_test, y=y_test, metrics=['mse','mae'])
 print(f'scores:{metric_value}')
 
 
-from respy.cross_validation import cross_val
+from pyreco.cross_validation import cross_val
 
 mses, mean_mses, std_dev_mses = cross_val(model, X_train, y_train, n_splits=5, metric='mse')
 print(f"Cross-Validation MSE: {mses}")

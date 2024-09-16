@@ -14,19 +14,19 @@ import os
 import platform
 from matplotlib import pyplot as plt
 
-# make RESPY available locally
+# make pyreco available locally
 if platform.system() == 'Windows':  # WINDOWS
     curr_loc = os.getcwd()
-    respy_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
-    sys.path.append(respy_path)
+    pyreco_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
+    sys.path.append(pyreco_path)
 elif platform.system() == 'Darwin':  # MAC
     curr_loc = os.getcwd()
-    respy_path = curr_loc + '/src'
-    sys.path.append(respy_path)
+    pyreco_path = curr_loc + '/src'
+    sys.path.append(pyreco_path)
 
-from respy.models import ReservoirComputer
-from respy.plotting import r2_scatter
-from respy.utils_data import sequence_to_sequence
+from pyreco.models import ReservoirComputer
+from pyreco.plotting import r2_scatter
+from pyreco.utils_data import sequence_to_sequence
 
 
 # some testing data: predict a sine signal one step into the future

@@ -1,5 +1,5 @@
 """
-Some testing use case for the CustomModel API of ResPy
+Some testing use case for the CustomModel API of pyreco
 """
 
 from matplotlib import pyplot as plt
@@ -7,21 +7,21 @@ import sys
 import os
 import platform
 
-# make RESPY available locally
+# make pyReCo available locally
 if platform.system() == 'Windows':  # WINDOWS
     curr_loc = os.getcwd()
-    respy_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
-    sys.path.append(respy_path)
+    pyreco_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
+    sys.path.append(pyreco_path)
 elif platform.system() == 'Darwin':  # MAC
     curr_loc = os.getcwd()
-    respy_path = curr_loc + '/src'
-    sys.path.append(respy_path)
+    pyreco_path = curr_loc + '/src'
+    sys.path.append(pyreco_path)
 
-from respy.custom_models import RC as RC
-from respy.layers import InputLayer, ReadoutLayer
-from respy.layers import RandomReservoirLayer
-from respy.plotting import r2_scatter
-from respy.utils_data import scalar_to_scalar, vector_to_vector, sequence_to_sequence, x_to_x
+from pyreco.custom_models import RC as RC
+from pyreco.layers import InputLayer, ReadoutLayer
+from pyreco.layers import RandomReservoirLayer
+from pyreco.plotting import r2_scatter
+from pyreco.utils_data import scalar_to_scalar, vector_to_vector, sequence_to_sequence, x_to_x
 
 """
 Classic RC built on random networks. 
@@ -73,7 +73,7 @@ plt.show()
 """
 k-fold cross-validation of the model: estimate bias and variance of the model
 """
-from respy.cross_validation import cross_val
+from pyreco.cross_validation import cross_val
 
 val, mean, std_dev = cross_val(model_rc, X_train, y_train, n_splits=5, metric = ['mse'])
 print(f"Cross-Validation MSE: {val}")

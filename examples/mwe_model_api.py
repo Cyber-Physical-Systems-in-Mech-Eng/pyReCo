@@ -6,17 +6,17 @@ import sys
 import os
 import platform
 
-# make RESPY available locally
+# make pyreco available locally
 if platform.system() == 'Windows':  # WINDOWS
     curr_loc = os.getcwd()
-    respy_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
-    sys.path.append(respy_path)
+    pyreco_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
+    sys.path.append(pyreco_path)
 elif platform.system() == 'Darwin':  # MAC
     curr_loc = os.getcwd()
-    respy_path = curr_loc + '/src'
-    sys.path.append(respy_path)
+    pyreco_path = curr_loc + '/src'
+    sys.path.append(pyreco_path)
 
-from respy.models import ReservoirComputer as RC
+from pyreco.models import ReservoirComputer as RC
 """+
 generate some training data: map a sine to a cosine (learn a phase shift) with signal amplification (learn to increase 
 the amplitude in the targets)
@@ -47,10 +47,10 @@ plt.plot(y_pred[0,:,0], label='prediction', marker='.', color='#E63946')
 plt.legend()
 plt.xlabel('time')
 plt.tight_layout()
-plt.savefig('model_predictions.png')
+# plt.savefig('model_predictions.png')
 plt.show()
 
 # plot an R^2 - like graphic
-from respy.plotting import r2_scatter
+from pyreco.plotting import r2_scatter
 r2_scatter(y_train, y_pred)
 
