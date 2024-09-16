@@ -75,7 +75,7 @@ Plotting `y_pred` and `y_train` against the time vector `t` shows how the minima
 
 The `CustomModel` API gives the user more flexibility in defining specific properties. For example, one can specify the fraction of reservoir nodes which receive the inputs. Additionally, the user can provide custom reservoir layers and add them to the model. The same example as for the Model API can be obtained with the custom model, as shown below. 
 
-```
+```python
 import numpy as np
 from matplotlib import pyplot as plt
 
