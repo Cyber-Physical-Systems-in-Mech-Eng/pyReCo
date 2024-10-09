@@ -1,6 +1,6 @@
 """
 Comparison of a vanilla feedforward NN (implemented in TensorFlow) against a vanilla Reservoir Computer (implemented
-in pyReCo).
+in pyReCo). Try to make them roughly the same sizeand compare performance.
 
 Benchmark case: sequence translation. map a sine to a cosine of the same frequency (i.e. learn a phase shift).
 
@@ -28,9 +28,6 @@ elif platform.system() == 'Darwin':  # MAC
     pyreco_path = curr_loc + '/src'
     sys.path.append(pyreco_path)
 
-from pyreco.custom_models import RC
-from pyreco.layers import InputLayer, ReadoutLayer
-from pyreco.layers import RandomReservoirLayer
 
 """
 generate some training data: map a sine to a cosine (learn a phase shift). 
@@ -63,37 +60,37 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.callbacks import EarlyStopping
 
-model_ann = Sequential()                                # Instantiate Sequential model
-model_ann.add(Input(shape=input_shape))                 # Add input layer
-model_ann.add(Dense(units=100, activation='tanh'))      # Add hidden Dense layer
-model_ann.add(Dense(units=output_shape[0], activation='linear'))      # Add output layer
+model_ann = Sequential()                                            # Instantiate Sequential model
+model_ann.add(Input(shape=input_shape))                             # Add input layer
+model_ann.add(Dense(units=300, activation='tanh'))                  # Add hidden Dense layer
+model_ann.add(Dense(units=1, activation='linear'))                  # Add output layer
 model_ann.compile(optimizer='adam', loss='mean_squared_error')      # Compile the model
 
-es = EarlyStopping(monitor='val_loss', mode='min', patience=20, verbose=1)
+es = EarlyStopping(monitor='val_loss', mode='min', patience=100, verbose=1)  # prevent overfitting
 
 # Train the model for 500 epochs
+print('\n FEEDFORWARD NEURAL NET')
 t_start_ann = time.time()
 hist_ann = model_ann.fit(X_train, y_train, validation_data=(X_test, y_test),
-                         callbacks=[es], epochs=500)
+                         callbacks=[es], epochs=1000)
 t_ann = time.time() - t_start_ann
+
 
 """
 Build a vanilla reservoir computer for the same task. Use 100 reservoir nodes with tanh activation
 """
 
-loss_ann = model_ann.evaluate(X_test, y_test)                       # Evaluate the model
-print(f'Test model loss: {loss_ann}')
-y_pred_ann = model_ann.predict(X_test)                          # Make predictions for new data
+from pyreco.custom_models import RC
+from pyreco.layers import InputLayer, ReadoutLayer
+from pyreco.layers import RandomReservoirLayer
 
-# build a custom RC model by adding layers with properties
 model_rc = RC()
 model_rc.add(InputLayer(input_shape=input_shape))
-model_rc.add(RandomReservoirLayer(nodes=100, activation='tanh', fraction_input=1.0))
+model_rc.add(RandomReservoirLayer(nodes=30, activation='tanh', fraction_input=1.0))
 model_rc.add(ReadoutLayer(output_shape=output_shape, fraction_out=1.0))
+model_rc.compile(optimizer='ridge', metrics=['mean_squared_error'])                     # compile the model and train
 
-# compile the model and train
-model_rc.compile(optimizer='ridge', metrics=['mean_squared_error'])
-
+print('\n TRAINING RESERVOIR COMPUTER')
 t_start_rc = time.time()
 model_rc.fit(X_train, y_train)
 t_rc = time.time() - t_start_rc
@@ -115,13 +112,29 @@ score_ann = mse(y_true=y_test, y_pred=y_pred_ann)
 score_rc = mse(y_true=y_test, y_pred=y_pred_rc)
 
 # compare validation scores, compute times and number of trainable parameters
-print(f'validation L2 scores: \t\t ANN: {score_ann:.4f}, \t RC: {score_rc:.4f}')
-print(f'execution time [s] (training only): \t ANN: {t_ann:.4f}, \t RC: {t_rc:.4f}')
-print(f'number trainable weights: \t\t ANN: {model_ann.count_params()}, \t RC: {model_rc.trainable_weights}')
+print(f'validation L2 scores: \t\t ANN: {score_ann:.4f} \t RC: {score_rc:.4f}')
+print(f'training time [s]: \t\t\t ANN: {t_ann:.4f} \t RC: {t_rc:.4f}')
+print(f'number trainable weights: \t ANN: {model_ann.count_params()} \t\t RC: {model_rc.trainable_weights}')
+
+"""
+Some plots
+"""
+
+from cpsmehelper import export_figure
+
+# display input and output for first training sample
+fig = plt.figure()
+plt.plot(X_train[0,:,0], label='input', color='blue')
+plt.plot(y_train[0,:,0], label='output', color='cyan')
+plt.xlabel('time')
+plt.legend()
+plt.tight_layout()
+export_figure(fig, 'compare_tf_rc_task.png', width=11, height=3)
+plt.show()
 
 # plot the predictions against ground truth
 plot_idx = 0  # which valiation sample to plot
-plt.figure(figsize=(10,4), dpi=100)
+fig = plt.figure(figsize=(10,4), dpi=100)
 plt.plot(y_test[plot_idx,:,0], label='ground truth', marker='.', color='#1D3557')
 plt.plot(y_pred_ann[plot_idx,:,0], label=f'ANN (MSE={mse(y_true=y_test[plot_idx], y_pred=y_pred_ann[plot_idx]):.3f})',
          marker='.', color='#E63946')
@@ -132,6 +145,7 @@ plt.xlabel('time')
 plt.tight_layout()
 plt.title('Comparing ANN against RC for sine-to-cosine task')
 # plt.savefig('model_predictions.png')
+export_figure(fig, 'compare_tf_rc.png', width=11, height=9)
 plt.show()
 
 # plot the ANN network training
@@ -146,7 +160,9 @@ plt.tight_layout()
 plt.show()
 
 
-# # plot an R^2 - like graphic
-# from pyreco.plotting import r2_scatter
-# r2_scatter(y_train, y_pred)
+# plot an R^2 - like graphic
+from pyreco.plotting import r2_scatter
+
+r2_scatter(y_true=y_test, y_pred=y_pred_ann, title='Feedforward ANN')
+r2_scatter(y_true=y_test, y_pred=y_pred_rc, title='Feedforward RC')
 
