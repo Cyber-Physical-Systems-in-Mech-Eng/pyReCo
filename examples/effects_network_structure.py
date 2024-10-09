@@ -80,8 +80,8 @@ if __name__ == '__main__':
     # run the analysis for different numbers of reservoir nodes. Hypothesis: the larger the number of reservoir
     # nodes, the less will be the effect of network structure (redundancy of information)
 
-    num_trials = 1000  # for each RC specification in terms of hyperparameters
-    num_nodes = [10, 50, 100, 250]  # number of nodes to try out
+    num_trials = 10000  # for each RC specification in terms of hyperparameters
+    num_nodes = [10, 50, 100, 250, 500]  # number of nodes to try out
     activation = 'tanh'  # common activation function
     model_scores, best_models, worst_models = [], [], []
 
@@ -105,7 +105,7 @@ if __name__ == '__main__':
     plt.title(f'variation of reservoir network, {num_trials} different networks')
     plt.legend()
     plt.savefig('effects_network_structure_histogram.png')
-    plt.show()
+    # plt.show()
 
     # Create the figure and axis
     fig, ax = plt.subplots()
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     ax.set_ylabel(r'test error ($L_1$)')
     ax.set_title(f'Performance variation by random networks ({num_trials} trials)')
     plt.savefig('effects_network_structure_boxplot.png')
-    plt.show()
+    # plt.show()
 
     # plot predictions of best and worst model for first test sample
     plt.figure()
@@ -130,4 +130,4 @@ if __name__ == '__main__':
     plt.title(rf'variation induced by network structure')
     plt.legend()
     plt.savefig('effects_network_structure_predictions.png')
-    plt.show()
+    # plt.show()
