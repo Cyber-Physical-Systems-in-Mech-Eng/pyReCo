@@ -60,6 +60,8 @@ class CustomModel(ABC):
         self.optimizer: Optimizer  # = assign_optimizer('ridge')
         self.discard_transients = 0
 
+        self.trainable_weights: int  # number of trainable parameters
+
     def add(self, layer: Layer):
         # add some layer(s) to the model. Will not do more at this point in time
 
@@ -293,6 +295,9 @@ class CustomModel(ABC):
             idx_optimal = 0
         self.reservoir_layer.set_initial_state(n_R0[idx_optimal])
         self.readout_layer.weights = n_weights[idx_optimal]
+
+        # specify the number of trainable weights by the size of the readout matrix
+        self.trainable_weights = self.reservoir_layer.weights.size
 
         # built a history object to store detailed information about the training process
         history = dict()

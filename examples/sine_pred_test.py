@@ -73,9 +73,9 @@ from pyreco.models import RC
 from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
 
 model_rc = RC()
-model_rc.add(InputLayer(input_shape=(1,), fraction_input=0.5))
-model_rc.add(RandomReservoirLayer(nodes=100, density=0.1, activation='sigmoid', alpha=0.2))
-model_rc.add(ReadoutLayer(units=1, fraction_out=0.6))
+model_rc.add(InputLayer(input_shape=(1,1)))
+model_rc.add(RandomReservoirLayer(nodes=100, density=0.1, activation='sigmoid', leakage_rate=0.2, fraction_input=0.5))
+model_rc.add(ReadoutLayer(output_shape=(1,1), fraction_out=0.6))
 
 # model_rc.compile(optimizer='ridge', metrics=['mean_squared_error'])  # Compile the model
 model_rc.fit(X_train, y_train)#, epochs=500)              # Train the model for 1000 epochs
