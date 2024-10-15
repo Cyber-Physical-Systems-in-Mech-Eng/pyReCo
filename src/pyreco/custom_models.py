@@ -5,6 +5,9 @@ import os
 import sys
 from typing import Union
 import copy
+from skopt import gp_minimize
+from skopt.space import Real
+from skopt.utils import use_named_args
 
 from .remove_transients import TransientRemover
 from .layers import Layer, InputLayer, ReservoirLayer, ReadoutLayer
@@ -13,7 +16,7 @@ from .metrics import assign_metric
 from .utils_networks import gen_init_states, set_spec_rad, is_zero_col_and_row, remove_node, get_num_nodes, \
     compute_spec_rad
 from .metrics import assign_metric, available_metrics
-from .network_prop_extractor import NetworkQuantifier
+from .network_prop_extractor import NetworkQuantifier, NodePropExtractor
 
 
 def sample_random_nodes(total_nodes: int, fraction: float):
@@ -701,8 +704,7 @@ class CustomModel(ABC):
         if type(metrics) is str:  # make sure that we are working with lists of strings
             metrics = [metrics]
 
-        # self.metrics_available = ['mse', 'mae']
-        #
+        # self.metrics_available = ['mse', 'mae        #
         # eval_metrics = self.metrics + metrics  # combine from .compile and user specified
         # eval_metrics = list(set(eval_metrics))  # removes potential duplicates
 
@@ -765,6 +767,107 @@ class CustomModel(ABC):
         """
         # print the model to some figure file
         pass
+
+    def one_shot_pruning(self, X_train: np.ndarray, y_train: np.ndarray, 
+                         X_val: np.ndarray, y_val: np.ndarray, 
+                         loss_metric='mse', prune_percent=0.1, n_calls=50, 
+                         node_prop_extractor=None):
+        """
+        Perform one-shot pruning of the reservoir using Bayesian optimization.
+
+        Args:
+        X_train (np.ndarray): Training input data.
+        y_train (np.ndarray): Training target data.
+        X_val (np.ndarray): Validation input data.
+        y_val (np.ndarray): Validation target data.
+        loss_metric (str): Metric to use for evaluating model performance.
+        prune_percent (float): Percentage of nodes to prune.
+        n_calls (int): Number of iterations for Bayesian optimization.
+        node_prop_extractor (NodePropExtractor, optional): Object to extract node properties.
+
+        Returns:
+        dict: History of the pruning process.
+        """
+        if node_prop_extractor is None:
+            node_prop_extractor = NodePropExtractor()
+
+        loss_fun = assign_metric(loss_metric)
+
+        # Initial fit and score
+        self.fit(X_train, y_train)
+        init_score = loss_fun(y_val, self.predict(X_val))
+
+        # Extract node properties and set up optimization space
+        properties = node_prop_extractor.extract_properties(self.reservoir_layer.weights)
+        property_names = list(properties.keys())
+        space = [Real(0, 1, name=f'{prop}_weight') for prop in property_names]
+
+        best_score = float('inf')
+        best_model = None
+
+        @use_named_args(space)
+        def objective(**params):
+            nonlocal best_score, best_model
+            pruned_model = copy.deepcopy(self)
+            property_weights = [params[f'{prop}_weight'] for prop in property_names]
+            pruned_model._prune(prune_percent, property_weights, node_prop_extractor)
+            pruned_model.fit(X_train, y_train)
+            y_pred = pruned_model.predict(X_val)
+            score = loss_fun(y_val, y_pred)
+            
+            if score < best_score:
+                best_score = score
+                best_model = copy.deepcopy(pruned_model)
+            
+            return score
+
+        # Perform Bayesian optimization
+        result = gp_minimize(objective, space, n_calls=n_calls, random_state=42)
+
+        # Update the current model with the best pruned model
+        self.__dict__.update(best_model.__dict__)
+
+        history = {
+            'init_score': init_score,
+            'final_score': best_score,
+            'num_nodes': self.reservoir_layer.nodes,
+            'best_params': dict(zip(property_names, result.x)),
+        }
+
+        return history
+
+    def _prune(self, prune_percent, property_weights, node_prop_extractor):
+        """
+        Internal method to prune the reservoir based on node properties and weights.
+
+        Args:
+        prune_percent (float): Percentage of nodes to prune.
+        property_weights (list): Weights for each node property.
+        node_prop_extractor (NodePropExtractor): Object to extract node properties.
+        """
+        properties = node_prop_extractor.extract_properties(self.reservoir_layer.weights)
+        
+        # Calculate importance scores
+        importance = np.zeros(self.reservoir_layer.nodes)
+        for prop, weight in zip(properties.values(), property_weights):
+            importance += weight * np.array(list(prop.values()))
+        
+        # Determine which nodes to keep
+        n_keep = int(self.reservoir_layer.nodes * (1 - prune_percent))
+        keep_indices = np.argsort(importance)[-n_keep:]
+        
+        # Update reservoir weights
+        self.reservoir_layer.weights = self.reservoir_layer.weights[keep_indices][:, keep_indices]
+        self.reservoir_layer.initial_res_states = self.reservoir_layer.initial_res_states[keep_indices]
+        self.input_layer.weights = self.input_layer.weights[:, keep_indices]
+        if self.readout_layer.weights is not None:
+            self.readout_layer.weights = self.readout_layer.weights[keep_indices, :]
+        
+        # Update readout nodes
+        self.readout_layer.readout_nodes = [i for i, idx in enumerate(keep_indices) if idx in self.readout_layer.readout_nodes]
+        
+        # Update the number of nodes in the reservoir
+        self.reservoir_layer.nodes = n_keep
 
 
 class RC(CustomModel):  # the non-auto version

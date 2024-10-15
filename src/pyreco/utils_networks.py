@@ -144,13 +144,13 @@ def extract_density(adjacency_matrix):
 def extract_spectral_radius(adjacency_matrix):
     return np.max(np.abs(np.linalg.eigvals(adjacency_matrix)))
 
-def extract_in_degree(adjacency_matrix):
+def extract_in_degree_av(adjacency_matrix):
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     in_degrees = G.in_degree()
     avg_in_degree = np.mean(list(dict(in_degrees).values()))
     return avg_in_degree
 
-def extract_out_degree(adjacency_matrix):
+def extract_out_degree_av(adjacency_matrix):
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     out_degrees = G.out_degree()
     avg_out_degree = np.mean(list(dict(out_degrees).values()))
@@ -160,5 +160,28 @@ def extract_clustering_coefficient(adjacency_matrix):
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return nx.average_clustering(G)
 
-# Add more network property extraction functions as needed
+def extract_node_degree(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return dict(G.degree())
 
+def extract_node_in_degree(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return dict(G.in_degree())
+
+def extract_node_out_degree(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return dict(G.out_degree())
+
+def extract_node_clustering_coefficient(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return nx.clustering(G)
+
+def extract_node_betweenness_centrality(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return nx.betweenness_centrality(G)
+
+def extract_node_pagerank(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return nx.pagerank(G)
+
+# Add more network property extraction functions as needed
