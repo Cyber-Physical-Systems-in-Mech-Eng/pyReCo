@@ -21,13 +21,8 @@ def sample_random_nodes(total_nodes: int, fraction: float):
     return np.random.choice(total_nodes, size=int(total_nodes * fraction), replace=False)
 
 
-def discard_transients_indices(n_batches, n_timesteps, transients):  #by juan
-    indices_to_remove = []
-    for i in range(n_batches * n_timesteps):
-        t = i % n_timesteps  # Current timestep within the batch
-        if t < transients:
-            indices_to_remove.append(i)
-    return indices_to_remove
+def discard_transients_indices(n_batches, n_timesteps, transients):
+    return [i for i in range(n_batches * n_timesteps) if i % n_timesteps < transients]
 
 
 from matplotlib import pyplot as plt
