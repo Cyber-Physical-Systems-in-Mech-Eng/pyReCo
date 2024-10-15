@@ -17,11 +17,31 @@ from .network_prop_extractor import NetworkQuantifier
 
 
 def sample_random_nodes(total_nodes: int, fraction: float):
-    # select a subset of randomly chosen nodes
+    """
+    Select a subset of randomly chosen nodes.
+
+    Args:
+    total_nodes (int): Total number of nodes.
+    fraction (float): Fraction of nodes to select.
+
+    Returns:
+    np.ndarray: Array of randomly selected node indices.
+    """
     return np.random.choice(total_nodes, size=int(total_nodes * fraction), replace=False)
 
 
 def discard_transients_indices(n_batches, n_timesteps, transients):
+    """
+    Generate indices of transient timesteps to be discarded across multiple batches.
+
+    Args:
+    n_batches (int): Number of batches.
+    n_timesteps (int): Number of timesteps in each batch.
+    transients (int): Number of initial timesteps to be considered as transients.
+
+    Returns:
+    list: A list of indices to be removed, corresponding to transient timesteps.
+    """
     return [i for i in range(n_batches * n_timesteps) if i % n_timesteps < transients]
 
 
@@ -41,26 +61,31 @@ from matplotlib import pyplot as plt
 
 
 class CustomModel(ABC):
+    """
+    Abstract base class for custom reservoir computing models.
+    """
 
     def __init__(self):
-
-        # the relevant layers
+        """
+        Initialize the CustomModel with empty layers and default values.
+        """
+        # Initialize layers
         self.input_layer: InputLayer
         self.reservoir_layer: ReservoirLayer
         self.readout_layer: ReadoutLayer
 
         self.metrics = []
-
-        # the method for finding the readout weights. Default is Ridge Regression
-        self.optimizer: Optimizer  # = assign_optimizer('ridge')
+        self.optimizer: Optimizer
         self.discard_transients = 0
-
-        self.trainable_weights: int  # number of trainable parameters
+        self.trainable_weights: int
 
     def add(self, layer: Layer):
-        # add some layer(s) to the model. Will not do more at this point in time
+        """
+        Add a layer to the model.
 
-        # check for layer type
+        Args:
+        layer (Layer): Layer to be added to the model.
+        """
         if type(layer) == InputLayer:
             self.input_layer = layer
         elif issubclass(type(layer), ReservoirLayer):
@@ -69,16 +94,25 @@ class CustomModel(ABC):
             self.readout_layer = layer
 
     def _set_readout_nodes(self, nodes: Union[list, np.ndarray] = None):
-        # fix the nodes that will be linked to the output
+        """
+        Set the nodes that will be linked to the output.
+
+        Args:
+        nodes (Union[list, np.ndarray], optional): Specific nodes to use for readout. If None, randomly sample nodes.
+        """
         if nodes is None:
             nodes = sample_random_nodes(total_nodes=self.reservoir_layer.nodes,
                                         fraction=self.readout_layer.fraction_out)
-
         self.readout_layer.readout_nodes = nodes
 
     def _connect_input_to_reservoir(self, nodes: Union[list, np.ndarray] = None):
-        # wire input layer with reservoir layer. Creates a random matrix of shape nodes x n_states, i.e. number of
-        # reservoir nodes x state dimension of input
+        """
+        Wire input layer with reservoir layer. Creates a random matrix of shape nodes x n_states, i.e. number of
+        reservoir nodes x state dimension of input.
+
+        Args:
+        nodes (Union[list, np.ndarray], optional): Specific nodes to connect to the input. If None, randomly sample nodes.
+        """
         input_size = self.input_layer.n_states
         n = self.reservoir_layer.nodes
 
@@ -96,11 +130,21 @@ class CustomModel(ABC):
         self.input_layer.weights = self.input_layer.weights * mask
 
     def _set_optimizer(self, optimizer: str):
-        # maps string (optimizer name) to an actual Optimizer object instance
+        """
+        Set the optimizer that will find the readout weights.
+
+        Args:
+        optimizer (str): Name of the optimizer.
+        """
         self.optimizer = assign_optimizer(optimizer)
 
     def _set_metrics(self, metrics: Union[list, str]):
-        # assigns names of metrics to a list of strings in the model instance
+        """
+        Set the metrics for evaluation.
+
+        Args:
+        metrics (Union[list, str]): List of metric names or a single metric name.
+        """
         if type(metrics) == str:  # only single metric given
             self.metrics = [metrics]
         else:
@@ -110,7 +154,13 @@ class CustomModel(ABC):
             self.metrics_fun.append(assign_metric(metric))
 
     def _set_init_states(self, init_states=None, method=None):
+        """
+        Set the initial states of the reservoir layer.
 
+        Args:
+        init_states (np.ndarray, optional): Array of initial states. If None, sample initial states using the specified method.
+        method (str, optional): Method for sampling initial states.
+        """
         if init_states is not None:
             if init_states.shape[0] != self.reservoir_layer.nodes:
                 raise (ValueError('initial states not matching the number of reservoir nodes!'))
@@ -122,7 +172,14 @@ class CustomModel(ABC):
             raise (ValueError('provide either an array of initial states or a method for sampling those'))
 
     def compile(self, optimizer: str = 'ridge', metrics: list = ['mse'], discard_transients: int = 0):
+        """
+        Configure the model for training.
 
+        Args:
+        optimizer (str): Name of the optimizer.
+        metrics (list): List of metric names.
+        discard_transients (int): Number of initial transient timesteps to discard.
+        """
         # set the metrics (like in TensorFlow)
         self._set_metrics(metrics)
 
@@ -147,6 +204,16 @@ class CustomModel(ABC):
         self.discard_transients = int(discard_transients)  # will not remove transients if 0
 
     def compute_reservoir_state(self, X: np.ndarray, seed=None) -> np.ndarray:
+        """
+        Compute reservoir states for the given input data.
+
+        Args:
+        X (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
+        seed (int, optional): Random seed for reproducibility.
+
+        Returns:
+        np.ndarray: Reservoir states of shape [(n_batch * n_timesteps), N]
+        """
         # expects an input of shape [n_batch, n_timesteps, n_states]
         # returns the reservoir states of shape [(n_batch * n_timesteps), N]
 
@@ -190,8 +257,19 @@ class CustomModel(ABC):
         return R_all  # all reservoir states: [n_nodes, (n_batch * n_time)]
 
     def fit(self, X: np.ndarray, y: np.ndarray, one_shot: bool = False, n_init: int = 1, store_states: bool = False):
-        # val_data: dict = None):
+        """
+        Train the reservoir computer on the given data.
 
+        Args:
+        X (np.ndarray): Input data of shape [n_batch, n_time_in, n_states_in]
+        y (np.ndarray): Target data of shape [n_batch, n_time_out, n_states_out]
+        one_shot (bool): If True, don't re-initialize reservoir between samples.
+        n_init (int): Number of times to sample initial reservoir states.
+        store_states (bool): If True, store full time trace of reservoir states.
+
+        Returns:
+        dict: History of the training process.
+        """
         # expects data in particular format that is reasonable for univariate/multivariate time series data
         # - X input data of shape [n_batch, n_time_in, n_states_in]
         # - y target data of shape [n_batch, n_time_out, n_states_out]
@@ -537,6 +615,16 @@ class CustomModel(ABC):
 
     # @abstractmethod
     def predict(self, X: np.ndarray, one_shot: bool = False) -> np.ndarray:
+        """
+        Make predictions for given input (single-step prediction).
+
+        Args:
+        X (np.ndarray): Input data of shape [n_batch, n_timestep, n_states]
+        one_shot (bool): If True, don't re-initialize reservoir between samples.
+
+        Returns:
+        np.ndarray: Predictions of shape [n_batch, n_timestep, n_states]
+        """
         # makes prediction for given input (single-step prediction)
         # expects inputs of shape [n_batch, n_timestep, n_states]
         # returns predictions in shape of [n_batch, n_timestep, n_states]
@@ -591,6 +679,17 @@ class CustomModel(ABC):
     # @abstractmethod
     def evaluate(self, X: np.ndarray, y: np.ndarray,
                  metrics: Union[str, list, None] = None) -> tuple:
+        """
+        Evaluate metrics on predictions made for input data.
+
+        Args:
+        X (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
+        y (np.ndarray): Target data of shape [n_batch, n_timesteps_out, n_states_out]
+        metrics (Union[str, list, None], optional): List of metric names or a single metric name. If None, use metrics from .compile()
+
+        Returns:
+        tuple: Metric values
+        """
         # evaluate metrics on predictions made for input data
         # expects: X of shape [n_batch, n_timesteps, n_states]
         # expects: y of shape [n_batch, n_timesteps_out, n_states_out]
@@ -630,6 +729,15 @@ class CustomModel(ABC):
 
     # @abstractmethod
     def get_params(self, deep=True):
+        """
+        Get parameters for scikit-learn compatibility.
+
+        Args:
+        deep (bool): If True, return a deep copy of parameters.
+
+        Returns:
+        dict: Dictionary of model parameters.
+        """
         # needed for scikit-learn compatibility
         return {
             'input_layer': self.input_layer,
@@ -639,31 +747,60 @@ class CustomModel(ABC):
 
     # @abstractmethod
     def save(self, path: str):
+        """
+        Store the model to disk.
+
+        Args:
+        path (str): Path to save the model.
+        """
         # store the model to disk
         pass
 
     def plot(self, path: str):
+        """
+        Print the model to some figure file.
+
+        Args:
+        path (str): Path to save the figure.
+        """
         # print the model to some figure file
         pass
 
 
 class RC(CustomModel):  # the non-auto version
+    """
+    Non-autonomous version of the reservoir computer.
+    """
     def __init__(self):
         # at the moment we do not have any arguments to pass
         super().__init__()
 
 
 class AutoRC(CustomModel):
-
+    """
+    Autonomous version of the reservoir computer.
+    """
     def __init__(self):
         pass
 
     def predict_ar(self, X: np.ndarray, n_steps: int = 10):
-        # auto-regressive prediction -> time series forecasting
+        """
+        Perform auto-regressive prediction (time series forecasting).
+
+        Args:
+        X (np.ndarray): Initial input data.
+        n_steps (int): Number of steps to predict into the future.
+
+        Returns:
+        np.ndarray: Predicted future states.
+        """
         pass
 
 
 class HybridRC(CustomModel):
+    """
+    Hybrid version of the reservoir computer.
+    """
     def __init__(self):
         pass
 
