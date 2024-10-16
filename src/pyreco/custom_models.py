@@ -416,9 +416,6 @@ class CustomModel(ABC):
         # Ensure frac_rem_nodes is within the valid range [0, 1]
         frac_rem_nodes = max(0.0, min(1.0, frac_rem_nodes))
 
-        # Extract data set shape
-        n_batch, n_time, n_states_out = X.shape[0], X.shape[1], y.shape[-1]
-
         # Get a callable loss function for performance-informed node removal
         loss_fun = assign_metric(loss_metric)
 
@@ -483,24 +480,20 @@ class CustomModel(ABC):
                 # Create a deep copy of the current model
                 temp_model = copy.deepcopy(self)
                 
-                if not is_zero_col_and_row(temp_model.reservoir_layer.weights, del_idx):
-                    # Remove node from the temporary model
-                    temp_model.remove_node(del_idx)
+                # Remove node from the temporary model
+                temp_model.remove_node(del_idx)
 
-                    # Train the temporary model
-                    temp_model.fit(X, y)
-                    
-                    # Evaluate the temporary model
-                    temp_score = loss_fun(y, temp_model.predict(X=X))
-                    score_per_node[i].append(temp_score)
+                # Train the temporary model
+                temp_model.fit(X, y)
+                
+                # Evaluate the temporary model
+                temp_score = loss_fun(y, temp_model.predict(X=X))
+                score_per_node[i].append(temp_score)
 
-                    print(
-                        f'Pruning node {del_idx} / {current_num_nodes}: loss = {temp_score:.5f}, original loss = {init_score:.5f}')
+                print(f'Pruning node {del_idx} / {current_num_nodes}: loss = {temp_score:.5f}, original loss = {init_score:.5f}')
 
-                    max_loss = max(max_loss, temp_score)
-                else:
-                    print(f'Node {del_idx} is not existent in the adjacency matrix')
-                    score_per_node[i].append(None)
+                max_loss = max(max_loss, temp_score)
+                
 
             # Find nodes which affect the loss the least
             max_loss = max_loss + 1
