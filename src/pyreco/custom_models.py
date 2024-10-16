@@ -405,7 +405,7 @@ class CustomModel(ABC):
                 y (np.ndarray): Target data of shape [n_batch, n_time_out, n_states_out]
                 loss_metric (str): Metric for performance-informed pruning. Must be a member of existing metrics in pyReCo.
                 max_perf_drop (float): Maximum allowed performance drop before stopping pruning. Default: 0.1 (10%)
-                frac_rem_nodes (float): Fraction of nodes to attempt to remove in each iteration. Default: 0.25 (25%)
+                frac_rem_nodes (float): Fraction of nodes to attempt to remove in each iteration. Default: 0.01 (1%)
                 patience (int): Number of consecutive performance decreases allowed before early stopping
                 prop_extractor (object): Object to extract network properties during pruning
 
@@ -432,23 +432,8 @@ class CustomModel(ABC):
         if patience is None:
             patience = num_nodes
 
-        def train_reservoir(X, y):
-            """
-                Train the reservoir on given input and target data.
-                """
-            reservoir_states = self.compute_reservoir_state(X)
-
-            #Initialize A as a zero array with the same shape as reservoir_states
-            # Assign values only to columns corresponding to readout nodes
-            # by juan
-            A = np.zeros_like(reservoir_states)
-            A[:, self.readout_layer.readout_nodes] = reservoir_states[:, self.readout_layer.readout_nodes]
-
-            # Solve for readout weights
-            self.readout_layer.weights = self.optimizer.solve(A=A, b=y.reshape(n_batch * n_time, n_states_out))
-
         # Compute initial score of full network on training set
-        train_reservoir(X, y)
+        self.fit(X, y)
         init_score = loss_fun(y, self.predict(X=X))
 
         def keep_pruning(init_score, current_score, max_perf_drop):
@@ -460,16 +445,6 @@ class CustomModel(ABC):
             else:
                 print('Pruning stopping criterion reached.')
                 return False
-
-        def delete_and_adjust(arr, number_to_delete):
-            """
-                Delete a number from an array and adjust remaining values.
-                """
-            mask = arr != number_to_delete
-            result = arr[mask]
-            result[result > number_to_delete] -= 1
-            return result
-
 
         # Initialize property extractor if not provided. TODO needs to be improved
         if prop_extractor is None:
@@ -510,15 +485,7 @@ class CustomModel(ABC):
                 
                 if not is_zero_col_and_row(temp_model.reservoir_layer.weights, del_idx):
                     # Remove node from the temporary model
-                    temp_model.reservoir_layer.weights = np.delete(temp_model.reservoir_layer.weights, del_idx, axis=0)
-                    temp_model.reservoir_layer.weights = np.delete(temp_model.reservoir_layer.weights, del_idx, axis=1)
-                    temp_model.reservoir_layer.initial_res_states = np.delete(temp_model.reservoir_layer.initial_res_states, del_idx, axis=0)
-                    temp_model.input_layer.weights = np.delete(temp_model.input_layer.weights, del_idx, axis=1)
-                    temp_model.readout_layer.weights = np.delete(temp_model.readout_layer.weights, del_idx, axis=0)
-
-                    # Update node counts and readout nodes
-                    temp_model.reservoir_layer.nodes = temp_model.reservoir_layer.weights.shape[0]
-                    temp_model.readout_layer.readout_nodes = delete_and_adjust(temp_model.readout_layer.readout_nodes, del_idx)
+                    temp_model.remove_node(del_idx)
 
                     # Train the temporary model
                     temp_model.fit(X, y)
@@ -545,18 +512,10 @@ class CustomModel(ABC):
             for idx_del_node in nodes_to_remove:
                 if keep_pruning(init_score, current_score, max_perf_drop):
                     # Remove node from all layers
-                    self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, idx_del_node, axis=0)
-                    self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, idx_del_node, axis=1)
-                    self.reservoir_layer.initial_res_states = np.delete(self.reservoir_layer.initial_res_states, idx_del_node, axis=0)
-                    self.input_layer.weights = np.delete(self.input_layer.weights, idx_del_node, axis=1)
-                    self.readout_layer.weights = np.delete(self.readout_layer.weights, idx_del_node, axis=0)
-
-                    # Update node counts and readout nodes
-                    self.reservoir_layer.nodes = self.reservoir_layer.weights.shape[0]
-                    self.readout_layer.readout_nodes = delete_and_adjust(self.readout_layer.readout_nodes, idx_del_node)
+                    self.remove_node(idx_del_node)
 
                     # Retrain and evaluate
-                    train_reservoir(X, y)
+                    self.fit(X, y)
                     current_score = loss_fun(y, self.predict(X=X))
                     rel_score = (current_score - init_score) / init_score * 100
 
@@ -771,7 +730,7 @@ class CustomModel(ABC):
         self.fit(X_train, y_train)
         init_score = loss_fun(y_val, self.predict(X_val))
 
-        # Extract node properties and set up optimization space
+        # Extract        
         properties = node_prop_extractor.extract_properties(self.reservoir_layer.weights)
         property_names = list(properties.keys())
         space = [Real(0, 1, name=f'{prop}_weight') for prop in property_names]
@@ -842,6 +801,34 @@ class CustomModel(ABC):
         
         # Update the number of nodes in the reservoir
         self.reservoir_layer.nodes = n_keep
+
+    def remove_node(self, node_index):
+        """
+        Remove a node from all relevant layers of the reservoir computer.
+
+        Args:
+        node_index (int): Index of the node to be removed.
+        """
+        # Remove node from reservoir layer weights
+        self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, node_index, axis=0)
+        self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, node_index, axis=1)
+
+        # Remove node from initial reservoir states
+        self.reservoir_layer.initial_res_states = np.delete(self.reservoir_layer.initial_res_states, node_index, axis=0)
+
+        # Remove node from input layer weights
+        self.input_layer.weights = np.delete(self.input_layer.weights, node_index, axis=1)
+
+        # Remove node from readout layer weights
+        self.readout_layer.weights = np.delete(self.readout_layer.weights, node_index, axis=0)
+
+        # Update node count
+        self.reservoir_layer.nodes = self.reservoir_layer.weights.shape[0]
+
+        # Update readout nodes
+        mask = self.readout_layer.readout_nodes != node_index
+        self.readout_layer.readout_nodes = self.readout_layer.readout_nodes[mask]
+        self.readout_layer.readout_nodes[self.readout_layer.readout_nodes > node_index] -= 1
 
 
 class RC(CustomModel):  # the non-auto version
