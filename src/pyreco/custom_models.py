@@ -393,7 +393,7 @@ class CustomModel(ABC):
         history = None
         return history
 
-    def fit_prune(self, X: np.ndarray, y: np.ndarray, loss_metric='mse', max_perf_drop=0.1, frac_rem_nodes=0.25,
+    def fit_prune(self, X: np.ndarray, y: np.ndarray, loss_metric='mse', max_perf_drop=0.1, frac_rem_nodes=0.01,
                   patience=None, prop_extractor=None):
         """
             Build a reservoir computer by performance-informed pruning of the initial reservoir network.
@@ -470,15 +470,6 @@ class CustomModel(ABC):
             result[result > number_to_delete] -= 1
             return result
 
-        def adjust_index(index, deleted_indices):  #by juan: adjust the index of the node to be removed.
-            #needs some polishing, there is some overlap with delete_and_adjust
-            """
-                Adjust an index based on previously deleted indices.
-                """
-            for del_idx in deleted_indices:
-                if index > del_idx:
-                    index -= 1
-            return index
 
         # Initialize property extractor if not provided. TODO needs to be improved
         if prop_extractor is None:
@@ -497,7 +488,7 @@ class CustomModel(ABC):
         }
 
         # Extract initial network properties
-        initial_props = prop_extractor.extract(self.reservoir_layer.weights)
+        initial_props = prop_extractor.extract_properties(self.reservoir_layer.weights)
         history['network_properties'].append(initial_props)
 
         consecutive_increases = 0
@@ -513,44 +504,36 @@ class CustomModel(ABC):
             score_per_node.append([])
             max_loss = init_score
 
-            # Store original weights and states for resetting after temporary removals
-            orig_weights = copy.deepcopy(self.reservoir_layer.weights)
-            orig_initial_res_states = copy.deepcopy(self.reservoir_layer.initial_res_states)
-
-            # Try removing each node and evaluate performance
             for del_idx in range(current_num_nodes):
-                if not is_zero_col_and_row(self.reservoir_layer.weights, del_idx):
-                    # Temporarily remove node and evaluate performance
-                    self.reservoir_layer.weights = remove_node(self.reservoir_layer.weights, del_idx)
-                    self.reservoir_layer.initial_res_states = remove_node(self.reservoir_layer.initial_res_states,
-                                                                          del_idx)
+                # Create a deep copy of the current model
+                temp_model = copy.deepcopy(self)
+                
+                if not is_zero_col_and_row(temp_model.reservoir_layer.weights, del_idx):
+                    # Remove node from the temporary model
+                    temp_model.reservoir_layer.weights = np.delete(temp_model.reservoir_layer.weights, del_idx, axis=0)
+                    temp_model.reservoir_layer.weights = np.delete(temp_model.reservoir_layer.weights, del_idx, axis=1)
+                    temp_model.reservoir_layer.initial_res_states = np.delete(temp_model.reservoir_layer.initial_res_states, del_idx, axis=0)
+                    temp_model.input_layer.weights = np.delete(temp_model.input_layer.weights, del_idx, axis=1)
+                    temp_model.readout_layer.weights = np.delete(temp_model.readout_layer.weights, del_idx, axis=0)
 
-                    # TODO: remove link to input layer of this node
+                    # Update node counts and readout nodes
+                    temp_model.reservoir_layer.nodes = temp_model.reservoir_layer.weights.shape[0]
+                    temp_model.readout_layer.readout_nodes = delete_and_adjust(temp_model.readout_layer.readout_nodes, del_idx)
 
-                    # 2.b: (TODO Manish) remove potentially isolated and  non-input/output-connected communities)
-
-                    # 2.c: re-scale to desired spectral radius. TODO: we have issues, sometimes the radius gets down
-                    #  to zero!
-                    # self.reservoir_layer.weights = set_spec_rad(self.reservoir_layer.weights,
-                    #                                             spec_radius=self.reservoir_layer.spec_rad)
-
-                    # 2.d: train, predict, evaluate, save score
-
-                    train_reservoir(X, y)
-                    score_per_node[i].append(loss_fun(y, self.predict(X=X)))
+                    # Train the temporary model
+                    temp_model.fit(X, y)
+                    
+                    # Evaluate the temporary model
+                    temp_score = loss_fun(y, temp_model.predict(X=X))
+                    score_per_node[i].append(temp_score)
 
                     print(
-                        f'Pruning node {del_idx} / {current_num_nodes}: loss = {score_per_node[i][-1]:.5f}, original loss = {init_score:.5f}')
+                        f'Pruning node {del_idx} / {current_num_nodes}: loss = {temp_score:.5f}, original loss = {init_score:.5f}')
 
-                    max_loss = np.max([max_loss, score_per_node[i][-1]])
+                    max_loss = max(max_loss, temp_score)
                 else:
                     print(f'Node {del_idx} is not existent in the adjacency matrix')
                     score_per_node[i].append(None)
-
-                # Reset original values
-                self.reservoir_layer.weights[:, del_idx] = orig_weights[:, del_idx]
-                self.reservoir_layer.weights[del_idx, :] = orig_weights[del_idx, :]
-                self.reservoir_layer.initial_res_states[del_idx] = orig_initial_res_states[del_idx]
 
             # Find nodes which affect the loss the least
             max_loss = max_loss + 1
@@ -559,34 +542,25 @@ class CustomModel(ABC):
             nodes_to_remove = sorted_indices[:num_nodes_to_try]
 
             # Permanently remove selected nodes
-            deleted_indices = []
             for idx_del_node in nodes_to_remove:
                 if keep_pruning(init_score, current_score, max_perf_drop):
-                    adjusted_idx_del_node = adjust_index(idx_del_node, deleted_indices)
-                    deleted_indices.append(adjusted_idx_del_node)
+                    # Remove node from all layers
+                    self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, idx_del_node, axis=0)
+                    self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, idx_del_node, axis=1)
+                    self.reservoir_layer.initial_res_states = np.delete(self.reservoir_layer.initial_res_states, idx_del_node, axis=0)
+                    self.input_layer.weights = np.delete(self.input_layer.weights, idx_del_node, axis=1)
+                    self.readout_layer.weights = np.delete(self.readout_layer.weights, idx_del_node, axis=0)
 
-                    # Remove node from all relevant layers by juan
-                    #suggestion: make a function or method (there is one already implemented, but sets the node to zero instead of removing it, this  make  the desity to go linearly down) to remove the node from all layers.
-                    self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, adjusted_idx_del_node,
-                                                             axis=0)
-                    self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, adjusted_idx_del_node,
-                                                             axis=1)
-                    self.reservoir_layer.initial_res_states = np.delete(self.reservoir_layer.initial_res_states,
-                                                                        adjusted_idx_del_node, axis=0)
-                    self.input_layer.weights = np.delete(self.input_layer.weights, adjusted_idx_del_node, axis=1)
-                    self.readout_layer.weights = np.delete(self.readout_layer.weights, adjusted_idx_del_node, axis=0)
-
-                    # Update node counts and readout nodes by juan
+                    # Update node counts and readout nodes
                     self.reservoir_layer.nodes = self.reservoir_layer.weights.shape[0]
-                    self.readout_layer.readout_nodes = delete_and_adjust(self.readout_layer.readout_nodes,
-                                                                         adjusted_idx_del_node)
+                    self.readout_layer.readout_nodes = delete_and_adjust(self.readout_layer.readout_nodes, idx_del_node)
 
                     # Retrain and evaluate
                     train_reservoir(X, y)
                     current_score = loss_fun(y, self.predict(X=X))
                     rel_score = (current_score - init_score) / init_score * 100
 
-                    current_num_nodes = get_num_nodes(self.reservoir_layer.weights)
+                    current_num_nodes = self.reservoir_layer.nodes
 
                     print(
                         f'Removing node {idx_del_node}: new loss = {current_score:.5f}, original loss = {init_score:.5f} ({rel_score:+.2f} %); {current_num_nodes} nodes remain')
@@ -602,7 +576,7 @@ class CustomModel(ABC):
                         best_score = current_score
 
                     # Extract and store network properties
-                    network_props = prop_extractor.extract(self.reservoir_layer.weights)
+                    network_props = prop_extractor.extract_properties(self.reservoir_layer.weights)
                     history['network_properties'].append(network_props)
 
                     # Update pruning history
