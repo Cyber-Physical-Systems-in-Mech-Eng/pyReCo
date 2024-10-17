@@ -8,6 +8,8 @@ import copy
 from skopt import gp_minimize
 from skopt.space import Real
 from skopt.utils import use_named_args
+import multiprocessing
+from functools import partial
 
 from .remove_transients import TransientRemover
 from .layers import Layer, InputLayer, ReservoirLayer, ReadoutLayer
@@ -393,6 +395,23 @@ class CustomModel(ABC):
         history = None
         return history
 
+    def evaluate_node_removal(self, X, y, loss_fun, init_score, del_idx, current_num_nodes):
+        # Create a deep copy of the current model
+        temp_model = copy.deepcopy(self)
+        
+        # Remove node from the temporary model
+        temp_model.remove_node(del_idx)
+
+        # Train the temporary model
+        temp_model.fit(X, y)
+        
+        # Evaluate the temporary model
+        temp_score = loss_fun(y, temp_model.predict(X=X))
+
+        print(f'Pruning node {del_idx} / {current_num_nodes}: loss = {temp_score:.5f}, original loss = {init_score:.5f}')
+
+        return temp_score
+
     def fit_prune(self, X: np.ndarray, y: np.ndarray, loss_metric='mse', max_perf_drop=0.1, frac_rem_nodes=0.01,
                   patience=None, prop_extractor=None):
         """
@@ -403,7 +422,7 @@ class CustomModel(ABC):
             Args:
                 X (np.ndarray): Input data of shape [n_batch, n_time_in, n_states_in]
                 y (np.ndarray): Target data of shape [n_batch, n_time_out, n_states_out]
-                loss_metric (str): Metric for performance-informed pruning. Must be a member of existing metrics in pyReCo.
+                loss_metric (str): Metric for performance-informed node removal. Must be a member of existing metrics in pyReCo.
                 max_perf_drop (float): Maximum allowed performance drop before stopping pruning. Default: 0.1 (10%)
                 frac_rem_nodes (float): Fraction of nodes to attempt to remove in each iteration. Default: 0.01 (1%)
                 patience (int): Number of consecutive performance decreases allowed before early stopping
@@ -476,24 +495,16 @@ class CustomModel(ABC):
             score_per_node.append([])
             max_loss = init_score
 
-            for del_idx in range(current_num_nodes):
-                # Create a deep copy of the current model
-                temp_model = copy.deepcopy(self)
-                
-                # Remove node from the temporary model
-                temp_model.remove_node(del_idx)
+            # Prepare the partial function for multiprocessing
+            evaluate_func = partial(self.evaluate_node_removal, X, y, loss_fun, init_score, current_num_nodes=current_num_nodes)
 
-                # Train the temporary model
-                temp_model.fit(X, y)
-                
-                # Evaluate the temporary model
-                temp_score = loss_fun(y, temp_model.predict(X=X))
-                score_per_node[i].append(temp_score)
+            # Use multiprocessing to evaluate node removals in parallel
+            with multiprocessing.Pool() as pool:
+                results = pool.map(evaluate_func, range(current_num_nodes))
 
-                print(f'Pruning node {del_idx} / {current_num_nodes}: loss = {temp_score:.5f}, original loss = {init_score:.5f}')
-
-                max_loss = max(max_loss, temp_score)
-                
+            # Process the results
+            score_per_node[i] = results
+            max_loss = max(max_loss, max(results))
 
             # Find nodes which affect the loss the least
             max_loss = max_loss + 1
