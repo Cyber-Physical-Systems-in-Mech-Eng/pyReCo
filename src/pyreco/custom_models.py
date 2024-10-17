@@ -12,7 +12,7 @@ import multiprocessing
 from functools import partial
 
 from .remove_transients import TransientRemover
-from .layers import Layer, InputLayer, ReservoirLayer, ReadoutLayer
+from .layers import Layer, InputLayer, ReservoirLayer, ReadoutLayer, RandomReservoirLayer
 from .optimizers import Optimizer, assign_optimizer
 from .metrics import assign_metric
 from .utils_networks import gen_init_states, set_spec_rad, is_zero_col_and_row, remove_node, get_num_nodes, \
@@ -64,6 +64,16 @@ from matplotlib import pyplot as plt
 # - model.evaluate(X, y)
 # - model.save(path)
 
+
+from skopt import gp_minimize
+from skopt.space import Real, Integer, Categorical
+from skopt.utils import use_named_args
+from abc import ABC
+import numpy as np
+import copy
+import multiprocessing
+from functools import partial
+from typing import Union
 
 class CustomModel(ABC):
     """
@@ -745,12 +755,11 @@ class CustomModel(ABC):
         @use_named_args(space)
         def objective(**params):
             nonlocal best_score, best_model
-            pruned_model = copy.deepcopy(self)
-            property_weights = [params[f'{prop}_weight'] for prop in property_names]
+            pruned_model =            property_weights = [params[f'{prop}_weight'] for prop in property_names]
             pruned_model._prune(prune_percent, property_weights, node_prop_extractor)
             pruned_model.fit(X_train, y_train)
             y_pred = pruned_model.predict(X_val)
-            score = loss_fun(y_val, y_pred)
+            score = loss_fun(y_val, y_pred) 
             
             if score < best_score:
                 best_score = score
@@ -833,6 +842,58 @@ class CustomModel(ABC):
         mask = self.readout_layer.readout_nodes != node_index
         self.readout_layer.readout_nodes = self.readout_layer.readout_nodes[mask]
         self.readout_layer.readout_nodes[self.readout_layer.readout_nodes > node_index] -= 1
+
+    def tune_hyperparameters(self, X_train, y_train, X_val, y_val, n_calls=50):
+        """
+        Tune hyperparameters using Bayesian optimization.
+        """
+        space = [
+            Integer(99, 100, name='nodes'),
+            Real(0.1, 1.0, name='spec_rad'),
+            Real(0.1, 1.0, name='leakage_rate'),
+            Real(0.1, 1.0, name='fraction_input'),
+            Real(0.1, 1.0, name='fraction_out'),
+        ]
+
+        @use_named_args(space)
+        def objective(**params):
+            # Create a new model with the suggested hyperparameters
+            model = RC()
+            model.add(InputLayer(input_shape=(X_train.shape[1], X_train.shape[2])))
+            model.add(RandomReservoirLayer(nodes=params['nodes'], 
+                                    spec_rad=params['spec_rad'], 
+                                    leakage_rate=params['leakage_rate'], 
+                                    fraction_input=params['fraction_input']))
+            model.add(ReadoutLayer(output_shape=(y_train.shape[1], y_train.shape[2]), fraction_out=params['fraction_out']))
+            
+            # Compile and fit the model
+            model.compile( metrics=['mse'])
+            model.fit(X_train, y_train)
+            
+            # Evaluate on validation set
+            val_score = model.evaluate(X_val, y_val)[0]  # Assuming MSE is the first metric
+            return val_score
+
+        result = gp_minimize(objective, space, n_calls=n_calls, random_state=42)
+
+        # Set the best hyperparameters to the current model
+        best_params = dict(zip([dim.name for dim in space], result.x))
+        
+        # Recreate the model with the best hyperparameters
+        self.__init__()  # Reset the model
+        self.add(InputLayer(input_shape=(X_train.shape[1], X_train.shape[2])))
+        self.add(RandomReservoirLayer(nodes=best_params['nodes'], 
+                                spec_rad=best_params['spec_rad'], 
+                                leakage_rate=best_params['leakage_rate'], 
+                                fraction_input=best_params['fraction_input']))
+        self.add(ReadoutLayer(output_shape=(y_train.shape[1], y_train.shape[2]), fraction_out=best_params['fraction_out']))
+        
+        # Compile and fit the model with the best hyperparameters
+        self.compile( metrics=['mse'])
+        self.fit(X_train, y_train)
+
+        return best_params, result.fun
+
 
 
 class RC(CustomModel):  # the non-auto version
