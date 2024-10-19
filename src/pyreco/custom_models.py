@@ -422,7 +422,7 @@ class CustomModel(ABC):
 
         return temp_score
 
-    def fit_prune(self, X: np.ndarray, y: np.ndarray, loss_metric='mse', max_perf_drop=0.1, frac_rem_nodes=0.01,
+    def fit_prune(self, X: np.ndarray, y: np.ndarray, loss_metric='mse', max_perf_drop=0.1, frac_rem_nodes=0.20,
                   patience=None, prop_extractor=None):
         """
             Build a reservoir computer by performance-informed pruning of the initial reservoir network.
@@ -496,7 +496,7 @@ class CustomModel(ABC):
         best_score = init_score
 
         # Main pruning loop
-        while keep_pruning(init_score, current_score, max_perf_drop) and (i < num_nodes):
+        while i < num_nodes:
             print(f'Pruning iteration {i}')
 
             # Calculate number of nodes to try removing this iteration
@@ -522,47 +522,47 @@ class CustomModel(ABC):
             sorted_indices = np.argsort(score_per_node[i])
             nodes_to_remove = sorted_indices[:num_nodes_to_try]
 
-            # Permanently remove selected nodes
-            for idx_del_node in nodes_to_remove:
-                if keep_pruning(init_score, current_score, max_perf_drop):
+            
+            if keep_pruning(init_score, current_score, max_perf_drop):
                     # Remove node from all layers
-                    self.remove_node(idx_del_node)
+                self.remove_node(nodes_to_remove)
 
                     # Retrain and evaluate
-                    self.fit(X, y)
-                    current_score = loss_fun(y, self.predict(X=X))
-                    rel_score = (current_score - init_score) / init_score * 100
+                self.fit(X, y)
 
-                    current_num_nodes = self.reservoir_layer.nodes
+                current_score = loss_fun(y, self.predict(X=X))
+                rel_score = (current_score - init_score) / init_score * 100
 
-                    print(
-                        f'Removing node {idx_del_node}: new loss = {current_score:.5f}, original loss = {init_score:.5f} ({rel_score:+.2f} %); {current_num_nodes} nodes remain')
+                current_num_nodes = self.reservoir_layer.nodes
+
+                print(
+                    f'Removing node {nodes_to_remove}: new loss = {current_score:.5f}, original loss = {init_score:.5f} ({rel_score:+.2f} %); {current_num_nodes} nodes remain')
 
                     # Check for early stopping
-                    if current_score > best_score:
-                        consecutive_increases += 1
-                        if consecutive_increases >= patience:
-                            print(f'Stopping pruning: Loss increased for {patience} consecutive iterations.')
-                            return history
-                    else:
-                        consecutive_increases = 0
-                        best_score = current_score
+                if current_score > best_score:
+                    consecutive_increases += 1
+                    if consecutive_increases >= patience:
+                        print(f'Stopping pruning: Loss increased for {patience} consecutive iterations.')
+                        return history
+                else:
+                    consecutive_increases = 0
+                    best_score = current_score
 
                     # Extract and store network properties
-                    network_props = prop_extractor.extract_properties(self.reservoir_layer.weights)
-                    history['network_properties'].append(network_props)
+                network_props = prop_extractor.extract_properties(self.reservoir_layer.weights)
+                history['network_properties'].append(network_props)
 
                     # Update pruning history
-                    history['pruned_nodes'].append(idx_del_node)
-                    history['pruned_nodes_scores'].append(score_per_node[i][idx_del_node])
-                    history['num_nodes'].append(current_num_nodes)
-                else:
-                    break
+                 # Update pruning history
+                history['pruned_nodes'].append(nodes_to_remove.tolist())  # Convert to list for JSON serialization
+                history['pruned_nodes_scores'].append([score_per_node[i][node] for node in nodes_to_remove])  # Store scores for removed nodes
+                history['num_nodes'].append(current_num_nodes)
+            else:
+                break
 
             i += 1
 
         return history
-
     # @abstractmethod
     def predict(self, X: np.ndarray, one_shot: bool = False) -> np.ndarray:
         """
@@ -715,133 +715,43 @@ class CustomModel(ABC):
         # print the model to some figure file
         pass
 
-    def one_shot_pruning(self, X_train: np.ndarray, y_train: np.ndarray, 
-                         X_val: np.ndarray, y_val: np.ndarray, 
-                         loss_metric='mse', prune_percent=0.1, n_calls=50, 
-                         node_prop_extractor=None):
+
+    def remove_node(self, node_indices):
         """
-        Perform one-shot pruning of the reservoir using Bayesian optimization.
+        Remove one or multiple nodes from all relevant layers of the reservoir computer.
 
         Args:
-        X_train (np.ndarray): Training input data.
-        y_train (np.ndarray): Training target data.
-        X_val (np.ndarray): Validation input data.
-        y_val (np.ndarray): Validation target data.
-        loss_metric (str): Metric to use for evaluating model performance.
-        prune_percent (float): Percentage of nodes to prune.
-        n_calls (int): Number of iterations for Bayesian optimization.
-        node_prop_extractor (NodePropExtractor, optional): Object to extract node properties.
-
-        Returns:
-        dict: History of the pruning process.
+        node_indices (int or list or np.array): Index or indices of the nodes to be removed.
         """
-        if node_prop_extractor is None:
-            node_prop_extractor = NodePropExtractor()
-
-        loss_fun = assign_metric(loss_metric)
-
-        # Initial fit and score
-        self.fit(X_train, y_train)
-        init_score = loss_fun(y_val, self.predict(X_val))
-
-        # Extract        
-        properties = node_prop_extractor.extract_properties(self.reservoir_layer.weights)
-        property_names = list(properties.keys())
-        space = [Real(0, 1, name=f'{prop}_weight') for prop in property_names]
-
-        best_score = float('inf')
-        best_model = None
-
-        @use_named_args(space)
-        def objective(**params):
-            nonlocal best_score, best_model
-            pruned_model =            property_weights = [params[f'{prop}_weight'] for prop in property_names]
-            pruned_model._prune(prune_percent, property_weights, node_prop_extractor)
-            pruned_model.fit(X_train, y_train)
-            y_pred = pruned_model.predict(X_val)
-            score = loss_fun(y_val, y_pred) 
-            
-            if score < best_score:
-                best_score = score
-                best_model = copy.deepcopy(pruned_model)
-            
-            return score
-
-        # Perform Bayesian optimization
-        result = gp_minimize(objective, space, n_calls=n_calls, random_state=42)
-
-        # Update the current model with the best pruned model
-        self.__dict__.update(best_model.__dict__)
-
-        history = {
-            'init_score': init_score,
-            'final_score': best_score,
-            'num_nodes': self.reservoir_layer.nodes,
-            'best_params': dict(zip(property_names, result.x)),
-        }
-
-        return history
-
-    def _prune(self, prune_percent, property_weights, node_prop_extractor):
-        """
-        Internal method to prune the reservoir based on node properties and weights.
-
-        Args:
-        prune_percent (float): Percentage of nodes to prune.
-        property_weights (list): Weights for each node property.
-        node_prop_extractor (NodePropExtractor): Object to extract node properties.
-        """
-        properties = node_prop_extractor.extract_properties(self.reservoir_layer.weights)
+        # Convert single integer to list
+        if isinstance(node_indices, int):
+            node_indices = [node_indices]
         
-        # Calculate importance scores
-        importance = np.zeros(self.reservoir_layer.nodes)
-        for prop, weight in zip(properties.values(), property_weights):
-            importance += weight * np.array(list(prop.values()))
-        
-        # Determine which nodes to keep
-        n_keep = int(self.reservoir_layer.nodes * (1 - prune_percent))
-        keep_indices = np.argsort(importance)[-n_keep:]
-        
-        # Update reservoir weights
-        self.reservoir_layer.weights = self.reservoir_layer.weights[keep_indices][:, keep_indices]
-        self.reservoir_layer.initial_res_states = self.reservoir_layer.initial_res_states[keep_indices]
-        self.input_layer.weights = self.input_layer.weights[:, keep_indices]
-        if self.readout_layer.weights is not None:
-            self.readout_layer.weights = self.readout_layer.weights[keep_indices, :]
-        
+        # Remove nodes from reservoir layer weights
+        self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, node_indices, axis=0)
+        self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, node_indices, axis=1)
+
+        # Remove nodes from initial reservoir states
+        self.reservoir_layer.initial_res_states = np.delete(self.reservoir_layer.initial_res_states, node_indices, axis=0)
+
+        # Remove nodes from input layer weights
+        self.input_layer.weights = np.delete(self.input_layer.weights, node_indices, axis=1)
+
+        # Remove nodes from readout layer weights
+        self.readout_layer.weights = np.delete(self.readout_layer.weights, node_indices, axis=0)
+
         # Update readout nodes
-        self.readout_layer.readout_nodes = [i for i, idx in enumerate(keep_indices) if idx in self.readout_layer.readout_nodes]
+        mask = np.ones(len(self.readout_layer.readout_nodes), dtype=bool)
+        for idx in node_indices:
+            mask[self.readout_layer.readout_nodes == idx] = False
+        self.readout_layer.readout_nodes = self.readout_layer.readout_nodes[mask]
         
-        # Update the number of nodes in the reservoir
-        self.reservoir_layer.nodes = n_keep
-
-    def remove_node(self, node_index):
-        """
-        Remove a node from all relevant layers of the reservoir computer.
-
-        Args:
-        node_index (int): Index of the node to be removed.
-        """
-        # Remove node from reservoir layer weights
-        self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, node_index, axis=0)
-        self.reservoir_layer.weights = np.delete(self.reservoir_layer.weights, node_index, axis=1)
-
-        # Remove node from initial reservoir states
-        self.reservoir_layer.initial_res_states = np.delete(self.reservoir_layer.initial_res_states, node_index, axis=0)
-
-        # Remove node from input layer weights
-        self.input_layer.weights = np.delete(self.input_layer.weights, node_index, axis=1)
-
-        # Remove node from readout layer weights
-        self.readout_layer.weights = np.delete(self.readout_layer.weights, node_index, axis=0)
+        # Adjust the indices of the remaining readout nodes
+        for idx in sorted(node_indices, reverse=True):
+            self.readout_layer.readout_nodes[self.readout_layer.readout_nodes > idx] -= 1
 
         # Update node count
-        self.reservoir_layer.nodes = self.reservoir_layer.weights.shape[0]
-
-        # Update readout nodes
-        mask = self.readout_layer.readout_nodes != node_index
-        self.readout_layer.readout_nodes = self.readout_layer.readout_nodes[mask]
-        self.readout_layer.readout_nodes[self.readout_layer.readout_nodes > node_index] -= 1
+        self.reservoir_layer.nodes -= len(node_indices)
 
     def tune_hyperparameters(self, X_train, y_train, X_val, y_val, n_calls=50):
         """
