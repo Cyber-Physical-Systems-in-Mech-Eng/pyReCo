@@ -11,7 +11,7 @@ from skopt.utils import use_named_args
 import multiprocessing
 from functools import partial
 
-from .remove_transients import TransientRemover
+from .remove_transients import TransientRemover, RemoveTransients_Res
 from .layers import Layer, InputLayer, ReservoirLayer, ReadoutLayer, RandomReservoirLayer
 from .optimizers import Optimizer, assign_optimizer
 from .metrics import assign_metric
@@ -35,19 +35,6 @@ def sample_random_nodes(total_nodes: int, fraction: float):
     return np.random.choice(total_nodes, size=int(total_nodes * fraction), replace=False)
 
 
-def discard_transients_indices(n_batches, n_timesteps, transients):
-    """
-    Generate indices of transient timesteps to be discarded across multiple batches.
-
-    Args:
-    n_batches (int): Number of batches.
-    n_timesteps (int): Number of timesteps in each batch.
-    transients (int): Number of initial timesteps to be considered as transients.
-
-    Returns:
-    list: A list of indices to be removed, corresponding to transient timesteps.
-    """
-    return [i for i in range(n_batches * n_timesteps) if i % n_timesteps < transients]
 
 
 from matplotlib import pyplot as plt
@@ -271,7 +258,7 @@ class CustomModel(ABC):
 
         return R_all  # all reservoir states: [n_nodes, (n_batch * n_time)]
 
-    def fit(self, X: np.ndarray, y: np.ndarray, one_shot: bool = False, n_init: int = 1, store_states: bool = False):
+    def fit(self, X: np.ndarray, y: np.ndarray,  n_init: int = 1, store_states: bool = False):
         """
         Train the reservoir computer on the given data.
 
@@ -327,13 +314,7 @@ class CustomModel(ABC):
                 # reservoir_states.shape is 2d, as we concatenated along the batch dimension: [n_time * n_batch, n_nodes]
                 # hence we have to remove slices from the state matrix, or re-shape it into 3D, cut off some time steps
                 # for each batch, and then reshape to 2D again.
-                indices_to_remove = discard_transients_indices(n_batch, n_time, self.discard_transients)  #by juan
-                reservoir_states = np.delete(reservoir_states, indices_to_remove, axis=0)
-                print("reservoir_states.shape: ", reservoir_states.shape)
-                # now the array should have the size of (n_batch*(n_time-discard), n_nodes)
-
-                # remove the transients from the targets
-                y = y[:, self.discard_transients:, :]
+                reservoir_states, y = TransientRemover('RX', reservoir_states, y, self.discard_transients)
 
                 # update the value of n_time
                 n_time -= self.discard_transients
@@ -495,6 +476,8 @@ class CustomModel(ABC):
         consecutive_increases = 0
         best_score = init_score
 
+        best_model = copy.deepcopy(self)
+
         # Main pruning loop
         while i < num_nodes:
             print(f'Pruning iteration {i}')
@@ -538,33 +521,36 @@ class CustomModel(ABC):
                 print(
                     f'Removing node {nodes_to_remove}: new loss = {current_score:.5f}, original loss = {init_score:.5f} ({rel_score:+.2f} %); {current_num_nodes} nodes remain')
 
-                    # Check for early stopping
-                if current_score > best_score:
+                # Check for early stopping and update best model
+                if current_score < best_score:
+                    best_score = current_score
+                    best_model = copy.deepcopy(self)
+                    consecutive_increases = 0
+                else:
                     consecutive_increases += 1
                     if consecutive_increases >= patience:
                         print(f'Stopping pruning: Loss increased for {patience} consecutive iterations.')
-                        return history
-                else:
-                    consecutive_increases = 0
-                    best_score = current_score
+                        break
 
-                    # Extract and store network properties
+                # Extract and store network properties
                 network_props = prop_extractor.extract_properties(self.reservoir_layer.weights)
                 history['network_properties'].append(network_props)
 
-                    # Update pruning history
-                 # Update pruning history
-                history['pruned_nodes'].append(nodes_to_remove.tolist())  # Convert to list for JSON serialization
-                history['pruned_nodes_scores'].append([score_per_node[i][node] for node in nodes_to_remove])  # Store scores for removed nodes
+                # Update pruning history
+                history['pruned_nodes'].append(nodes_to_remove.tolist())
+                history['pruned_nodes_scores'].append([score_per_node[i][node] for node in nodes_to_remove])
                 history['num_nodes'].append(current_num_nodes)
             else:
                 break
 
             i += 1
 
-        return history
+        # Add best score to history
+        history['best_score'] = best_score
+
+        return history, best_model
     # @abstractmethod
-    def predict(self, X: np.ndarray, one_shot: bool = False) -> np.ndarray:
+    def predict(self, X: np.ndarray) -> np.ndarray:
         """
         Make predictions for given input (single-step prediction).
 
@@ -606,9 +592,7 @@ class CustomModel(ABC):
             # hence we have to remove slices from the state matrix, or re-shape it into 3D, cut off some time steps
             # for each batch, and then reshape to 2D again.
             # TODO: please check if the reshaping really is correct, i.e. such that the first n_time entries of reservoir_states are the continuous reservoir states!
-            indices_to_remove = discard_transients_indices(n_batch, n_time, self.discard_transients)
-            reservoir_states = np.delete(reservoir_states, indices_to_remove, axis=0)
-            print("reservoir_states.shape: ", reservoir_states.shape)
+            reservoir_states, y = TransientRemover('RX', reservoir_states, y, self.discard_transients)
             # now the array should have the size of (n_batch*(n_time-discard), n_nodes)
 
             # update the value of n_time
