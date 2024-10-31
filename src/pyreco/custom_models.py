@@ -10,6 +10,7 @@ from skopt.space import Real
 from skopt.utils import use_named_args
 import multiprocessing
 from functools import partial
+from numba import jit
 
 from .remove_transients import TransientRemover, RemoveTransients_Res
 from .layers import Layer, InputLayer, ReservoirLayer, ReadoutLayer, RandomReservoirLayer
@@ -20,6 +21,23 @@ from .utils_networks import gen_init_states, set_spec_rad, is_zero_col_and_row, 
 from .metrics import assign_metric, available_metrics
 from .network_prop_extractor import NetworkQuantifier, NodePropExtractor
 
+@jit(nopython=True)
+def _compute_states_numba(states, W, W_in, inputs, alpha, g_fun):
+    """
+    Numba-optimized state computation.
+    """
+    n_batch, n_time, _ = inputs.shape
+    N = W.shape[0]
+    next_states = np.empty((n_batch, n_time, N))
+        
+    for b in range(n_batch):
+        for t in range(n_time):
+            state = states[b, t]
+            input_contrib = np.dot(W_in.T, inputs[b, t])
+            reservoir_contrib = np.dot(W, state)
+            next_states[b, t] = (1 - alpha) * state + alpha * np.tanh(reservoir_contrib + input_contrib)
+        
+    return next_states
 
 def sample_random_nodes(total_nodes: int, fraction: float):
     """
@@ -34,7 +52,13 @@ def sample_random_nodes(total_nodes: int, fraction: float):
     """
     return np.random.choice(total_nodes, size=int(total_nodes * fraction), replace=False)
 
-
+def discard_transients_indices(n_batches, n_timesteps, transients):  #by juan
+    indices_to_remove = []
+    for i in range(n_batches * n_timesteps):
+        t = i % n_timesteps  # Current timestep within the batch
+        if t < transients:
+            indices_to_remove.append(i)
+    return indices_to_remove
 
 
 from matplotlib import pyplot as plt
@@ -205,179 +229,125 @@ class CustomModel(ABC):
             raise (ValueError('discard_transients must be >= 0!'))
         self.discard_transients = int(discard_transients)  # will not remove transients if 0
 
+
     def compute_reservoir_state(self, X: np.ndarray, seed=None) -> np.ndarray:
         """
-        Compute reservoir states for the given input data.
-
+        Vectorized computation of reservoir states with batch processing.
+        
         Args:
-        X (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
-        seed (int, optional): Random seed for reproducibility.
-
+            X (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
+            seed (int, optional): Random seed for reproducibility
+            
         Returns:
-        np.ndarray: Reservoir states of shape [(n_batch * n_timesteps), N]
+            np.ndarray: Reservoir states of shape [(n_batch * n_timesteps), N]
         """
-        # expects an input of shape [n_batch, n_timesteps, n_states]
-        # returns the reservoir states of shape [(n_batch * n_timesteps), N]
-
-        # (except for .predict)! Don't let the prediction on a sample depend on which
-        # sample you computed before.
-
-        # get data shapes
-        n_samples = X.shape[0]
-        n_time = X.shape[1]
-        n_states = X.shape[2]
-
-        # extract layer properties for easier syntax below:
+        # Extract shapes and parameters
+        n_batch, n_time, n_states = X.shape
         N = self.reservoir_layer.nodes
         g = self.reservoir_layer.activation_fun
         alpha = self.reservoir_layer.leakage_rate
         A = self.reservoir_layer.weights
         W_in = self.input_layer.weights
-        R0 = self.reservoir_layer.initial_res_states
+        
+        # Pre-allocate arrays
+        states = np.zeros((n_batch, n_time + 1, N))
+        states[:, 0] = self.reservoir_layer.initial_res_states
+        
+        # Compute input contribution for all timesteps at once
+        input_contrib = np.einsum('ij,btj->bti', W_in.T, X)
+        
+        if hasattr(self, 'use_numba') and self.use_numba:
+            # Use Numba-optimized version
+            states[:, 1:] = _compute_states_numba(
+                states[:, :-1], A, W_in, X, alpha, g
+            )
+        else:
+            # Vectorized version
+            for t in range(n_time):
+                # Compute reservoir contribution
+                reservoir_contrib = np.einsum('ij,bj->bi', A, states[:, t])
+                
+                # Update states
+                states[:, t + 1] = (1 - alpha) * states[:, t] + \
+                                  alpha * g(reservoir_contrib + input_contrib[:, t])
+        
+        # Reshape to [(n_batch * n_time), N] and remove initial state
+        return states[:, 1:].reshape(-1, N)
 
-        # now loop over all samples, compute reservoir states for each sample, and re-initialize reservoir (in case
-        # one_shot parameter = False
-
-        R_all = []  # collects reservoir states [n_sample, [n_nodes, n_time]]
-        for sample in range(n_samples):  # loop over training samples, the batch
-            # print(f'{sample}/{n_samples} ...')
-
-            R = np.zeros([N, n_time + 1])
-            # if one_shot and sample>0:   # re-use last reservoir state from previous sample
-            #     R0 = R_all[-1][:,-1]
-
-            R[:, 0] = R0
-
-            for t, x in enumerate(X[sample, :, :]):  # go through time steps (X[1]) for current training sample
-                R[:, t + 1] = (1 - alpha) * R[:, t] + alpha * g(np.dot(A, R[:, t].T) + np.dot(W_in.T, x))
-
-            R_all.append(R[:, 1:])  # get rid of initial reservoir state
-
-        # concatenate all reservoir states
-        R_all = np.hstack(R_all).T
-
-        return R_all  # all reservoir states: [n_nodes, (n_batch * n_time)]
-
-    def fit(self, X: np.ndarray, y: np.ndarray,  n_init: int = 1, store_states: bool = False):
+    def fit(self, X: np.ndarray, y: np.ndarray, n_init: int = 1, store_states: bool = False):
         """
-        Train the reservoir computer on the given data.
-
-        Args:
-        X (np.ndarray): Input data of shape [n_batch, n_time_in, n_states_in]
-        y (np.ndarray): Target data of shape [n_batch, n_time_out, n_states_out]
-        one_shot (bool): If True, don't re-initialize reservoir between samples.
-        n_init (int): Number of times to sample initial reservoir states.
-        store_states (bool): If True, store full time trace of reservoir states.
-
-        Returns:
-        dict: History of the training process.
+        Optimized training with batch processing.
         """
-        # expects data in particular format that is reasonable for univariate/multivariate time series data
-        # - X input data of shape [n_batch, n_time_in, n_states_in]
-        # - y target data of shape [n_batch, n_time_out, n_states_out]
-        # - n_init: number of times that initial reservoir states are sampled.
-        # - store_states returns the full time trace of reservoir states (memory-heavy!)
-
-        n_batch = X.shape[0]
-        n_time = X.shape[1]
-        n_states_out = y.shape[-1]
+        n_batch, n_time, n_states_out = X.shape[0], X.shape[1], y.shape[-1]
         n_nodes = self.reservoir_layer.nodes
-
-        # one_shot = True will *not* re-initialize the reservoir from sample to sample. Introduces a dependency on the
-        # sequence by which the samples are given
-
-        # train the RC to the given data. Will also need to check for consistency of everything
-        # returns some values that describe how well the training went
-
-        # loop across many different initial conditions for the reservoir states R(t=0) --> n_init
-        # TODO: parallelize the loop over multiple initial reservoir states.
-        n_R0, n_weights, n_scores, n_res_states = [], [], [], []
+        
+        # Pre-allocate arrays for storing results
+        n_R0 = np.zeros((n_init, n_nodes))
+        n_weights = np.zeros((n_init, n_nodes, n_states_out))
+        n_scores = np.zeros(n_init)
+        n_res_states = [] if store_states else None
+        
+        # Get loss function
+        loss_fun = self.metrics_fun[0] if self.metrics_fun else assign_metric('mean_squared_error')
+        
+        # Batch process multiple initializations
         for i in range(n_init):
             print(f'initialization {i}/{n_init}: computing reservoir states')
-
-            # set the initial reservoir state (should involve some randomness if n_init > 1)
-            # TODO: call a pre-defined initializer according to some input (0, random normal, uniform)
+            
+            # Set initial states
             self._set_init_states(method=self.reservoir_layer.init_res_sampling)
-
-            # feed training data through RC and obtain reservoir states
-            reservoir_states = self.compute_reservoir_state(X)  # complete n states
-
-            # Removing transients AKA Warm-up and update time
-            if self.discard_transients >= n_time:
-                raise ValueError(f'Cannot discard {self.discard_transients} as the number of time steps is {n_time}')
+            n_R0[i] = self.reservoir_layer.initial_res_states
+            
+            # Compute reservoir states
+            reservoir_states = self.compute_reservoir_state(X)
+            
+            # Handle transients efficiently
             if self.discard_transients > 0:
-                print(f'discarding first {self.discard_transients} transients during training')
+                indices_to_remove = discard_transients_indices(n_batch, n_time, self.discard_transients)  #by juan
+                reservoir_states = np.delete(reservoir_states, indices_to_remove, axis=0)
+                # now the array should have the size of (n_batch*(n_time-discard), n_nodes)
 
-                # removes the first <discard_transients> from the reservoir states and from the targets
-
-                # WORKAROUND
-                # reservoir_states.shape is 2d, as we concatenated along the batch dimension: [n_time * n_batch, n_nodes]
-                # hence we have to remove slices from the state matrix, or re-shape it into 3D, cut off some time steps
-                # for each batch, and then reshape to 2D again.
-                reservoir_states, y = TransientRemover('RX', reservoir_states, y, self.discard_transients)
+                # remove the transients from the targets
+                y = y[:, self.discard_transients:, :]
 
                 # update the value of n_time
                 n_time -= self.discard_transients
-
-                # reservoir_states, X, y = TransientRemover('RXY', reservoir_states, X, y, self.discard_transients)
-
-            # set up the linear regression problem Ax=b, A=R, b=y, x=W_out
-            # mask reservoir states that are not selected as output nodes
-            # TODO: make this more efficient, do not create full mask array
-
-            #Initialize A as a zero array with the same shape as reservoir_states
-            # Assign values only to columns corresponding to readout nodes
-            # by juan
+                
+            # Efficient masking for readout nodes
             A = np.zeros_like(reservoir_states)
             A[:, self.readout_layer.readout_nodes] = reservoir_states[:, self.readout_layer.readout_nodes]
-
-            # reshape targets y [n_batch, n_time, n_out] to [(n_batch * n_time), n_out],
-            # i.e. stack all targets into long vector along time dimension
+            
+            # Reshape targets efficiently
             b = y.reshape(n_batch * n_time, n_states_out)
-
-            # 2. solve regression problem and update readout matrix
-            # R * W_out = y --> [n_nodes, (n_batch * n_time)].T * W_out = [(n_batch * n_time), n_out]
+            
+            # Solve regression and store weights
             self.readout_layer.weights = self.optimizer.solve(A=A, b=b)
-
-            # 3. compute score on training set (required to find the best initial reservoir state)
-            # Calculates the loss with the first metric chosen by the user
-            if self.metrics_fun:
-                loss_fun = self.metrics_fun[0]
-            else:
-                # Default to mean squared error if no metrics specified
-                loss_fun = assign_metric('mean_squared_error')
-
-            score = loss_fun(y, self.predict(X=X))
-
-            # store intermediate results for the n_init loop
-            n_R0.append(self.reservoir_layer.initial_res_states)
-            n_weights.append(self.readout_layer.weights)
-            n_scores.append(score)
-
+            n_weights[i] = self.readout_layer.weights
+            
+            # Compute score
+            n_scores[i] = loss_fun(y, self.predict(X=X))
+            
             if store_states:
                 n_res_states.append(reservoir_states)
-
-        # select the best prediction, i.e. the best initial condition
-        if n_init > 1:
-            idx_optimal = np.argmin(n_scores)
-        else:
-            idx_optimal = 0
+        
+        # Select best initialization
+        idx_optimal = np.argmin(n_scores)
         self.reservoir_layer.set_initial_state(n_R0[idx_optimal])
         self.readout_layer.weights = n_weights[idx_optimal]
-
-        # specify the number of trainable weights by the size of the readout matrix
+        
+        # Update trainable weights count
         self.trainable_weights = self.reservoir_layer.weights.size
-
-        # built a history object to store detailed information about the training process
-        history = dict()
-        history['init_res_states'] = n_R0
-        history['readout_weights'] = n_weights
-        history['train_scores'] = n_scores
-
+        
+        # Build history dictionary
+        history = {
+            'init_res_states': n_R0,
+            'readout_weights': n_weights,
+            'train_scores': n_scores
+        }
+        
         if store_states:
             history['res_states'] = n_res_states
-        # uncertain if we should store the reservoir states by default, will be a large memory consumption
-
+            
         return history
 
     def fit_evolve(self, X: np.ndarray, y: np.ndarray):
@@ -395,9 +365,9 @@ class CustomModel(ABC):
 
         # Train the temporary model
         temp_model.fit(X, y)
-        
+        y_discarded = y[:, self.discard_transients:, :]
         # Evaluate the temporary model
-        temp_score = loss_fun(y, temp_model.predict(X=X))
+        temp_score = loss_fun(y_discarded, temp_model.predict(X=X))
 
         print(f'Pruning node {del_idx} / {current_num_nodes}: loss = {temp_score:.5f}, original loss = {init_score:.5f}')
 
@@ -441,7 +411,8 @@ class CustomModel(ABC):
 
         # Compute initial score of full network on training set
         self.fit(X, y)
-        init_score = loss_fun(y, self.predict(X=X))
+        y_discarded = y[:, self.discard_transients:, :]
+        init_score = loss_fun(y_discarded, self.predict(X=X))
 
         def keep_pruning(init_score, current_score, max_perf_drop):
             """
@@ -512,8 +483,8 @@ class CustomModel(ABC):
 
                     # Retrain and evaluate
                 self.fit(X, y)
-
-                current_score = loss_fun(y, self.predict(X=X))
+                y_discarded = y[:, self.discard_transients:, :]
+                current_score = loss_fun(y_discarded, self.predict(X=X))
                 rel_score = (current_score - init_score) / init_score * 100
 
                 current_num_nodes = self.reservoir_layer.nodes
@@ -592,7 +563,8 @@ class CustomModel(ABC):
             # hence we have to remove slices from the state matrix, or re-shape it into 3D, cut off some time steps
             # for each batch, and then reshape to 2D again.
             # TODO: please check if the reshaping really is correct, i.e. such that the first n_time entries of reservoir_states are the continuous reservoir states!
-            reservoir_states, y = TransientRemover('RX', reservoir_states, y, self.discard_transients)
+            indices_to_remove = discard_transients_indices(n_batch, n_time, self.discard_transients)
+            reservoir_states = np.delete(reservoir_states, indices_to_remove, axis=0)
             # now the array should have the size of (n_batch*(n_time-discard), n_nodes)
 
             # update the value of n_time
@@ -737,56 +709,6 @@ class CustomModel(ABC):
         # Update node count
         self.reservoir_layer.nodes -= len(node_indices)
 
-    def tune_hyperparameters(self, X_train, y_train, X_val, y_val, n_calls=50):
-        """
-        Tune hyperparameters using Bayesian optimization.
-        """
-        space = [
-            Integer(99, 100, name='nodes'),
-            Real(0.1, 1.0, name='spec_rad'),
-            Real(0.1, 1.0, name='leakage_rate'),
-            Real(0.1, 1.0, name='fraction_input'),
-            Real(0.1, 1.0, name='fraction_out'),
-        ]
-
-        @use_named_args(space)
-        def objective(**params):
-            # Create a new model with the suggested hyperparameters
-            model = RC()
-            model.add(InputLayer(input_shape=(X_train.shape[1], X_train.shape[2])))
-            model.add(RandomReservoirLayer(nodes=params['nodes'], 
-                                    spec_rad=params['spec_rad'], 
-                                    leakage_rate=params['leakage_rate'], 
-                                    fraction_input=params['fraction_input']))
-            model.add(ReadoutLayer(output_shape=(y_train.shape[1], y_train.shape[2]), fraction_out=params['fraction_out']))
-            
-            # Compile and fit the model
-            model.compile( metrics=['mse'])
-            model.fit(X_train, y_train)
-            
-            # Evaluate on validation set
-            val_score = model.evaluate(X_val, y_val)[0]  # Assuming MSE is the first metric
-            return val_score
-
-        result = gp_minimize(objective, space, n_calls=n_calls, random_state=42)
-
-        # Set the best hyperparameters to the current model
-        best_params = dict(zip([dim.name for dim in space], result.x))
-        
-        # Recreate the model with the best hyperparameters
-        self.__init__()  # Reset the model
-        self.add(InputLayer(input_shape=(X_train.shape[1], X_train.shape[2])))
-        self.add(RandomReservoirLayer(nodes=best_params['nodes'], 
-                                spec_rad=best_params['spec_rad'], 
-                                leakage_rate=best_params['leakage_rate'], 
-                                fraction_input=best_params['fraction_input']))
-        self.add(ReadoutLayer(output_shape=(y_train.shape[1], y_train.shape[2]), fraction_out=best_params['fraction_out']))
-        
-        # Compile and fit the model with the best hyperparameters
-        self.compile( metrics=['mse'])
-        self.fit(X_train, y_train)
-
-        return best_params, result.fun
 
 
 
