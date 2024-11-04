@@ -5,14 +5,10 @@ import os
 import sys
 from typing import Union
 import copy
-from skopt import gp_minimize
-from skopt.space import Real
-from skopt.utils import use_named_args
 import multiprocessing
 from functools import partial
-from numba import jit
 
-from .remove_transients import TransientRemover, RemoveTransients_Res
+from .remove_transients import TransientRemover, RemoveTransients_Res, RemoveTransient_Inps, RemoveTransient_Outs
 from .layers import Layer, InputLayer, ReservoirLayer, ReadoutLayer, RandomReservoirLayer
 from .optimizers import Optimizer, assign_optimizer
 from .metrics import assign_metric
@@ -21,23 +17,6 @@ from .utils_networks import gen_init_states, set_spec_rad, is_zero_col_and_row, 
 from .metrics import assign_metric, available_metrics
 from .network_prop_extractor import NetworkQuantifier, NodePropExtractor
 
-@jit(nopython=True)
-def _compute_states_numba(states, W, W_in, inputs, alpha, g_fun):
-    """
-    Numba-optimized state computation.
-    """
-    n_batch, n_time, _ = inputs.shape
-    N = W.shape[0]
-    next_states = np.empty((n_batch, n_time, N))
-        
-    for b in range(n_batch):
-        for t in range(n_time):
-            state = states[b, t]
-            input_contrib = np.dot(W_in.T, inputs[b, t])
-            reservoir_contrib = np.dot(W, state)
-            next_states[b, t] = (1 - alpha) * state + alpha * np.tanh(reservoir_contrib + input_contrib)
-        
-    return next_states
 
 def sample_random_nodes(total_nodes: int, fraction: float):
     """
@@ -52,7 +31,7 @@ def sample_random_nodes(total_nodes: int, fraction: float):
     """
     return np.random.choice(total_nodes, size=int(total_nodes * fraction), replace=False)
 
-def discard_transients_indices(n_batches, n_timesteps, transients):  #by juan
+def discard_transients_indices(n_batches, n_timesteps, transients):  
     indices_to_remove = []
     for i in range(n_batches * n_timesteps):
         t = i % n_timesteps  # Current timestep within the batch
@@ -76,16 +55,6 @@ from matplotlib import pyplot as plt
 # - model.save(path)
 
 
-from skopt import gp_minimize
-from skopt.space import Real, Integer, Categorical
-from skopt.utils import use_named_args
-from abc import ABC
-import numpy as np
-import copy
-import multiprocessing
-from functools import partial
-from typing import Union
-
 class CustomModel(ABC):
     """
     Abstract base class for custom reservoir computing models.
@@ -104,6 +73,7 @@ class CustomModel(ABC):
         self.optimizer: Optimizer
         self.discard_transients = 0
         self.trainable_weights: int
+
 
     def add(self, layer: Layer):
         """
@@ -244,7 +214,7 @@ class CustomModel(ABC):
         # Extract shapes and parameters
         n_batch, n_time, n_states = X.shape
         N = self.reservoir_layer.nodes
-        g = self.reservoir_layer.activation_fun
+        activation_name = self.reservoir_layer.activation
         alpha = self.reservoir_layer.leakage_rate
         A = self.reservoir_layer.weights
         W_in = self.input_layer.weights
@@ -253,25 +223,14 @@ class CustomModel(ABC):
         states = np.zeros((n_batch, n_time + 1, N))
         states[:, 0] = self.reservoir_layer.initial_res_states
         
-        # Compute input contribution for all timesteps at once
+        
+        # vectorized computation of reservoir states
         input_contrib = np.einsum('ij,btj->bti', W_in.T, X)
+        for t in range(n_time):
+            reservoir_contrib = np.einsum('ij,bj->bi', A, states[:, t])
+            states[:, t + 1] = (1 - alpha) * states[:, t] + \
+                              alpha * self.reservoir_layer.activation_fun(reservoir_contrib + input_contrib[:, t])
         
-        if hasattr(self, 'use_numba') and self.use_numba:
-            # Use Numba-optimized version
-            states[:, 1:] = _compute_states_numba(
-                states[:, :-1], A, W_in, X, alpha, g
-            )
-        else:
-            # Vectorized version
-            for t in range(n_time):
-                # Compute reservoir contribution
-                reservoir_contrib = np.einsum('ij,bj->bi', A, states[:, t])
-                
-                # Update states
-                states[:, t + 1] = (1 - alpha) * states[:, t] + \
-                                  alpha * g(reservoir_contrib + input_contrib[:, t])
-        
-        # Reshape to [(n_batch * n_time), N] and remove initial state
         return states[:, 1:].reshape(-1, N)
 
     def fit(self, X: np.ndarray, y: np.ndarray, n_init: int = 1, store_states: bool = False):
@@ -554,9 +513,6 @@ class CustomModel(ABC):
         if self.discard_transients >= n_time:
             raise ValueError(f'Cannot discard {self.discard_transients} as the number of time steps is {n_time}')
         if self.discard_transients > 0:
-            print(f'discarding transients from the reservoir states of shape {reservoir_states.shape}')
-
-            print(f'shape of inputs X: {X.shape}')
 
             # removes the first <discard_transients> from the reservoir states and from the targets
             # reservoir_states.shape is 2d, as we concatenated along the batch dimension: [n_time * n_batch, n_nodes]
