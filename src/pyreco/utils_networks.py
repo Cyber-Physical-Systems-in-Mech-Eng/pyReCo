@@ -6,19 +6,50 @@ import numpy as np
 
 
 def gen_ER_graph(nodes: int, density: float, spec_rad: float = 0.9, directed: bool=True, seed=None):
-    # TODO Manish: more documentation
+    """Generate an Erdős-Rényi random graph with specified properties.
+    
+    Bug Fix Documentation:
+    ---------------------
+    Previous Bug:
+        The line `G.remove_nodes_from(list(nx.isolates(G)))` removed isolated nodes from the graph
+        before converting to a numpy array. This caused the final matrix to sometimes be smaller
+        than the specified size (e.g., 29x29 instead of 30x30) when isolated nodes were present.
+        This led to dimension mismatches in reservoir computations where other matrices expected
+        the full size.
 
+    Solution:
+        Instead of removing isolated nodes, we now connect them to maintain the specified
+        network size. This ensures consistency between the reservoir weight matrix and
+        other matrices in the computation.
+
+    Parameters:
+        nodes (int): Number of nodes in the graph
+        density (float): Desired connection density (0 to 1)
+        spec_rad (float): Desired spectral radius
+        directed (bool): Whether to create a directed graph
+        seed (int, optional): Random seed for reproducibility
+
+    Returns:
+        np.ndarray: Adjacency matrix with shape (nodes, nodes)
+    """
     # use networkx to generate a random graph
     G = nx.erdos_renyi_graph(nodes, density, seed=seed, directed=directed)
 
-    ### Remove isolated nodes
-    G.remove_nodes_from(list(nx.isolates(G)))
-    ### Randomize weights between (0, 1)
-    # Rand_weights = np.random.random((N,N))
-    GNet = nx.to_numpy_array(G)
-    # GNet = np.multiply(GNet,Rand_weights)
+    # Instead of removing isolated nodes (old buggy behavior):
+    # G.remove_nodes_from(list(nx.isolates(G)))
+    
+    # New: Connect isolated nodes to maintain matrix size
+    isolated_nodes = list(nx.isolates(G))
+    if isolated_nodes:
+        non_isolated = list(set(G.nodes()) - set(isolated_nodes))
+        for node in isolated_nodes:
+            if non_isolated:
+                target = np.random.choice(non_isolated)
+                G.add_edge(node, target)
+                if directed:
+                    G.add_edge(target, node)
 
-    ### Rescaling to a desired spectral radius
+    GNet = nx.to_numpy_array(G)
     curr_spec_rad = max(abs(np.linalg.eigvals(GNet)))
     graph = GNet * spec_rad/curr_spec_rad
 
