@@ -7,3 +7,38 @@ build-backend = "setuptools.build_meta"
 # For smarter version schemes and other configuration options,
 # check out https://github.com/pypa/setuptools_scm
 version_scheme = "no-guess-dev"
+
+[project]
+name = "pyreco"
+version = "0.0.1"
+authors = [
+  { name="Merten Stender", email="merten.stender@tu-berlin.de" },
+  { name="Manish Yadav", email="manish.yadav@tu-berlin.de" },
+]
+description = "A Python Reservoir Computing Library for Time Series Forecasting and Research created by CPSME TU Berlin."
+readme =  { file = "README.md", content-type = "text/markdown", charset = "utf-8" }
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "matplotlib>=3.5.0",
+    "scikit-learn>=1.0.0",
+    "networkx>=2.5",
+    "numpy>=1.21.0",
+]
+
+[tool.hatch.build]
+# exclude files and directories from the build
+exclude = [
+    "tests/**",              # exclude everything in the tests folder
+    "*.pyc",                 # exclude all .pyc files
+    "**/__pycache__/**",     # exclude all __pycache__ directories at any level
+    ".*",                    # exclude all hidden files like .gitignore
+]
+
+[project.urls]
+Homepage = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo"
+Issues = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo/issues"
