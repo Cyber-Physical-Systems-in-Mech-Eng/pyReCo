@@ -6,19 +6,50 @@ import numpy as np
 
 
 def gen_ER_graph(nodes: int, density: float, spec_rad: float = 0.9, directed: bool=True, seed=None):
-    # TODO Manish: more documentation
+    """Generate an Erdős-Rényi random graph with specified properties.
+    
+    Bug Fix Documentation:
+    ---------------------
+    Previous Bug:
+        The line `G.remove_nodes_from(list(nx.isolates(G)))` removed isolated nodes from the graph
+        before converting to a numpy array. This caused the final matrix to sometimes be smaller
+        than the specified size (e.g., 29x29 instead of 30x30) when isolated nodes were present.
+        This led to dimension mismatches in reservoir computations where other matrices expected
+        the full size.
 
+    Solution:
+        Instead of removing isolated nodes, we now connect them to maintain the specified
+        network size. This ensures consistency between the reservoir weight matrix and
+        other matrices in the computation.
+
+    Parameters:
+        nodes (int): Number of nodes in the graph
+        density (float): Desired connection density (0 to 1)
+        spec_rad (float): Desired spectral radius
+        directed (bool): Whether to create a directed graph
+        seed (int, optional): Random seed for reproducibility
+
+    Returns:
+        np.ndarray: Adjacency matrix with shape (nodes, nodes)
+    """
     # use networkx to generate a random graph
     G = nx.erdos_renyi_graph(nodes, density, seed=seed, directed=directed)
 
-    ### Remove isolated nodes
-    G.remove_nodes_from(list(nx.isolates(G)))
-    ### Randomize weights between (0, 1)
-    # Rand_weights = np.random.random((N,N))
-    GNet = nx.to_numpy_array(G)
-    # GNet = np.multiply(GNet,Rand_weights)
+    # Instead of removing isolated nodes (old buggy behavior):
+    # G.remove_nodes_from(list(nx.isolates(G)))
+    
+    # New: Connect isolated nodes to maintain matrix size
+    isolated_nodes = list(nx.isolates(G))
+    if isolated_nodes:
+        non_isolated = list(set(G.nodes()) - set(isolated_nodes))
+        for node in isolated_nodes:
+            if non_isolated:
+                target = np.random.choice(non_isolated)
+                G.add_edge(node, target)
+                if directed:
+                    G.add_edge(target, node)
 
-    ### Rescaling to a desired spectral radius
+    GNet = nx.to_numpy_array(G)
     curr_spec_rad = max(abs(np.linalg.eigvals(GNet)))
     graph = GNet * spec_rad/curr_spec_rad
 
@@ -144,13 +175,13 @@ def extract_density(adjacency_matrix):
 def extract_spectral_radius(adjacency_matrix):
     return np.max(np.abs(np.linalg.eigvals(adjacency_matrix)))
 
-def extract_in_degree(adjacency_matrix):
+def extract_in_degree_av(adjacency_matrix):
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     in_degrees = G.in_degree()
     avg_in_degree = np.mean(list(dict(in_degrees).values()))
     return avg_in_degree
 
-def extract_out_degree(adjacency_matrix):
+def extract_out_degree_av(adjacency_matrix):
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     out_degrees = G.out_degree()
     avg_out_degree = np.mean(list(dict(out_degrees).values()))
@@ -160,5 +191,28 @@ def extract_clustering_coefficient(adjacency_matrix):
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return nx.average_clustering(G)
 
-# Add more network property extraction functions as needed
+def extract_node_degree(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return dict(G.degree())
 
+def extract_node_in_degree(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return dict(G.in_degree())
+
+def extract_node_out_degree(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return dict(G.out_degree())
+
+def extract_node_clustering_coefficient(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return nx.clustering(G)
+
+def extract_node_betweenness_centrality(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return nx.betweenness_centrality(G)
+
+def extract_node_pagerank(adjacency_matrix):
+    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
+    return nx.pagerank(G)
+
+# Add more network property extraction functions as needed

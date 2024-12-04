@@ -7,7 +7,8 @@ from matplotlib import pyplot as plt
 
 from .metrics import r2
 
-def r2_scatter(y_true: np.ndarray, y_pred: np.ndarray, state_idx: int|tuple= None):
+def r2_scatter(y_true: np.ndarray, y_pred: np.ndarray, state_idx: int|tuple= None,
+               title:str = None, xlabel:str=None, ylabel:str = None):
     # plots predictions against ground truth values as scatter plot
     # lets the user choose the output state to plot (if there are multiple states). If not provided, all states will
     # be plotted.
@@ -43,11 +44,20 @@ def r2_scatter(y_true: np.ndarray, y_pred: np.ndarray, state_idx: int|tuple= Non
              marker='.',
              markersize=5,
              color='black',
-             label='model predictions')
-    plt.xlabel('ground truth')
-    plt.ylabel('predictions')
+             label=rf'model predictions ($R^2=${r2(y_true, y_pred):.2f})')
+    if xlabel is None:
+        plt.xlabel('ground truth')
+    else:
+        plt.xlabel(xlabel)
+    if ylabel is None:
+        plt.ylabel('predictions')
+    else:
+        plt.ylabel(ylabel)
     plt.legend()
-    plt.title(rf'$R^2=${r2(y_true, y_pred):.2f}')
+    if title is None:
+        plt.title(rf'')
+    else:
+        plt.title(title)
     plt.tight_layout()
     plt.show()
 

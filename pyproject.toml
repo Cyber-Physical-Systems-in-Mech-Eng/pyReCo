@@ -9,7 +9,7 @@ authors = [
   { name="Merten Stender", email="merten.stender@tu-berlin.de" },
   { name="Manish Yadav", email="manish.yadav@tu-berlin.de" },
 ]
-description = "A Python Reservoir Computing Library for Time Series Forecasting and Research created by the CPSME TU Berlin."
+description = "A Python Reservoir Computing Library for Time Series Forecasting and Research created by CPSME TU Berlin."
 readme =  { file = "README.md", content-type = "text/markdown", charset = "utf-8" }
 requires-python = ">=3.7"
 classifiers = [

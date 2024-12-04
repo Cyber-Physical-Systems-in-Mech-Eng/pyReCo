@@ -107,6 +107,8 @@ class ReservoirComputer(Model):
         self.metrics = metrics
         self.init_res_sampling = init_res_sampling
 
+        self.trainable_weights: int  # number of trainable weights
+
         # create a RC from a random reservoir. We do not know about the shapes of input and output at this stage
         self.model = RC()
 
@@ -156,6 +158,8 @@ class ReservoirComputer(Model):
         history = self.model.fit(X=X, y=y,
                                  n_init=n_init,
                                  store_states=store_states)
+
+        self.trainable_weights = self.model.trainable_weights
 
         return history
 
