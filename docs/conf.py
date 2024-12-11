@@ -34,7 +34,7 @@ except ImportError:
     from sphinx import apidoc
 
 output_dir = os.path.join(__location__, "api")
-module_dir = os.path.join(__location__, "../src/pyReCo")
+module_dir = os.path.join(__location__, "../src/pyreco")
 try:
     shutil.rmtree(output_dir)
 except FileNotFoundError:
@@ -78,7 +78,12 @@ extensions = [
 templates_path = ["_templates"]
 
 # The suffix of source filenames.
-source_suffix = ".rst"
+source_suffix = {
+    '.rst': 'restructuredtext',
+    '.txt': 'restructuredtext',
+    '.md': 'markdown',
+}
+
 
 # The encoding of source files.
 # source_encoding = 'utf-8-sig'
@@ -88,7 +93,7 @@ master_doc = "index"
 
 # General information about the project.
 project = "pyReCo"
-copyright = "2024, klara_susanna"
+copyright = "2024, Merten Stender"
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -99,7 +104,7 @@ copyright = "2024, klara_susanna"
 # If you don’t need the separation provided between version and release,
 # just set them both to the same value.
 try:
-    from pyReCo import __version__ as version
+    from pyreco import __version__ as version
 except ImportError:
     version = ""
 
@@ -153,7 +158,7 @@ todo_emit_warnings = True
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-html_theme = "alabaster"
+html_theme = "sphinx_rtd_theme"
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
@@ -246,7 +251,7 @@ latex_elements = {
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
-    ("index", "user_guide.tex", "pyReCo Documentation", "klara_susanna", "manual")
+    ("index", "user_guide.tex", "pyReCo Documentation", "Merten Stender", "manual")
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
