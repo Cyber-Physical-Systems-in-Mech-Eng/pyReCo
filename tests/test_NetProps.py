@@ -1,7 +1,7 @@
 import pytest
-# from pyReCo.skeleton import fib, main
+#from pyreco.skeleton import fib, main
 import numpy as np
-from utils_networks import compute_density
+from pyreco.utils_networks import compute_density
 
 
 __author__ = "Manish Yadav"
