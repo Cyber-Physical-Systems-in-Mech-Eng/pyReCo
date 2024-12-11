@@ -2,4 +2,5 @@
 Contributors
 ============
 
-* klara_susanna <disson@campus.tu-berlin.de>
+* Merten Stender <merten.stender@tu-berlin.de>
+* Manish Yadav <manish.yadav@tu-berlin.de>
