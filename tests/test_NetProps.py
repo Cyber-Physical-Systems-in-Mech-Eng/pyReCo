@@ -152,3 +152,5 @@ def test_set_spec_rad():
     new_spec_rad = 1.0
     with pytest.raises(TypeError):
         set_spec_rad(network, new_spec_rad)
+
+        
