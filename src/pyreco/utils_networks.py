@@ -60,6 +60,10 @@ def compute_density(network: np.ndarray) -> float:
     if type(network) is not np.ndarray:
         raise (TypeError('Expect a np.ndarray as reservoir network'))
 
+    # check if the matrix is square
+    if network.shape[0] != network.shape[1]:    
+        raise (ValueError('Expect network of square size!'))
+
     N = len(network)
     num_links = np.sum(network.flatten()>0)
     return num_links / (N**2)
