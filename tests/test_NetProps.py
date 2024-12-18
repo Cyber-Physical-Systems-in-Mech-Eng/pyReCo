@@ -112,3 +112,43 @@ def test_compute_spec_rad():
                [1, 0, 0]]
     with pytest.raises(TypeError):
         compute_spec_rad(network)
+
+
+def test_set_spec_rad():
+    # Test with a 2x2 matrix
+    network = np.array([[0, 1],
+                        [1, 0]])
+    new_spec_rad = 2.0
+    with pytest.warns(Warning, match="a spectral radius larger than 1 is unusual!"):
+        modified_network = set_spec_rad(network, new_spec_rad)
+        assert compute_spec_rad(modified_network) == pytest.approx(new_spec_rad)
+
+    # Test with a 3x3 matrix
+    network = np.array([[0, 1, 0],
+                        [0, 0, 1],
+                        [1, 0, 0]])
+    new_spec_rad = 1.5
+    with pytest.warns(Warning, match="a spectral radius larger than 1 is unusual!"):
+        modified_network = set_spec_rad(network, new_spec_rad)
+        assert compute_spec_rad(modified_network) == pytest.approx(new_spec_rad)
+
+    # Test with an empty matrix (should raise ValueError)
+    network = np.zeros((3, 3))
+    new_spec_rad = 1.0
+    with pytest.raises(ValueError):
+        set_spec_rad(network, new_spec_rad)
+
+    # Test with a non-square matrix (should raise ValueError)
+    network = np.array([[0, 1, 0],
+                        [0, 0, 1]])
+    new_spec_rad = 1.0
+    with pytest.raises(ValueError):
+        set_spec_rad(network, new_spec_rad)
+
+    # Test with a non-numpy array input (should raise TypeError)
+    network = [[0, 1, 0],
+               [0, 0, 1],
+               [1, 0, 0]]
+    new_spec_rad = 1.0
+    with pytest.raises(TypeError):
+        set_spec_rad(network, new_spec_rad)
