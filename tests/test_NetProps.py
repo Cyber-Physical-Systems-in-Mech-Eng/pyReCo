@@ -5,12 +5,9 @@ from pyreco.utils_networks import compute_density
 
 
 
-
-
 __author__ = "Manish Yadav"
 __copyright__ = "Manish Yadav"
 __license__ = "MIT"
-
 
 
 
