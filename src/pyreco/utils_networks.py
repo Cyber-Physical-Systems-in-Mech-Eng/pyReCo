@@ -55,6 +55,7 @@ def gen_ER_graph(nodes: int, density: float, spec_rad: float = 0.9, directed: bo
 
     return graph
 
+
 def compute_density(network: np.ndarray) -> float:
     # compute density of a given adjacency matrix by the fraction of non-zero entries over  N^2
     if type(network) is not np.ndarray:
