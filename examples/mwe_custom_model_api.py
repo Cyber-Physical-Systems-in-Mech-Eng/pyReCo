@@ -1,21 +1,5 @@
 import numpy as np
 from matplotlib import pyplot as plt
-
-
-import sys
-import os
-import platform
-
-# make pyreco available locally
-if platform.system() == 'Windows':  # WINDOWS
-    curr_loc = os.getcwd()
-    pyreco_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
-    sys.path.append(pyreco_path)
-elif platform.system() == 'Darwin':  # MAC
-    curr_loc = os.getcwd()
-    pyreco_path = curr_loc + '/src'
-    sys.path.append(pyreco_path)
-
 from pyreco.custom_models import RC
 from pyreco.layers import InputLayer, ReadoutLayer
 from pyreco.layers import RandomReservoirLayer
@@ -31,8 +15,8 @@ t = np.linspace(start=0, stop=3 * (2*np.pi/omega), num=300, endpoint=True)
 x = np.sin(omega * t)
 y = 2 * np.cos(omega * t)
 
-x_train = np.expand_dims(x, axis=(0,2))  # obtain shape of [n_batch, n_time, n_states]
-y_train = np.expand_dims(y, axis=(0,2))
+x_train = np.expand_dims(x, axis=(0, 2))  # obtain shape of [n_batch, n_time, n_states]
+y_train = np.expand_dims(y, axis=(0, 2))
 
 # set the dimensions
 input_shape = (x_train.shape[1], x_train.shape[2])
