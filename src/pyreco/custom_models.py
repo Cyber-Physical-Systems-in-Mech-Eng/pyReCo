@@ -246,8 +246,8 @@ class CustomModel(ABC):
         n_scores = np.zeros(n_init)
         n_res_states = [] if store_states else None
         
-        # Get loss function
-        loss_fun = self.metrics_fun[0] if self.metrics_fun else assign_metric('mean_squared_error')
+        # Get metric functions that scores the model performance
+        metric_fun = self.metrics_fun[0] if self.metrics_fun else assign_metric('mean_squared_error')
         
         # Batch process multiple initializations
         for i in range(n_init):
@@ -279,12 +279,15 @@ class CustomModel(ABC):
             # Reshape targets efficiently
             b = y.reshape(n_batch * n_time, n_states_out)
             
-            # Solve regression and store weights
-            self.readout_layer.weights = self.optimizer.solve(A=A, b=b)
-            n_weights[i] = self.readout_layer.weights
+            # Solve regression problem y = W_out * R 
+            if n_batch == 1:
+                self.readout_layer.weights = np.expand_dims(self.optimizer.solve(A=A, b=b), axis=-1)
+            else:
+                self.readout_layer.weights = self.optimizer.solve(A=A, b=b)
+            n_weights[i] = self.readout_layer.weights  # store weights for this initialization
             
             # Compute score
-            n_scores[i] = loss_fun(y, self.predict(X=X))
+            n_scores[i] = metric_fun(y, self.predict(X=X))
             
             if store_states:
                 n_res_states.append(reservoir_states)

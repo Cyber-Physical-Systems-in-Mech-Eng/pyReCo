@@ -6,8 +6,8 @@ import platform
 from pyreco.models import ReservoirComputer as RC
 
 """+
-generate some training data: map a sine to a cosine (learn a phase shift) with signal amplification (learn to increase 
-the amplitude in the targets)
+generate some training data: map a sine to a cosine (learn a phase shift) with signal 
+amplification (learn to increase the amplitude in the targets)
 """
 
 # generate 3 cycles of a sine (input) and of a cosine (output)
