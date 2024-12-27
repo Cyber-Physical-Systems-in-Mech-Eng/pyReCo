@@ -109,7 +109,7 @@ score_rc = mse(y_true=y_test, y_pred=y_pred_rc)
 print(f"validation L2 scores: \t\t ANN: {score_ann:.4f} \t RC: {score_rc:.4f}")
 print(f"training time [s]: \t\t ANN: {t_ann:.4f} \t RC: {t_rc:.4f}")
 print(
-    f"number trainable weights: \t ANN: {model_ann.count_params()} \t RC: {model_rc.trainable_weights}"
+    f"number trainable weights: \t ANN: {model_ann.count_params()} \t RC: {model_rc.num_trainable_weights}"
 )
 
 """

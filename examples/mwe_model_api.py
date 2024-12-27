@@ -1,14 +1,10 @@
 import numpy as np
 from matplotlib import pyplot as plt
-import sys
-import os
-import platform
 from pyreco.models import ReservoirComputer as RC
+from pyreco.plotting import r2_scatter
 
-"""+
-generate some training data: map a sine to a cosine (learn a phase shift) with signal 
-amplification (learn to increase the amplitude in the targets)
-"""
+# generate some training data: map a sine to a cosine (learn a phase shift) with signal
+# amplification (learn to increase the amplitude in the targets)
 
 # generate 3 cycles of a sine (input) and of a cosine (output)
 omega = np.pi
@@ -39,6 +35,4 @@ plt.tight_layout()
 plt.show()
 
 # plot an R^2 - like graphic
-from pyreco.plotting import r2_scatter
-
 r2_scatter(y_train, y_pred)
