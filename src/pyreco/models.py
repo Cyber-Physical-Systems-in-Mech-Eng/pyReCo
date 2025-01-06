@@ -18,7 +18,7 @@ from .metrics import mse, mae
 
 class Model(ABC):
 
-    def __init__(self, activation: str = 'tanh', leakage_rate: float = 0.3):
+    def __init__(self, activation: str = "tanh", leakage_rate: float = 0.3):
         # basic architectural hyperparameters
         self.activation: str = activation
         self.leakage_rate: float = leakage_rate
@@ -35,12 +35,12 @@ class Model(ABC):
         # returns predictions for new input data
         pass
 
-    def compile(self, optimizer: str = 'ridge', metrics: list = ['mse']):
+    def compile(self, optimizer: str = "ridge", metrics: list = ["mse"]):
         # sets up things like optimizer and metrics (like in TensorFlow)
         self.optimizer = optimizer
         self.metrics = metrics
 
-    def evaluate(self, X: np.ndarray, y: np.ndarray, metrics: str|list = ['mse']):
+    def evaluate(self, X: np.ndarray, y: np.ndarray, metrics: str | list = ["mse"]):
         # let model run predictions for input data X and return the metrics against the ground truth y
         pass
 
@@ -55,8 +55,8 @@ class Model(ABC):
     def get_params(self, deep=True):
         # needed for scikit-learn compatibility
         return {
-            'activation': self.activation,
-            'leakage_rate': self.leakage_rate,
+            "activation": self.activation,
+            "leakage_rate": self.leakage_rate,
             # 'optimizer': self.optimizer,
             # 'metrics_available': self.metrics_available,
             # 'metrics': self.metrics,
@@ -71,22 +71,23 @@ A classical Reservoir Computer (basic vanilla version)
 class ReservoirComputer(Model):
     # implements a very classic random reservoir
 
-    def __init__(self,
-                 num_nodes: int = 100,
-                 density: float = 0.8,
-                 activation: str = 'tanh',
-                 leakage_rate: float = 0.5,
-                 spec_rad: float = 0.9,
-                 fraction_input: float = 1.0,
-                 fraction_output: float = 1.0,
-                 n_time_out=None,
-                 n_time_in=None,
-                 n_states_in=None,
-                 n_states_out=None,
-                 metrics: Union[str, list] = 'mean_squared_error',
-                 optimizer: str = 'ridge',
-                 init_res_sampling='random_normal'
-                 ):
+    def __init__(
+        self,
+        num_nodes: int = 100,
+        density: float = 0.8,
+        activation: str = "tanh",
+        leakage_rate: float = 0.5,
+        spec_rad: float = 0.9,
+        fraction_input: float = 1.0,
+        fraction_output: float = 1.0,
+        n_time_out=None,
+        n_time_in=None,
+        n_states_in=None,
+        n_states_out=None,
+        metrics: Union[str, list] = "mean_squared_error",
+        optimizer: str = "ridge",
+        init_res_sampling="random_normal",
+    ):
         # initialize parent class
         super().__init__(activation=activation, leakage_rate=leakage_rate)
 
@@ -112,7 +113,9 @@ class ReservoirComputer(Model):
         # create a RC from a random reservoir. We do not know about the shapes of input and output at this stage
         self.model = RC()
 
-    def fit(self, X: np.ndarray, y: np.ndarray, n_init: int = 1, store_states: bool = False):
+    def fit(
+        self, X: np.ndarray, y: np.ndarray, n_init: int = 1, store_states: bool = False
+    ):
         # Computes the model weights (readout matrix) through fitting the training data.
 
         # expects data in particular format that is reasonable for univariate/multivariate time series data
@@ -127,7 +130,7 @@ class ReservoirComputer(Model):
             raise ValueError("Complex data not supported")
 
         # check for object data types
-        if X.dtype == 'O' or y.dtype == 'O':
+        if X.dtype == "O" or y.dtype == "O":
             raise TypeError("Data type 'object' not supported")
 
         # obtain the input and output shapes
@@ -140,26 +143,26 @@ class ReservoirComputer(Model):
 
         # compose a model from layers. The model was instantiated in the __init__
         self.model.add(InputLayer(input_shape=input_shape))
-        self.model.add(RandomReservoirLayer(nodes=self.num_nodes,
-                                            density=self.density,
-                                            activation=self.activation,
-                                            leakage_rate=self.leakage_rate,
-                                            spec_rad=self.spec_rad,
-                                            fraction_input=self.fraction_input,
-                                            init_res_sampling=self.init_res_sampling)
-                       )
+        self.model.add(
+            RandomReservoirLayer(
+                nodes=self.num_nodes,
+                density=self.density,
+                activation=self.activation,
+                leakage_rate=self.leakage_rate,
+                spec_rad=self.spec_rad,
+                fraction_input=self.fraction_input,
+                init_res_sampling=self.init_res_sampling,
+            )
+        )
         self.model.add(ReadoutLayer(output_shape, fraction_out=self.fraction_output))
 
         # compile the model
-        self.model.compile(optimizer=self.optimizer,
-                           metrics=self.metrics)
+        self.model.compile(optimizer=self.optimizer, metrics=self.metrics)
 
         # fit to training data
-        history = self.model.fit(X=X, y=y,
-                                 n_init=n_init,
-                                 store_states=store_states)
+        history = self.model.fit(X=X, y=y, n_init=n_init, store_states=store_states)
 
-        self.trainable_weights = self.model.trainable_weights
+        self.trainable_weights = self.model.num_trainable_weights
 
         return history
 
@@ -174,7 +177,7 @@ class ReservoirComputer(Model):
         #
 
         # check for object data types in X
-        if X.dtype == 'O':
+        if X.dtype == "O":
             raise TypeError("Data type 'object' not supported")
 
         # check for complex data types
@@ -185,7 +188,7 @@ class ReservoirComputer(Model):
 
         return y_pred
 
-    def evaluate(self, X: np.ndarray, y: np.ndarray, metrics: list = ['mse']):
+    def evaluate(self, X: np.ndarray, y: np.ndarray, metrics: list = ["mse"]):
         # let model run predictions for input data X and return the metrics against the ground truth y
         metric_values = self.model.evaluate(X=X, y=y, metrics=metrics)
 
@@ -194,15 +197,15 @@ class ReservoirComputer(Model):
     def get_params(self, deep=True):
         # needed for scikit-learn compatibility
         return {
-            'num_nodes': self.num_nodes,
-            'density': self.density,
-            'fraction_input': self.fraction_input,
-            'fraction_output': self.fraction_output,
-            'n_time_out': self.n_time_out,
-            'n_time_in': self.n_time_in,
-            'n_states_in': self.n_states_in,
-            'n_states_out': self.n_states_out,
-            'model': self.model
+            "num_nodes": self.num_nodes,
+            "density": self.density,
+            "fraction_input": self.fraction_input,
+            "fraction_output": self.fraction_output,
+            "n_time_out": self.n_time_out,
+            "n_time_in": self.n_time_in,
+            "n_states_in": self.n_states_in,
+            "n_states_out": self.n_states_out,
+            "model": self.model,
         }
 
     def set_params(self, **get_params):
