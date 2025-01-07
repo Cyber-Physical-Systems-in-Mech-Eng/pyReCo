@@ -1,9 +1,6 @@
-# pyReCo
+# **pyReCo**
 
 **A Reservoir Computing Library for Time Series Forecasting and Research**
-
-
-**[Official Documentation](https://cyber-physical-systems-in-mech-eng.github.io/pyReCo/index.html)**
 
 pyReCo is built by researchers for researchers: we aim to develop new RC methods that allow for fast and efficient learning for sequential data. The main focus is time series prediction, mostly performed in an auto-regressive fashion based on learning discrete flow maps. Another core aspect that motivates the implementation of a new library is *structure-function-relationships* in functional networks. pyReCo allows to implement novel ways to generate better reservoir networks than the classical random choice.  Overview of the core capabilities of pyReCo:
 
@@ -14,15 +11,22 @@ pyReCo is built by researchers for researchers: we aim to develop new RC methods
 
 **Compatability**: ResPy follows the syntax of scikit-learn (pyReCo Model-API), such that an estimator has the methods `.fit()` and `.predict()`. Any more experimental modeling can be realised by pyReCo's CustomModel-API, which follows TensorFlow's Sequential-API: a custom pyReCo model is compiled using `model.add()` functions for stacking different layers.  
 
-#### Installation
-Simply use pip, or get the source files from this repo.
+## **Table of Contents**
 
-```
-pip install pyreco
-```
+1. [About the Developers](#about-the-developers)
+2. [Usage](#usage)
+3. [Installation](#installation)
+5. [Documentation](#documentation)
+6. [Background and Supplementary Material](#background-and-supplementary-material)
+
+## **About the Developers**
+
+This library is developed by the [Cyber-Physical Systems in Mechanical Engineering (CPSME)](https://www.tu.berlin/cpsme) research group at TU Berlin, led by Prof. Merten Stender. The group specializes in Digital Twins, Dynamics and Artificial Intelligence, and Hybrid Simulation.
 
 
-## Minimal Working Examples
+## Usage
+
+### Minimal Working Examples
 
 ### Model API
 The ModelAPI is the simplest way to use one of the predefined RC models for training and prediction. The Model class follows the syntax of scikit-learn, such that an estimator has the methods `.fit()`, `.predict()`, and `.evaluate()`.
@@ -118,6 +122,20 @@ metric_value = model.evaluate(X=x_train, y=y_train, metrics=['mse','mae'])
 print(f'scores:{metric_value}')
 ```
 
+
+## Installation
+Simply use pip, or get the source files from this repo.
+
+```
+pip install pyreco
+```
+
+
+## Documentation
+
+The official pyReCo documentation can be found here: **[Official Documentation](https://cyber-physical-systems-in-mech-eng.github.io/pyReCo/index.html)**.
+
+
 ## Background and Supplementary Material
 
 ### Introductory material to reservoir computing and echo state networks
@@ -129,5 +147,4 @@ print(f'scores:{metric_value}')
 - [PYRCN](https://github.com/TUD-STKS/PyRCN/)
 - [EchoTorch](https://github.com/nschaetti/EchoTorch)
 - [list of more packages](https://github.com/topics/reservoir-computing)
-
 
