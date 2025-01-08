@@ -2,39 +2,46 @@
 pyReCo
 ======
 
-This is the documentation of **pyReCo**.
+This is the official documentation of **pyReCo**. pyReCo is a Python Reservoir Computing Library for Time Series Forecasting and Research created by `CPSME TU Berlin <https://www.tu.berlin/en/cpsme>`_.
 
-.. note::
-
-    This is the main page of your project's `Sphinx`_ documentation.
-    It is formatted in `reStructuredText`_. Add additional pages
-    by creating rst-files in ``docs`` and adding them to the `toctree`_ below.
-    Use then `references`_ in order to link them from this page, e.g.
-    :ref:`authors` and :ref:`changes`.
-
-    It is also possible to refer to the documentation of other Python packages
-    with the `Python domain syntax`_. By default you can reference the
-    documentation of `Sphinx`_, `Python`_, `NumPy`_, `SciPy`_, `matplotlib`_,
-    `Pandas`_, `Scikit-Learn`_. You can add more by extending the
-    ``intersphinx_mapping`` in your Sphinx's ``conf.py``.
-
-    The pretty useful extension `autodoc`_ is activated by default and lets
-    you include documentation from docstrings. Docstrings can be written in
-    `Google style`_ (recommended!), `NumPy style`_ and `classical style`_.
-
-
-Contents
-========
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
+   :caption: About
 
-   Overview <readme>
-   Contributions & Help <contributing>
-   License <license>
-   Authors <authors>
-   Changelog <changelog>
-   Module Reference <api/modules>
+   README
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Installation / Getting started
+
+   INSTALLATION
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Documentation: Modules and Functions
+
+   api/modules
+
+.. toctree::
+   :maxdepth: 1
+   :caption: News and Changes
+
+   NEWS
+   CHANGELOG
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Contributers and Licenses
+
+   authors
+   license
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Contributing and Help
+
+   contributing
 
 
 Indices and tables
