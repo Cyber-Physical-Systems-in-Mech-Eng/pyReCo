@@ -5,13 +5,7 @@ import copy
 import multiprocessing
 from functools import partial
 
-from .remove_transients import (
-    TransientRemover,
-    RemoveTransients_Res,
-    RemoveTransient_Inps,
-    RemoveTransient_Outs,
-)
-from .layers import (
+from pyreco.layers import (
     Layer,
     InputLayer,
     ReservoirLayer,
@@ -27,7 +21,7 @@ from .utils_networks import (
     get_num_nodes,
     # compute_spec_rad,
 )
-from .metrics import assign_metric
+# from .metrics import assign_metric
 from .network_prop_extractor import NetworkQuantifier  # NodePropExtractor
 
 
@@ -203,7 +197,7 @@ class CustomModel(ABC):
             input_nodes = nodes
 
         # mask the input weights matrix to only have the selected nodes
-        mask = np.zeros_like(self.input_layer.weights)
+        mask = np.zeros_like(full_input_weights) 
         mask[:, input_nodes] = 1
         self.input_layer.weights = full_input_weights * mask
 
@@ -305,7 +299,8 @@ class CustomModel(ABC):
 
         # Batch process multiple initializations
         for i in range(n_init):
-            print(f"initialization {i}/{n_init}: computing reservoir states")
+            if n_init > 1:
+                print(f"initialization {i}/{n_init}: computing reservoir states")
 
             # Set initial states
             self._set_init_states(method=self.reservoir_layer.init_res_sampling)
@@ -346,9 +341,14 @@ class CustomModel(ABC):
                 )
             else:
                 self.readout_layer.weights = self.optimizer.solve(A=A, b=b)
-            n_weights[i] = (
-                self.readout_layer.weights
-            )  # store weights for this initialization
+
+            # is there is only a single system state to predict, we need to add that dim
+            # TODO: move this to the sanity checks and add an artificial dimension prior to fitting!
+            if self.readout_layer.weights.ndim == 1:
+                self.readout_layer.weights = np.expand_dims(self.readout_layer.weights, axis=-1)
+
+            # store weights for this initialization
+            n_weights[i] = self.readout_layer.weights
 
             # Compute score
             n_scores[i] = metric_fun(y, self.predict(X=X))

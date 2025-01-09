@@ -7,7 +7,7 @@ from pyreco.plotting import r2_scatter
 
 """
 generate some training data: map a sine to a cosine (learn a phase shift) with signal
-amplification (learn to increase the amplitude in the targets)
+amplification (learn to increase amplitude in the targets)
 """
 
 # generate 3 cycles of a sine (input) and of a cosine (output)
