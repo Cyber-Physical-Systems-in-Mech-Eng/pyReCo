@@ -10,7 +10,7 @@ import os
 import platform
 
 
-"""+
+"""
 generate some training data: map a sine to a cosine (learn a phase shift) with signal amplification (learn to increase 
 the amplitude in the targets)
 """

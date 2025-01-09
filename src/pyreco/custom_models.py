@@ -342,7 +342,7 @@ class CustomModel(ABC):
             else:
                 self.readout_layer.weights = self.optimizer.solve(A=A, b=b)
 
-            # is there is only a single system state to predict, we need to add that dimensionality
+            # is there is only a single system state to predict, we need to add that dim
             # TODO: move this to the sanity checks and add an artificial dimension prior to fitting!
             if self.readout_layer.weights.ndim == 1:
                 self.readout_layer.weights = np.expand_dims(self.readout_layer.weights, axis=-1)
