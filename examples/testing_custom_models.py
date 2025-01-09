@@ -7,16 +7,6 @@ import sys
 import os
 import platform
 
-# make pyReCo available locally
-if platform.system() == 'Windows':  # WINDOWS
-    curr_loc = os.getcwd()
-    pyreco_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
-    sys.path.append(pyreco_path)
-elif platform.system() == 'Darwin':  # MAC
-    curr_loc = os.getcwd()
-    pyreco_path = curr_loc + '/src'
-    sys.path.append(pyreco_path)
-
 from pyreco.custom_models import RC as RC
 from pyreco.layers import InputLayer, ReadoutLayer
 from pyreco.layers import RandomReservoirLayer
@@ -31,7 +21,7 @@ future
 """
 
 # some testing data: predict a sine signal.
-X_train, X_test, y_train, y_test = sequence_to_sequence(name='sine_pred', n_batch=20, n_states=1, n_time=200)
+X_train, X_test, y_train, y_test = sequence_to_sequence(name='sine_pred', n_batch=20, n_states=2, n_time=200)
 
 # set the dimensions (need to be [n_batch, n_time, n_states])
 input_shape = (X_train.shape[1], X_train.shape[2])

@@ -9,15 +9,6 @@ import sys
 import os
 import platform
 
-# make pyReCo available locally
-if platform.system() == 'Windows':  # WINDOWS
-    curr_loc = os.getcwd()
-    pyreco_path = os.path.join('C:\\',*curr_loc.split('\\')[1:-1], 'src')
-    sys.path.append(pyreco_path)
-elif platform.system() == 'Darwin':  # MAC
-    curr_loc = os.getcwd()
-    pyreco_path = curr_loc + '/src'
-    sys.path.append(pyreco_path)
 
 """+
 generate some training data: map a sine to a cosine (learn a phase shift) with signal amplification (learn to increase 
