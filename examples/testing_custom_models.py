@@ -12,7 +12,8 @@ from pyreco.layers import InputLayer, ReadoutLayer
 from pyreco.layers import RandomReservoirLayer
 from pyreco.plotting import r2_scatter
 from pyreco.utils_data import scalar_to_scalar, vector_to_vector, sequence_to_sequence, x_to_x
-from sklearn.linear_model import Ridge
+# from sklearn.linear_model import Ridge
+from pyreco.optimizers import RidgeSK
 
 """
 Classic RC built on random networks. 
@@ -35,7 +36,7 @@ model_rc.add(ReadoutLayer(output_shape, fraction_out=0.99))
 
 # Compile the model
 discard_transients = 100
-optim = Ridge(alpha=0.5)
+optim = RidgeSK(alpha=0.5)
 model_rc.compile(optimizer=optim, metrics=['mean_squared_error'], discard_transients=discard_transients)
 
 # Train the model

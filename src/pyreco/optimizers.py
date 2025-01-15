@@ -37,12 +37,12 @@ def assign_optimizer(optimizer: str):
     if optimizer == 'ridge':
         return RidgeSK()
     
-    if isinstance(optimizer, RidgeSK):
+    if isinstance(optimizer, Optimizer):
         return optimizer
     
-    if isinstance(optimizer, Ridge):
-        return optimizer
+    # if isinstance(optimizer, Ridge):
+    #     return optimizer
 
     # TODO: add more solvers (sparsity promoting, ...)
     else:
-        raise (ValueError('{self.optimizer} not implemented! Check optimizers.py and assign_optimizers()'))
+        raise (ValueError(f'{optimizer} not implemented! Check optimizers.py and assign_optimizers()'))
