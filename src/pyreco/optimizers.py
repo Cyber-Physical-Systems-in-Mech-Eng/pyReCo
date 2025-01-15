@@ -36,6 +36,12 @@ def assign_optimizer(optimizer: str):
     # maps names of optimizers to the correct implementation.
     if optimizer == 'ridge':
         return RidgeSK()
+    
+    if isinstance(optimizer, RidgeSK):
+        return optimizer
+    
+    if isinstance(optimizer, Ridge):
+        return optimizer
 
     # TODO: add more solvers (sparsity promoting, ...)
     else:
