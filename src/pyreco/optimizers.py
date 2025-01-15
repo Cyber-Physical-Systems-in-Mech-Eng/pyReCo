@@ -32,11 +32,35 @@ class RidgeSK(Optimizer):
         return W_out
 
 
-def assign_optimizer(optimizer: str):
+def assign_optimizer(optimizer: str or Optimizer) -> Optimizer:
+    """
+    Maps names of optimizers to the correct implementation.
+
+    Parameters
+    ----------
+    optimizer : str or Optimizer
+        The name of the optimizer.
+
+    Returns
+    -------
+    Optimizer
+        An instance of the optimizer class corresponding to the given name.
+
+    Raises
+    ------
+    ValueError
+        If the given optimizer name is not implemented.
+    """
     # maps names of optimizers to the correct implementation.
     if optimizer == 'ridge':
         return RidgeSK()
+    
+    if isinstance(optimizer, Optimizer):
+        return optimizer
+    
+    # if isinstance(optimizer, Ridge):
+    #     return optimizer
 
     # TODO: add more solvers (sparsity promoting, ...)
     else:
-        raise (ValueError('{self.optimizer} not implemented! Check optimizers.py and assign_optimizers()'))
+        raise (ValueError(f'{optimizer} not implemented! Check optimizers.py and assign_optimizers()'))
