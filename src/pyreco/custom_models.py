@@ -691,6 +691,36 @@ class CustomModel(ABC):
             metric_values.append(float(_metric_fun(y, y_pred)))
 
         return metric_values
+    
+
+    ######Auto-Regressive RC Architecture Functions#############################################################
+    # @abstractmethod
+    def ar_predict(
+        self, X0: np.ndarray, n_steps: int) -> tuple:
+        """
+        Make autonomous RC predictions for n_steps starting from initial conditions X0.
+
+        Args:
+        X (np.ndarray): Input data of shape [n_batch, n_timestep, n_states]
+        one_shot (bool): If True, don't re-initialize reservoir between samples.
+
+        Returns:
+        np.ndarray: Predictions of shape [n_batch, n_timestep, n_states]
+        """
+        
+        y_pred=[]
+        for n in range(n_steps):
+            y_pred_n = self.predict(X0)
+            
+            y_pred.append(y_pred_n)
+            X0 = y_pred_n
+        
+            ### Imp!!! Need to reshape y_pred back from [n_batch, n_time_out, n_states_out] (that is being returned from predict function)
+            ### before X0 = y_pred_n
+
+        return np.asarray(y_pred)
+
+    ############################################################################################################
 
     # @abstractmethod
     def get_params(self, deep=True):
