@@ -267,11 +267,7 @@ class CustomModel(ABC):
         input_contrib = np.einsum("ij,btj->bti", W_in.T, X)
         for t in range(n_time):
             reservoir_contrib = np.einsum("ij,bj->bi", A, states[:, t])
-            states[:, t + 1] = (1 - alpha) * states[
-                :, t
-            ] + alpha * self.reservoir_layer.activation_fun(
-                reservoir_contrib + input_contrib[:, t]
-            )
+            states[:, t+1] = (1 - alpha)*states[:, t] + alpha*self.reservoir_layer.activation_fun(reservoir_contrib + input_contrib[:, t])
 
         return states[:, 1:].reshape(-1, N)
 
@@ -575,6 +571,81 @@ class CustomModel(ABC):
         return history, best_model
 
     # @abstractmethod
+    # def predict(self, X: np.ndarray) -> np.ndarray:
+    #     """
+    #     Make predictions for given input (single-step prediction).
+
+    #     Args:
+    #     X (np.ndarray): Input data of shape [n_batch, n_timestep, n_states]
+    #     one_shot (bool): If True, don't re-initialize reservoir between samples.
+
+    #     Returns:
+    #     np.ndarray: Predictions of shape [n_batch, n_timestep, n_states]
+    #     """
+    #     # makes prediction for given input (single-step prediction)
+    #     # expects inputs of shape [n_batch, n_timestep, n_states]
+    #     # returns predictions in shape of [n_batch, n_timestep, n_states]
+
+    #     # one_shot = True will *not* re-initialize the reservoir from sample to sample. Introduces a dependency on the
+    #     # sequence by which the samples are given
+
+    #     # TODO Merten: return some random number that have the correct shape
+
+    #     # TODO: external function that is going to check the dimensionality
+    #     # and raise an error if shape is not correct
+    #     n_batch, n_time, n_states = X.shape[0], X.shape[1], X.shape[2]
+    #     n_nodes = self.reservoir_layer.nodes
+
+    #     # iterate over batch to obtain predictions
+    #     reservoir_states = self.compute_reservoir_state(X)
+
+    #     # Removing transients AKA Warm-up and update time
+    #     # TODO: this is a lot of boilerplate code. @Juan reuse the function from .fit
+    #     if self.discard_transients >= n_time:
+    #         raise ValueError(
+    #             f"Cannot discard {self.discard_transients} as the number of time steps is {n_time}"
+    #         )
+    #     if self.discard_transients > 0:
+
+    #         # removes the first <discard_transients> from the reservoir states and from the targets
+    #         # reservoir_states.shape is 2d, as we concatenated along the batch dimension: [n_time * n_batch, n_nodes]
+    #         # hence we have to remove slices from the state matrix, or re-shape it into 3D, cut off some time steps
+    #         # for each batch, and then reshape to 2D again.
+    #         # TODO: please check if the reshaping really is correct, i.e. such that the first n_time entries of reservoir_states are the continuous reservoir states!
+    #         indices_to_remove = discard_transients_indices(
+    #             n_batch, n_time, self.discard_transients
+    #         )
+    #         reservoir_states = np.delete(reservoir_states, indices_to_remove, axis=0)
+    #         # now the array should have the size of (n_batch*(n_time-discard), n_nodes)
+
+    #         # update the value of n_time
+    #         n_time = -self.discard_transients
+
+    #         # reservoir_states, X, y = TransientRemover('RXY', reservoir_states, X, y, self.discard_transients)
+
+    #     # make predictions y = R * W_out, W_out has a shape of [n_out, N]
+    #     y_pred = np.dot(reservoir_states, self.readout_layer.weights)
+
+    #     # reshape predictions into 3D [n_batch, n_time_out, n_state_out]
+    #     n_time_out = int(y_pred.shape[0] / n_batch)
+    #     n_states_out = y_pred.shape[-1]
+    #     y_pred = y_pred.reshape(n_batch, n_time_out, n_states_out)
+
+    #     return y_pred
+
+    def reshape_y_pred_3D(self, y_pred, n_batch: int):
+        """
+        Reshape predictions into 3D [n_batch, n_time_out, n_state_out]
+
+        Returns:
+        np.ndarray: Predictions (y_pred) of shape [n_batch, n_timestep, n_states]
+        """
+        n_time_out = int(y_pred.shape[0] / n_batch)
+        n_states_out = y_pred.shape[-1]
+        y_pred = y_pred.reshape(n_batch, n_time_out, n_states_out)
+
+        return y_pred
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
         Make predictions for given input (single-step prediction).
@@ -629,13 +700,13 @@ class CustomModel(ABC):
 
         # make predictions y = R * W_out, W_out has a shape of [n_out, N]
         y_pred = np.dot(reservoir_states, self.readout_layer.weights)
-
+        
         # reshape predictions into 3D [n_batch, n_time_out, n_state_out]
-        n_time_out = int(y_pred.shape[0] / n_batch)
-        n_states_out = y_pred.shape[-1]
-        y_pred = y_pred.reshape(n_batch, n_time_out, n_states_out)
+        y_pred = self.reshape_y_pred_3D(y_pred, n_batch)
 
         return y_pred
+
+
 
     # @abstractmethod
     def evaluate(
@@ -694,32 +765,53 @@ class CustomModel(ABC):
     
 
     ######Auto-Regressive RC Architecture Functions#############################################################
-    # @abstractmethod
-    def ar_predict(
-        self, X0: np.ndarray, n_steps: int) -> tuple:
+    
+    def ar_predict(self, X0: np.ndarray, max_steps: int, feedback_states: list|int|tuple = None) -> np.ndarray:
         """
-        Make autonomous RC predictions for n_steps starting from initial conditions X0.
+        Make predictions for given input (single-step prediction).
 
         Args:
         X (np.ndarray): Input data of shape [n_batch, n_timestep, n_states]
-        one_shot (bool): If True, don't re-initialize reservoir between samples.
+        feedback_states : user specify which dim/states of the output will be feed back for autonomous loop
 
         Returns:
         np.ndarray: Predictions of shape [n_batch, n_timestep, n_states]
         """
-        
-        y_pred=[]
-        for n in range(n_steps):
-            y_pred_n = self.predict(X0)
-            
-            y_pred.append(y_pred_n)
-            X0 = y_pred_n
-        
-            ### Imp!!! Need to reshape y_pred back from [n_batch, n_time_out, n_states_out] (that is being returned from predict function)
-            ### before X0 = y_pred_n
+        ### Run autonomous-Reservoir
+        # states = self.compute_reservoir_state(X)
 
-        return np.asarray(y_pred)
+        # Extract shapes and parameters
+        n_batch, n_time, n_states = X0.shape
+        # N = self.reservoir_layer.nodes
+        activation = self.reservoir_layer.activation_fun
+        alpha = self.reservoir_layer.leakage_rate
+        A = self.reservoir_layer.weights
+        W_in = self.input_layer.weights
+        print('Win shape:', W_in.shape)
+        if feedback_states is None:
+                feedback_states = np.arange(n_states)
 
+        Y_preds_t=np.zeros((n_batch, max_steps, n_states))
+
+        ## Pre-allocate arrays
+        states = self.reservoir_layer.initial_res_states
+        print('Init res state shape:', states.shape)
+        
+        for b in range(n_batch):
+            r_t = self.reservoir_layer.initial_res_states
+            u_t = X0[b,...]
+            for t in range(max_steps):
+                r_t1 = (1 - alpha)*r_t.reshape(-1, 1) + alpha*activation(np.dot(A, r_t.reshape(-1, 1)) + np.matmul(W_in.T,u_t.T) ) #W_in.T*u_t.T)
+        
+                y_pred = np.matmul(self.readout_layer.weights.T, r_t1)
+                                
+                r_t = r_t1 
+                u_t = y_pred[feedback_states].T
+                Y_preds_t[b] = y_pred.T
+
+        return Y_preds_t
+
+        
     ############################################################################################################
 
     # @abstractmethod
