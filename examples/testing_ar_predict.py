@@ -27,7 +27,10 @@ future
 # some testing data: predict a sine signal.
 ### n_batch is with different initial conditions
 ### n_states is with different frequency of the signal
-X_train, X_test, y_train, y_test = sequence_to_sequence(name='sine_pred', n_batch=20, n_states=2, n_time=200)
+
+####change task to scalar to scalar
+# X_train, X_test, y_train, y_test = sequence_to_sequence(name='sine_pred', n_batch=20, n_states=2, n_time=200)
+X_train, X_test, y_train, y_test = scalar_to_scalar(name='sine_pred', n_batch=20, n_time_in=1, n_time_out=1)
 
 # set the dimensions (need to be [n_batch, n_time, n_states])
 input_shape = (X_train.shape[1], X_train.shape[2])
@@ -35,7 +38,7 @@ output_shape = (y_train.shape[1], y_train.shape[2])
 
 model_rc = RC()
 model_rc.add(InputLayer(input_shape=input_shape))
-model_rc.add(RandomReservoirLayer(nodes=100, density=0.1, activation='sigmoid', leakage_rate=0.1 , fraction_input=0.5))
+model_rc.add(RandomReservoirLayer(nodes=100, density=0.5, activation='sigmoid', leakage_rate=0.1 , fraction_input=0.5))
 model_rc.add(ReadoutLayer(output_shape, fraction_out=0.99))
 
 # Compile the model
@@ -78,11 +81,11 @@ print(f'shape of autonomous predictions: {y_pred_auto.shape}')
 
 
 # plot predictions vs. ground truth
-r2_scatter(y_true=y_test[:,discard_transients:, :], y_pred=y_pred_auto)
+# r2_scatter(y_true=y_test[:,:, :], y_pred=y_pred_auto)
 
 plt.figure()
-plt.plot(y_test[0,discard_transients:,0], label='ground truth', marker='.')
-plt.plot(y_pred_auto[0,discard_transients:,0], label='autonomous predictions', marker='.')
+plt.plot(y_test[0,:,0], label='ground truth', marker='.')
+plt.plot(y_pred_auto[0,:,0], label='autonomous predictions', marker='.')
 plt.title('test set')
 plt.legend()
 plt.xlabel('time')

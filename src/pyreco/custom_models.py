@@ -807,7 +807,7 @@ class CustomModel(ABC):
                                 
                 r_t = r_t1 
                 u_t = y_pred[feedback_states].T
-                Y_preds_t[b] = y_pred.T
+                Y_preds_t[b,t,:] = y_pred.T
 
         return Y_preds_t
 
