@@ -26,9 +26,9 @@ n = len(x)
 shuffle_idx = np.random.choice(n, size=n, replace=False)
 train_idx, test_idx = shuffle_idx[:int(n * ratio)], shuffle_idx[int(n * ratio):]
 
-# split data and create data shape [n_batch, n_features]
-X_train, X_test = np.expand_dims(x[train_idx], axis=1), np.expand_dims(x[test_idx], axis=1)
-y_train, y_test = np.expand_dims(y[train_idx], axis=1), np.expand_dims(y[test_idx], axis=1)
+# split data and create data shape [n_batch, n_timesteps, n_features]
+X_train, X_test = np.expand_dims(x[train_idx], axis=(1, -1)), np.expand_dims(x[test_idx], axis=(1, -1))
+y_train, y_test = np.expand_dims(y[train_idx], axis=(1, -1)), np.expand_dims(y[test_idx], axis=(1, -1))
 print(f'shape of training data: {X_train.shape}, shape of test data: {y_test.shape}')
 
 """
@@ -86,16 +86,3 @@ y_pred_rc = model_rc.predict(X_test)                          # Make predictions
 loss_rc = model_rc.evaluate(X_test, y_test)                       # Evaluate the model
 print(f'Test model loss: {loss_rc}')
 
-"""
-Evaluate prediction results
-"""
-
-fig = plt.figure()
-plt.plot([np.min(y_test), np.max(y_test)], [np.min(y_test), np.max(y_test)], color='gray', linestyle='dashed')
-plt.plot(y_test, y_pred_ann, linestyle='none', marker='.', color='blue', label='feed-forward ANN')
-# plt.plot(y_test, y_pred_rc, linestyle='none', marker='.', color='red', label='RC')
-plt.xlabel('true')
-plt.ylabel('predicted')
-plt.legend()
-plt.tight_layout()
-plt.show()

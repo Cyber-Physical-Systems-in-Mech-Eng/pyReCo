@@ -144,58 +144,78 @@ def sincos2(n_batch, n_time_in, n_time_out, n_states):
 """
 generate some training and testing data from the sine function. 
 
-CASE 1: scalar inputs, scalar outputs
 """
 
 
-def scalar_to_scalar(name, n_batch: int = 50, n_states=1, n_time_in=1, n_time_out=1):
+
+"""
+CASE 1: Vector to Vector
+"""
+
+def vector_to_vector(name, n_batch: int = 50, n_states=1):
+
+
+    assert type(n_states) is int
+
+    n_time_in = 1
+    n_time_out = 1
+
 
     # make sure to have at least 1 testing sample
     n_batch = np.max([n_batch, 2])
 
-    if name == 'sine_pred':
+    if name == 'sine_prediction':
         # single-step predict a sine signal
-        X_train, X_test, y_train, y_test = sine_pred(n_batch=n_batch, n_states=n_states, n_time_in=n_time_in, n_time_out=n_time_out)
+        X_train, X_test, y_train, y_test = sine_pred(n_batch=n_batch, 
+                                                     n_states=n_states, n_time_in=n_time_in, n_time_out=n_time_out)
 
     elif name == 'sine_to_cosine':
         # Map a sequence of sines to a sequence of cosines
-        X_train, X_test, y_train, y_test = sine_to_cosine(n_batch=n_batch, n_states=1,
-                                                          n_time_in=1, n_time_out=1)
+        X_train, X_test, y_train, y_test = sine_to_cosine(n_batch=n_batch, n_states=n_states,
+                                                          n_time_in=n_time_in, n_time_out=n_time_out)
         
-    elif name == 'sincos2':
+    elif name == 'sin_to_cos2':
         # Map a sequence of sines to a sequence of sinecosines
-        X_train, X_test, y_train, y_test = sincos2(n_batch=n_batch, n_states=1,
-                                                          n_time_in=1, n_time_out=1)
+        X_train, X_test, y_train, y_test = sincos2(n_batch=n_batch, n_states=n_states,
+                                                   n_time_in=n_time_in, n_time_out=n_time_out)
 
-    print(f'shape of inputs (training): {X_train.shape}, shape of outputs (training): {y_test.shape}')
+    print(f'shape of inputs (training): {X_train.shape}') 
+    print(f'shape of outputs (training): {y_test.shape}')
     return X_train, X_test, y_train, y_test
 
 
 """
-CASE 2: Vector to Vector
+CASE 2: Sequence to scalar
 """
 
 
-def vector_to_vector(name, n_batch: int = 50, n_states: int = 2):
+def sequence_to_scalar(name, n_batch: int = 50, n_states=1, n_time_in=2):
+
+    assert type(n_states) is int
+    assert type(n_time_in) is int
+
+    n_time_out = 1
 
     # make sure to have at least 1 testing sample
     n_batch = np.max([n_batch, 2])
 
-    if name == 'sine_pred':
-        # single-step predict a vector of sine signals
-        X_train, X_test, y_train, y_test = sine_pred(n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=1)
-    
+    if name == 'sine_prediction':
+        # single-step predict a sine signal
+        X_train, X_test, y_train, y_test = sine_pred(n_batch=n_batch, 
+                                                     n_states=n_states, n_time_in=n_time_in, n_time_out=n_time_out)
+
     elif name == 'sine_to_cosine':
         # Map a sequence of sines to a sequence of cosines
         X_train, X_test, y_train, y_test = sine_to_cosine(n_batch=n_batch, n_states=n_states,
-                                                          n_time_in=1, n_time_out=1)
-    
-    elif name == 'sincos2':
+                                                          n_time_in=n_time_in, n_time_out=n_time_out)
+        
+    elif name == 'sin_to_cos2':
         # Map a sequence of sines to a sequence of sinecosines
         X_train, X_test, y_train, y_test = sincos2(n_batch=n_batch, n_states=n_states,
-                                                          n_time_in=1, n_time_out=1)
+                                                   n_time_in=n_time_in, n_time_out=n_time_out)
 
-    print(f'shape of inputs (training): {X_train.shape}, shape of outputs (training): {y_test.shape}')
+    print(f'shape of inputs (training): {X_train.shape}') 
+    print(f'shape of outputs (training): {y_test.shape}')
     return X_train, X_test, y_train, y_test
 
 

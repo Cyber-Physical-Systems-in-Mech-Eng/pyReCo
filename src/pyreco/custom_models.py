@@ -78,6 +78,11 @@ class CustomModel(ABC):
         # Initialize other attributes
         self.num_trainable_weights: int
 
+        self.n_time_in : int
+        self.n_states_in: int
+        self.n_time_out : int
+        self.n_states_out: int
+
     def add(self, layer: Layer):
         """
         Add a layer to the model.
@@ -277,8 +282,15 @@ class CustomModel(ABC):
         """
         Optimized training with batch processing.
         """
-        n_batch, n_time, n_states_out = X.shape[0], X.shape[1], y.shape[-1]
+        n_batch, n_time,  = X.shape[0], X.shape[1] 
+        n_time_out, n_states_out = y.shape[-2], y.shape[-1]
         n_nodes = self.reservoir_layer.nodes
+
+        self.n_time_in = n_time
+        self.n_states_in = X.shape[-1]
+
+        self.n_time_out = n_time_out
+        self.n_states_out = n_states_out
 
         # Pre-allocate arrays for storing results
         n_R0 = np.zeros((n_init, n_nodes))
@@ -327,8 +339,14 @@ class CustomModel(ABC):
                 :, self.readout_layer.readout_nodes
             ]
 
+            # if the number of time steps on the input does not equal the number of time steps on the output, 
+            # we take the last n_states_out values of the reservoir state for computing the readout matrix
+            # for this we have to loop through all batches and take the last n_time_out reservoir states
+            indices = np.sort(np.concatenate([np.arange(i, A.shape[0], n_time) for i in range(n_time-n_time_out, n_time)]))
+            A = A[indices, :]
+
             # Reshape targets efficiently
-            b = y.reshape(n_batch * n_time, n_states_out)
+            b = y.reshape(n_batch * n_time_out, n_states_out)
 
             # Solve regression problem y = W_out * R
             if n_batch == 1:
@@ -698,6 +716,12 @@ class CustomModel(ABC):
 
             # reservoir_states, X, y = TransientRemover('RXY', reservoir_states, X, y, self.discard_transients)
 
+        # if the number of time steps on the input does not equal the number of time steps on the output, 
+        # we take the last n_states_out values of the reservoir state for computing the readout matrix
+        # for this we have to loop through all batches and take the last n_time_out reservoir states
+        indices = np.sort(np.concatenate([np.arange(i, reservoir_states.shape[0], self.n_time_in) for i in range(self.n_time_in-self.n_time_out, self.n_time_in)]))
+        reservoir_states = reservoir_states[indices, :]
+        
         # make predictions y = R * W_out, W_out has a shape of [n_out, N]
         y_pred = np.dot(reservoir_states, self.readout_layer.weights)
         
