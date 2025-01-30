@@ -1,5 +1,6 @@
 """
-Some testing use case learning a sequence-to-scalar mapping task
+Some testing use case learning a sequence-to-scalar mapping task, i.e. a typical use 
+case for time series prediction.
 """
 
 from matplotlib import pyplot as plt
