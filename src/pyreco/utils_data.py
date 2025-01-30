@@ -148,14 +148,14 @@ CASE 1: scalar inputs, scalar outputs
 """
 
 
-def scalar_to_scalar(name, n_batch: int = 50):
+def scalar_to_scalar(name, n_batch: int = 50, n_states=1, n_time_in=1, n_time_out=1):
 
     # make sure to have at least 1 testing sample
     n_batch = np.max([n_batch, 2])
 
     if name == 'sine_pred':
         # single-step predict a sine signal
-        X_train, X_test, y_train, y_test = sine_pred(n_batch=n_batch, n_states=1, n_time_in=1, n_time_out=1)
+        X_train, X_test, y_train, y_test = sine_pred(n_batch=n_batch, n_states=n_states, n_time_in=n_time_in, n_time_out=n_time_out)
 
     elif name == 'sine_to_cosine':
         # Map a sequence of sines to a sequence of cosines
