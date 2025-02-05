@@ -33,13 +33,13 @@ Classic RC example
 """
 
 # some testing data: predict a sine signal.
-X_train, X_test, y_train, y_test = sequence_to_sequence(name='sine_pred', n_batch=10, n_states=2, n_time=1000)
+X_train, X_test, y_train, y_test = sequence_to_sequence(name='sine_pred', n_batch=5, n_states=2, n_time=500)
 
 # set the dimensions
 input_shape = (X_train.shape[1], X_train.shape[2])
 output_shape = (y_train.shape[1], y_train.shape[2])
 
-num_init_nodes = 40
+num_init_nodes = 25
 max_perf_drop = 0.5  # allow the network to reduce performance by x% w.r.t. to original one
 
 model_rc = RC()
