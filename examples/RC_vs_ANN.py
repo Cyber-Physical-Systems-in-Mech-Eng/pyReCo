@@ -47,9 +47,11 @@ model_ann.add(Dense(units=100, activation="sigmoid"))  # Add hidden Dense layer
 model_ann.add(Dense(units=1, activation="linear"))  # Add output layer
 
 model_ann.compile(optimizer="adam", loss="mean_squared_error")  # Compile the model
-hist = model_ann.fit(X_train, y_train, epochs=500)  # Train the model for 1000 epochs
+hist = model_ann.fit(
+    X_train, y_train, epochs=500, batch_size=64
+)  # Train the model for 1000 epochs
 loss_ann = model_ann.evaluate(X_test, y_test)  # Evaluate the model
-print(f"Test model loss: {loss_ann}")
+print(f"\n\n Dense Neural Network: test set loss: {loss_ann}")
 y_pred_ann = model_ann.predict(X_test)  # Make predictions for new data
 
 
@@ -71,37 +73,14 @@ model_rc.add(
     )
 )
 model_rc.add(ReadoutLayer(output_shape=(1, 1), fraction_out=0.6))
-model_rc.compile(optimizer="ridge", metrics=["mean_squared_error"])  # Compile the model
+
+# Compile the model
+model_rc.compile(optimizer="ridge", metrics=["mean_squared_error"])
+
 model_rc.fit(
     X_train, y_train
 )  # , epochs=500)              # Train the model for 1000 epochs
 y_pred_rc = model_rc.predict(X_test)  # Make predictions for new data
 
 loss_rc = model_rc.evaluate(X_test, y_test)  # Evaluate the model
-print(f"Test model loss: {loss_rc}")
-
-"""
-Evaluate prediction results
-"""
-
-fig = plt.figure()
-plt.plot(
-    [np.min(y_test), np.max(y_test)],
-    [np.min(y_test), np.max(y_test)],
-    color="gray",
-    linestyle="dashed",
-)
-plt.plot(
-    y_test,
-    y_pred_ann,
-    linestyle="none",
-    marker=".",
-    color="blue",
-    label="feed-forward ANN",
-)
-# plt.plot(y_test, y_pred_rc, linestyle='none', marker='.', color='red', label='RC')
-plt.xlabel("true")
-plt.ylabel("predicted")
-plt.legend()
-plt.tight_layout()
-plt.show()
+print(f"\n\n Reservoir Computer: test set loss: {loss_rc[0]}")
