@@ -19,22 +19,24 @@ class NodeSelector:
 
     def __init__(
         self,
+        strategy: str,
         total_nodes: int = None,
         graph: nx.Graph = None,
-        strategy: str = "random_wo_replacement",
     ):
         """
-        Initializes the NetworkPruner object.
+        Initializes the NodeSelector object.
 
         Parameters:
         - total_nodes (int, optional): The total number of nodes in the graph. Must be a positive integer.
         - graph (nx.Graph, optional): A NetworkX graph object. Either total_nodes or graph must be provided, not both.
-        - strategy (str, optional): The strategy used for node selection. Defaults to "random_wo_replacement".
+        - strategy (str, optional): The strategy used for node selection. Currently implements "random_uniform_wo_repl".
 
         Raises:
         - ValueError: If both total_nodes and graph are provided, or if neither is provided.
         - TypeError: If total_nodes is not an integer or if graph is not a NetworkX graph.
         - ValueError: If total_nodes is not a positive integer.
+
+        ToDo: let the method also accept adjacency matrices (np.ndarray)
         """
 
         # Sanity checks
@@ -45,7 +47,7 @@ class NodeSelector:
             if not isinstance(total_nodes, int):
                 raise TypeError("total_nodes must be a positive integer")
             elif total_nodes <= 0:
-                raise ValueError("num_nodes must be a positive integer")
+                raise ValueError("total_nodes must be a positive integer")
         elif graph is not None:
             if not isinstance(graph, nx.Graph):
                 raise TypeError("graph must be a networkx graph")
@@ -53,9 +55,9 @@ class NodeSelector:
         else:
             raise ValueError("Either total_nodes or graph must be provided")
 
-        if strategy != "random_wo_replacement":
+        if strategy != "random_uniform_wo_repl":
             raise NotImplementedError(
-                "Only 'random w/o replacement' strategy is implemented"
+                "Only random w/o replacement ('random_uniform_wo_repl') strategy is implemented"
             )
 
         # Assign values to attributes
@@ -65,11 +67,11 @@ class NodeSelector:
         self.strategy: str = strategy
         self.selected_nodes: list = []
 
-    def select_node(
+    def select_nodes(
         self,
         fraction: float = None,
         num: int = None,
-    ):
+    ) -> list:
         """
         Selects a specified number of nodes from the graph either by fraction or by exact number.
 
@@ -88,6 +90,18 @@ class NodeSelector:
         # potentially implemement more advanced selectors that inherit form the base class for degree-based selection or others.
 
         # Sanity checks
+
+        if fraction is not None and not isinstance(fraction, float):
+            raise TypeError("fraction must be a float in the range (0, 1)")
+
+        if (num is not None) and (not isinstance(num, int)):
+            raise TypeError("num must be an integer")
+
+        if (num is not None) and ((num >= self.num_total_nodes) or (num <= 0)):
+            raise ValueError(
+                "number of nodes to select must be smaller than number of total nodes, and larger than 0"
+            )
+
         if (fraction is None) and (num is None):
             raise ValueError(
                 "Either <fraction> of nodes to select or <num> number of nodes must be provided"
@@ -98,21 +112,11 @@ class NodeSelector:
                 "Either <fraction> of nodes to select or <num> number of nodes must be provided, not both"
             )
 
-        if (num is not None) and (not isinstance(num, int)):
-            raise TypeError("num must be an integer")
+        if (num is None) and (fraction is not None):
+            if fraction >= 1.0 or fraction <= 0.0:
+                raise ValueError("fraction must be larger than 0 and smaller than 1")
 
-        if (num is not None) and ((num >= self.num_total_nodes) or (num <= 0)):
-            raise ValueError(
-                "number of nodes to select must be smaller than number of total nodes, and larger than 0"
-            )
-
-        if fraction is not None and not isinstance(fraction, float):
-            raise TypeError("fraction must be a float in the range (0, 1)")
-
-        if fraction >= 1.0 or fraction <= 0.0:
-            raise ValueError("fraction must be larger than 0 and smaller than 1")
-
-        # Assign values to class attributs
+        # Assign values to class attributes
         if (fraction is None) and (num > 0):
             self.num_select_nodes = num
             self.fraction = num / self.num_total_nodes
@@ -121,9 +125,21 @@ class NodeSelector:
             self.fraction = fraction
 
         # Finally pick the node according to the strategy
-        if self.strategy == "random_wo_replacement":
+        if self.strategy == "random_uniform_wo_repl":
+            # random uniform WITHOUT replacement
             self.selected_nodes = random.sample(
                 range(0, self.num_total_nodes), self.num_select_nodes
             )
 
             return self.selected_nodes
+
+
+if __name__ == "__main__":
+
+    # Create a sample graph
+    G = nx.erdos_renyi_graph(10, 0.5)
+
+    # Select random nodes
+    selector = NodeSelector(strategy="random_uniform_wo_repl", graph=G)
+    random_nodes = selector.select_nodes(num=4)
+    print(f"Randomly selected nodes: {random_nodes}")
