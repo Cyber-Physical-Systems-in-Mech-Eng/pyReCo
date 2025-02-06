@@ -134,34 +134,53 @@ class NetworkPruner:
         while self._keep_pruning():
 
             self._curr_iter = iter
-            self._curr_total_nodes = model.reservoir_layer.nodes
+            _curr_total_nodes = model.reservoir_layer.nodes
 
             # propose a list of nodes to prune using a random uniform distribution. If the user specified a candidate_fraction of 1.0, we will try out all nodes
-            _num_nodes_to_prune = math.ceil(
-                self.candidate_fraction * self._curr_total_nodes
-            )
+            _num_nodes_to_prune = math.ceil(self.candidate_fraction * _curr_total_nodes)
             selector = NodeSelector(
-                total_nodes=self._curr_total_nodes, strategy="uniform_random_wo_repl"
+                total_nodes=_curr_total_nodes, strategy="uniform_random_wo_repl"
             )
-            self._curr_candidate_nodes = selector.select_nodes(num=_num_nodes_to_prune)
+            _curr_candidate_nodes = selector.select_nodes(num=_num_nodes_to_prune)
 
             _node_scores = []
-            for node in self._curr_candidate_nodes:
+            _candidate_scores = []
+            _cand_node_props = []
+            _cand_graph_props = []
+
+            for node in _curr_candidate_nodes:
+
                 print(f"pruning iteration {iter}: deleting candidate node {node}")
 
-                # model._remove_nodes(node)  # will also delete unconnected nodes
-                # model.set_spec_rad()
-                # model.fit(X_train,y_train)
-                # _node_scores.append(model.evaluate(X_test, y_test)[0])
+                # get a copy of the original model
+                _model = model
 
-            self._curr_candidate_scores = _node_scores
+                # _model._remove_nodes(node)  # will also delete unconnected nodes
+                # _model.set_spec_rad()
+                # _model.fit(X_train,y_train)
+                # _candidate_scores.append(_model.evaluate(X_test, y_test)[0])
 
-            # scores of models w/o candidate node
-            history["candidate_node_scores"].append(_node_scores)
+                # _cand_node_props.append(NodePropsExtractor())
+                # _cand_graph_props(GraphPropsExtractor())
+
+                del _model
 
             # select the node to prune
-            idx_prune = np.argmax(_node_scores)
-            history["node_idx_pruned"].append(idx_prune)
+            idx = np.argmax(_node_scores)
+
+            # model._remove_nodes(node)  # will also delete unconnected nodes
+            # model.set_spec_rad()
+            # model.fit(X_train, y_train)
+
+            # some logging
+            self._curr_idx_prune = idx
+            self._curr_nodes_before_pruning = _curr_total_nodes
+            self._curr_nodes_after_pruning = model.reservoir_layer.nodes
+            self._curr_candidate_nodes = _curr_candidate_nodes
+            self._curr_candidate_scores = _candidate_scores
+            self._curr_score = _candidate_scores[idx]
+            self._curr_node_props = _cand_node_props[idx]
+            self._curr_graph_props = _cand_graph_props[idx]
 
             self._update_pruning_history()
 
@@ -170,11 +189,15 @@ class NetworkPruner:
 
         pass
 
-    def update_pruning_history(self):
+    def _update_pruning_history(self):
         # this will keep track of all quantities that are relevant during the pruning iterations.
 
         # Pruning iteration
         self.history["iteration"].append(self._curr_iter)
+
+        """
+        Candidate nodes: trying out different nodes at current iteration
+        """
 
         # Number of nodes that are being tried to at current iteration
         self.history["num_candidate_nodes"].append(len(self._curr_candidate_nodes))
@@ -183,7 +206,13 @@ class NetworkPruner:
         self.history["candidate_nodes"].append(self._curr_candidate_nodes)
 
         # Scores obtained when deleting a respective candidate node
-        self.history["candidate_node_scores"] = self._curr_candidate_scores
+        self.history["candidate_node_scores"].append(self._curr_candidate_scores)
+
+        """
+        Final choice: node to prune is selected
+        """
+        # Stats once a nodes is chosen to be deleted finally
+        self.history["node_idx_pruned"].append(self._curr_idx_prune)
 
     def _keep_pruning(self):
 
