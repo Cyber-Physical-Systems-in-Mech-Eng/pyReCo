@@ -158,17 +158,3 @@ class NetworkPruner:
             return True
 
         return False
-
-
-if __name__ == "__main__":
-
-    """
-    pick a random node from a graph
-    """
-
-    # Create a sample graph
-    G = nx.erdos_renyi_graph(10, 0.5)
-
-    # Select a random node
-    random_node = random.choice(list(G.nodes))
-    print(f"Randomly selected node: {random_node}")
