@@ -92,14 +92,14 @@ class NodeSelector:
         # Sanity checks
 
         if fraction is not None and not isinstance(fraction, float):
-            raise TypeError("fraction must be a float in the range (0, 1)")
+            raise TypeError("fraction must be a float in the range (0, 1]")
 
         if (num is not None) and (not isinstance(num, int)):
             raise TypeError("num must be an integer")
 
-        if (num is not None) and ((num >= self.num_total_nodes) or (num <= 0)):
+        if (num is not None) and ((num > self.num_total_nodes) or (num <= 0)):
             raise ValueError(
-                "number of nodes to select must be smaller than number of total nodes, and larger than 0"
+                "number of nodes to select must be maximum number of total nodes, and larger than 0"
             )
 
         if (fraction is None) and (num is None):
@@ -113,7 +113,7 @@ class NodeSelector:
             )
 
         if (num is None) and (fraction is not None):
-            if fraction >= 1.0 or fraction <= 0.0:
+            if fraction > 1.0 or fraction <= 0.0:
                 raise ValueError("fraction must be larger than 0 and smaller than 1")
 
         # Assign values to class attributes

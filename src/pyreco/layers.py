@@ -13,7 +13,12 @@ We will have an abstract Layer class, from which the following layers inherit:
 from abc import ABC, abstractmethod
 import numpy as np
 
-from .utils_networks import gen_ER_graph, compute_density, get_num_nodes, compute_spec_rad
+from .utils_networks import (
+    gen_ER_graph,
+    compute_density,
+    get_num_nodes,
+    compute_spec_rad,
+)
 
 
 # implements the abstract base class
@@ -22,7 +27,7 @@ class Layer(ABC):
     @abstractmethod
     def __init__(self):
         self.weights = None  # every layer will have some weights (trainable or not)
-        self.name: str = 'layer'
+        self.name: str = "layer"
         pass
 
 
@@ -37,7 +42,7 @@ class InputLayer(Layer):
         self.shape = input_shape
         self.n_time = input_shape[0]
         self.n_states = input_shape[1]
-        self.name = 'input_layer'
+        self.name = "input_layer"
 
 
 class ReadoutLayer(Layer):
@@ -49,23 +54,33 @@ class ReadoutLayer(Layer):
         self.n_time = output_shape[0]
         self.n_states = output_shape[1]
 
-        self.fraction_out: float = fraction_out  # fraction of connections to the reservoir
-        self.name = 'readout_layer'
+        self.fraction_out: float = (
+            fraction_out  # fraction of connections to the reservoir
+        )
+        self.name = "readout_layer"
 
         self.readout_nodes = []  # list of nodes that are linked to output
 
 
 class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
 
-    def __init__(self, nodes, density, activation, leakage_rate, fraction_input,
-                 init_res_sampling, seed: int = 42):
+    def __init__(
+        self,
+        nodes,
+        density,
+        activation,
+        leakage_rate,
+        fraction_input,
+        init_res_sampling,
+        seed: int = 42,
+    ):
         super().__init__()
-        self.nodes: int = nodes
+        self.nodes: int = nodes  # number of reservoir nodes
         self.density: float = density
         self.spec_rad = None
         self.activation = activation
         self.leakage_rate = leakage_rate
-        self.name = 'reservoir_layer'
+        self.name = "reservoir_layer"
         self.fraction_input = fraction_input
         self.weights = None
 
@@ -74,12 +89,12 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         self.init_res_sampling = init_res_sampling
 
     def activation_fun(self, x: np.ndarray):
-        if self.activation == 'sigmoid':
+        if self.activation == "sigmoid":
             return 1 / (1 + np.exp(-x))
-        elif self.activation == 'tanh':
+        elif self.activation == "tanh":
             return (np.exp(x) - np.exp(-x)) / (np.exp(x) + np.exp(-x))
         else:
-            raise (ValueError(f'unknown activation function {self.activation}!'))
+            raise (ValueError(f"unknown activation function {self.activation}!"))
 
     def set_weights(self, network: np.ndarray):
         # set reservoir network from outside.
@@ -94,35 +109,50 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         # assigns an initial state to each of the reservoir nodes
 
         if r_init.shape[0] != self.nodes:
-            raise (ValueError('initial reservoir state does not match the number of nodes in the reservoir!'))
+            raise (
+                ValueError(
+                    "initial reservoir state does not match the number of nodes in the reservoir!"
+                )
+            )
         self.initial_res_states = r_init
 
 
 class RandomReservoirLayer(ReservoirLayer):
-    def __init__(self, nodes,
-                 density: float = 0.1,
-                 activation: str = 'tanh',
-                 leakage_rate: float = 0.5,
-                 fraction_input: float = 0.8,
-                 spec_rad: float = 0.9,
-                 init_res_sampling='random_normal',
-                 seed=None):
+    def __init__(
+        self,
+        nodes,
+        density: float = 0.1,
+        activation: str = "tanh",
+        leakage_rate: float = 0.5,
+        fraction_input: float = 0.8,
+        spec_rad: float = 0.9,
+        init_res_sampling="random_normal",
+        seed=None,
+    ):
 
         # Call the parent class's __init__ method
-        super().__init__(nodes=nodes,
-                         density=density,
-                         activation=activation,
-                         leakage_rate=leakage_rate,
-                         fraction_input=fraction_input,
-                         init_res_sampling=init_res_sampling,
-                         seed=seed)
+        super().__init__(
+            nodes=nodes,
+            density=density,
+            activation=activation,
+            leakage_rate=leakage_rate,
+            fraction_input=fraction_input,
+            init_res_sampling=init_res_sampling,
+            seed=seed,
+        )
 
         # initialize subclass-specific attributes
         self.seed = seed
         self.spec_rad = spec_rad
 
         # generate a random ER graph using networkx
-        self.weights = gen_ER_graph(nodes=nodes, density=density, spec_rad=self.spec_rad, directed=True, seed=seed)
+        self.weights = gen_ER_graph(
+            nodes=nodes,
+            density=density,
+            spec_rad=self.spec_rad,
+            directed=True,
+            seed=seed,
+        )
 
 
 # class ReccurrenceLayer(ReservoirLayer):
@@ -135,5 +165,3 @@ class RandomReservoirLayer(ReservoirLayer):
 #         # https://pyts.readthedocs.io/en/stable/generated/pyts.image.RecurrencePlot.html#pyts.image.RecurrencePlot
 #         # https://tocsy.pik-potsdam.de/pyunicorn.php
 #
-
-
