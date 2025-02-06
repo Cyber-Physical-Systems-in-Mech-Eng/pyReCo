@@ -7,6 +7,7 @@ import numpy as np
 from pyreco.custom_models import RC
 from pyreco.node_selector import NodeSelector
 import networkx as nx
+import math
 
 
 class NetworkPruner:
@@ -18,7 +19,7 @@ class NetworkPruner:
         stop_at_minimum: bool = True,
         min_num_nodes: int = 2,
         patience: int = None,
-        prune_fraction: float = 0.1,
+        candidate_fraction: float = 0.1,
     ):
         """
         Initializer for the pruning class.
@@ -38,7 +39,7 @@ class NetworkPruner:
         (local) minimum of the test set score. Depends on the size of the original
         reservoir network, defaults to 10% of initial reservoir nodes.
 
-        - prune_fraction (float): number of randomly chosen reservoir nodes during
+        - candidate_fraction (float): number of randomly chosen reservoir nodes during
         every pruning iteration that is a candidate for pruning. Refers to the fraction of nodes w.r.t. current number of nodes during pruning iteration.
         """
 
@@ -58,11 +59,11 @@ class NetworkPruner:
         if patience is not None and not isinstance(patience, int):
             raise TypeError("patience must be an integer")
 
-        if not isinstance(prune_fraction, float):
-            raise TypeError("prune_fraction must be a float in (0, 1]")
+        if not isinstance(candidate_fraction, float):
+            raise TypeError("candidate_fraction must be a float in (0, 1]")
 
-        if prune_fraction <= 0 or prune_fraction > 1:
-            raise ValueError("prune_fraction must be a float in (0, 1]")
+        if candidate_fraction <= 0 or candidate_fraction > 1:
+            raise ValueError("candidate_fraction must be a float in (0, 1]")
 
         # Additional sanity checks: logical constraints on the input parameters
         if min_num_nodes is not None and stop_at_minimum:
@@ -73,7 +74,7 @@ class NetworkPruner:
         self.stop_at_minimum = stop_at_minimum
         self.min_num_nodes = min_num_nodes
         self.patience = patience
-        self.prune_fraction = prune_fraction
+        self.candidate_fraction = candidate_fraction
 
     def prune(self, model: RC, data_train: tuple, data_val: tuple):
         # prune a given model by removing nodes.
@@ -123,9 +124,16 @@ class NetworkPruner:
         history = dict()
         history["num_nodes"] = [curr_total_nodes]
         history["score"] = [curr_score]
-        history["graph_props"] = None  # graph property extractor
-        history["node_props"] = None  # node property extractor
-        history["pruned_node_props"] = None  # node property of the node that was pruned
+        history["graph_props"] = []  # graph property extractor
+        history["node_props"] = []  # node property extractor
+        history["node_idx_pruned"] = []  # index of the node pruned per iteration
+        history["pruned_node_props"] = []  # node property of the node that was pruned
+        history["candidate_nodes"] = (
+            []
+        )  # list of nodes per iteration that were tried out for canceling
+        history["candidate_node_scores"] = (
+            []
+        )  # corresponding model scores for candidate nodes once deleted
 
         iter = 0
         while self._keep_pruning(
@@ -134,17 +142,31 @@ class NetworkPruner:
             num_nodes=curr_total_nodes,
         ):
 
-            # propose_node_to_prune(n, self.prune_fraction)
-            selector = NodeSelector(total_nodes=curr_total_nodes)
-            num_nodes_to_prune = int(self.prune_fraction * curr_total_nodes)
-            node_to_delete = selector.select_node(num=num_nodes_to_prune)
+            # propose a list of nodes to prune
+            selector = NodeSelector(
+                total_nodes=curr_total_nodes, strategy="uniform_random_wo_repl"
+            )
+            _num_nodes_to_prune = math.ceil(self.candidate_fraction * curr_total_nodes)
+            nodes_to_prune = selector.select_nodes(num=_num_nodes_to_prune)
+            history["candidate_nodes"].append(nodes_to_prune)
 
-            # mask_input_layer(node_to_delete)
-            # mask_output_layer(node_to_delete)
+            _node_scores = []
+            for node in nodes_to_prune:
+                print(f"deleting candidate node {node}")
+                # mask_input_layer(node_to_delete)
+                # mask_output_layer(node_to_delete)
 
-            # fit_model()
-            # evaluate_model()
+                # fit_model()
+                # _node_scores.append(evaluate_model()[0])
 
+            # scores of models w/o candidate node
+            history["candidate_node_scores"].append(_node_scores)
+
+            # select the node to prune
+            idx_prune = np.argmax(_node_scores)
+            history["node_idx_pruned"].append(idx_prune)
+
+            # update counter
             iter += 1
 
         pass

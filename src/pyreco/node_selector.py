@@ -121,7 +121,7 @@ class NodeSelector:
             self.num_select_nodes = num
             self.fraction = num / self.num_total_nodes
         elif (fraction is not None) and (num is None):
-            self.num_select_nodes = int(self.num_total_nodes * fraction)
+            self.num_select_nodes = round(self.num_total_nodes * fraction)
             self.fraction = fraction
 
         # Finally pick the node according to the strategy
