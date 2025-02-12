@@ -1,3 +1,6 @@
+import numpy as np
+from matplotlib import pyplot as plt
+
 """
 Provides testing data sets.
 
@@ -6,27 +9,57 @@ inputs X: [n_batch, n_timesteps, n_states]
 outputs y: [n_batch, n_timesteps, n_states]
 
 """
-import numpy as np
-from matplotlib import pyplot as plt
+
 
 # TODO: add Lorenz and other test cases (with potential limits to the number of states etc.)
 
 
 def gen_sine(n=10, omega=np.pi):
-    
+    """
+    Generates a sequence of sines and cosines with a given frequency. Sampling is 10 points per period.
+
+    Parameters:
+        n (int): Number of points in the sequence.
+        omega (float): Frequency of the sine wave.
+
+    Returns:
+        numpy.ndarray: Generated sine wave sequence.
+    """
     # generates a sequence of sines and cosines with a given frequency. sampling is 10 points per period
     t = np.linspace(start=0, stop=n / 50 * omega, num=n, endpoint=True)
     return np.sin(omega * t)
 
 
 def gen_cos(n=10, omega=np.pi):
-    
+    """
+    Generates a sequence of sines and cosines with a given frequency. Sampling is 10 points per period.
+
+    Parameters:
+        n (int): Number of points in the sequence.
+        omega (float): Frequency of the cosine wave.
+
+    Returns:
+        numpy.ndarray: Generated cosine wave sequence.
+    """
     # generates a sequence of sines and cosines with a given frequency. sampling is 10 points per period
     t = np.linspace(start=0, stop=n / 50 * omega, num=n, endpoint=True)
     return np.cos(omega * t)
 
+
 def gen_sincos(n=10, omega=np.pi, a_sc=1, b_sc=0.25, P_sc=3):
-    
+    """
+    Generates a sequence of a_sc*sin(omega*t)^P_sc + b_sc*cos(omega*t)^P_sc using gen_sine and gen_cos functions.
+
+    Parameters:
+        n (int): Number of points in the sequence.
+        omega (float): Frequency of the sine and cosine waves.
+        a_sc (float): Scaling factor for the sine wave.
+        b_sc (float): Scaling factor for the cosine wave.
+        P_sc (int): Power of the sine and cosine waves.
+
+    Returns:
+        numpy.ndarray: Generated sequence.
+    """
     # generates a sequence of a_sc*sin(omega*t)^P_sc + b_sc*cos(omega*t)^P_sc
     # using gen_sine and gen_cos functions
     sine_wave = gen_sine(n, omega)
@@ -34,8 +67,19 @@ def gen_sincos(n=10, omega=np.pi, a_sc=1, b_sc=0.25, P_sc=3):
     return a_sc * sine_wave**P_sc + b_sc * cos_wave**P_sc
 
 
-
 def split_sequence(signal, n_batch, n_time_in, n_time_out):
+    """
+    Splits a sequence into inputs and outputs.
+
+    Parameters:
+        signal (numpy.ndarray): Input sequence.
+        n_batch (int): Number of batches.
+        n_time_in (int): Number of time steps for input.
+        n_time_out (int): Number of time steps for output.
+
+    Returns:
+        tuple: Tuple containing the input and output sequences.
+    """
     # expects [n_timesteps, n_states] sequence
 
     # convert into inputs (function at last n_time_in points) and outputs (function at next n_time_out points)
@@ -51,6 +95,16 @@ def split_sequence(signal, n_batch, n_time_in, n_time_out):
 
 
 def train_test_split(x, y):
+    """
+    Splits the data into training and testing sets.
+
+    Parameters:
+        x (numpy.ndarray): Input sequence.
+        y (numpy.ndarray): Output sequence.
+
+    Returns:
+        tuple: Tuple containing the training and testing sets for inputs and outputs.
+    """
     # train-test split 80% sample random points from the sequence and return inputs and outputs
     n = x.shape[0]
 
@@ -66,6 +120,18 @@ def train_test_split(x, y):
 
 
 def sine_pred(n_batch, n_time_in, n_time_out, n_states):
+    """
+    Predicts a sine signal. Single- and multi-step prediction supported.
+
+    Parameters:
+        n_batch (int): Number of batches.
+        n_time_in (int): Number of time steps for input.
+        n_time_out (int): Number of time steps for output.
+        n_states (int): Number of states.
+
+    Returns:
+        tuple: Tuple containing the training and testing sets for inputs and outputs.
+    """
     # predict a sine signal. Single- and multi-step prediction supported
 
 
@@ -88,6 +154,18 @@ def sine_pred(n_batch, n_time_in, n_time_out, n_states):
 
 
 def sine_to_cosine(n_batch, n_time_in, n_time_out, n_states):
+    """
+    Generates sine input and cosine output signals.
+
+    Parameters:
+        n_batch (int): Number of batches.
+        n_time_in (int): Number of time steps for input.
+        n_time_out (int): Number of time steps for output.
+        n_states (int): Number of states.
+
+    Returns:
+        tuple: Tuple containing the training and testing sets for inputs and outputs.
+    """
     # Generate sine input and cosine output signals
     total_time = n_batch + n_time_in + n_time_out
     x, y = [], []
@@ -116,6 +194,18 @@ def sine_to_cosine(n_batch, n_time_in, n_time_out, n_states):
 
 
 def sincos2(n_batch, n_time_in, n_time_out, n_states):
+    """
+    Generates sine input and SinCos-2 output signals.
+
+    Parameters:
+        n_batch (int): Number of batches.
+        n_time_in (int): Number of time steps for input.
+        n_time_out (int): Number of time steps for output.
+        n_states (int): Number of states.
+
+    Returns:
+        tuple: Tuple containing the training and testing sets for inputs and outputs.
+    """
     # Generate sine input and SinCos-2 output signals
     total_time = n_batch + n_time_in + n_time_out
     x, y = [], []
@@ -143,16 +233,23 @@ def sincos2(n_batch, n_time_in, n_time_out, n_states):
     
     return X_train, X_test, y_train, y_test
 
-
 """
 generate some training and testing data from the sine function. 
 
 CASE 1: scalar inputs, scalar outputs
 """
 
-
 def scalar_to_scalar(name, n_batch: int = 50):
+    """
+    Generates training and testing data for scalar-to-scalar mapping.
 
+    Parameters:
+        name (str): Name of the mapping function.
+        n_batch (int): Number of batches.
+
+    Returns:
+        tuple: Tuple containing the training and testing sets for inputs and outputs.
+    """
     # make sure to have at least 1 testing sample
     n_batch = np.max([n_batch, 2])
 
@@ -173,14 +270,22 @@ def scalar_to_scalar(name, n_batch: int = 50):
     print(f'shape of inputs (training): {X_train.shape}, shape of outputs (training): {y_test.shape}')
     return X_train, X_test, y_train, y_test
 
-
 """
 CASE 2: Vector to Vector
 """
 
-
 def vector_to_vector(name, n_batch: int = 50, n_states: int = 2):
-    
+    """
+    Generates training and testing data for vector-to-vector mapping.
+
+    Parameters:
+        name (str): Name of the mapping function.
+        n_batch (int): Number of batches.
+        n_states (int): Number of states.
+
+    Returns:
+        tuple: Tuple containing the training and testing sets for inputs and outputs.
+    """
     # make sure to have at least 1 testing sample
     n_batch = np.max([n_batch, 2])
 
@@ -201,14 +306,23 @@ def vector_to_vector(name, n_batch: int = 50, n_states: int = 2):
     print(f'shape of inputs (training): {X_train.shape}, shape of outputs (training): {y_test.shape}')
     return X_train, X_test, y_train, y_test
 
-
 """
 CASE 3: Sequence to sequence
 """
 
-
 def sequence_to_sequence(name, n_batch: int = 50, n_states: int = 2, n_time: int = 3):
+    """
+    Generates training and testing data for sequence-to-sequence mapping.
 
+    Parameters:
+        name (str): Name of the mapping function.
+        n_batch (int): Number of batches.
+        n_states (int): Number of states.
+        n_time (int): Number of time steps.
+
+    Returns:
+        tuple: Tuple containing the training and testing sets for inputs and outputs.
+    """
     # make sure to have at least 1 testing sample
     n_batch = np.max([n_batch, 2])
 
@@ -231,9 +345,21 @@ def sequence_to_sequence(name, n_batch: int = 50, n_states: int = 2, n_time: int
     return X_train, X_test, y_train, y_test
 
 
-def x_to_x(name, n_batch: int = 50, n_states_in: int = 2, n_states_out: int = 2, n_time_int: int = 1, n_time_out: int =
-1):
+def x_to_x(name, n_batch: int = 50, n_states_in: int = 2, n_states_out: int = 2, n_time_int: int = 1, n_time_out: int = 1):
+    """
+    Generates training and testing data for x-to-x mapping.
 
+    Parameters:
+        name (str): Name of the mapping function.
+        n_batch (int): Number of batches.
+        n_states_in (int): Number of input states.
+        n_states_out (int): Number of output states.
+        n_time_int (int): Number of time steps for input.
+        n_time_out (int): Number of time steps for output.
+
+    Returns:
+        tuple: Tuple containing the training and testing sets for inputs and outputs.
+    """
     # make sure to have at least 1 testing sample
     n_batch = np.max([n_batch, 2])
 
@@ -263,9 +389,7 @@ def x_to_x(name, n_batch: int = 50, n_states_in: int = 2, n_states_out: int = 2,
     return X_train, X_test, y_train, y_test
 
 
-
 if __name__ == '__main__':
-
     # case 1
 
     # n_time = X_train.shape[1]
