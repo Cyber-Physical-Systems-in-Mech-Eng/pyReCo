@@ -220,4 +220,3 @@ def extract_node_pagerank(adjacency_matrix):
     return nx.pagerank(G)
 
 # Add more network property extraction functions as needed
-
