@@ -230,3 +230,6 @@ def example_for_check(hey):
 
 def example_for_check(hey):
     return
+
+def example_for_check(hey):
+    return
