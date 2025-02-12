@@ -23,31 +23,18 @@ repos:
 #  - id: pydocstyle
 #    args: [--convention=numpy]
 
-- repo: local
+
+- repo: https://github.com/PyCQA/flake8
+  rev: 7.1.0
   hooks:
-  - id: check-docstrings
-    name: Check for docstrings in new functions
-    entry: .pre-commit-hooks/check_docstrings.py
-    language: system
-    pass_filenames: false
+  - id: flake8
+    args: [--max-line-length=132, --select=D, --docstring-convention=numpy]
 
 - repo: https://github.com/terrencepreilly/darglint
   rev: v1.8.1
   hooks:
   - id: darglint
     args: [--docstring-style=numpy]
-
-#- repo: https://github.com/PyCQA/flake8
-#  rev: 7.1.0
-#  hooks:
-#  - id: flake8
-#    args: [--max-line-length=132, --select=D, --docstring-convention=numpy]
-
-#- repo: https://github.com/terrencepreilly/darglint
-#  rev: v1.8.1
-#  hooks:
-#  - id: darglint
-#    args: [--docstring-style=numpy]
 
 
 # - repo: https://github.com/PyCQA/isort
