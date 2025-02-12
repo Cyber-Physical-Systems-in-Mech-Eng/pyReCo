@@ -9,7 +9,8 @@ def cross_val(model, X: np.ndarray, y: np.ndarray, n_splits: int, metric: str = 
     '''
     Performs k-fold cross-validation on a given model.
 
-    Parameters:
+    Parameters
+    ----------
     model : object
         The RC model to be validated.
     X : np.ndarray
@@ -18,10 +19,11 @@ def cross_val(model, X: np.ndarray, y: np.ndarray, n_splits: int, metric: str = 
         Target vector.
     n_splits : int
         Number of folds.
-    metrics : str
-        Metric to evaluate.
+    metric : str, optional
+        Metric to evaluate. Default is 'mse'.
 
-    Returns:
+    Returns
+    -------
     tuple
         A tuple containing:
         - list of metric's value for each fold
