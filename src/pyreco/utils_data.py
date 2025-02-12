@@ -13,17 +13,20 @@ from matplotlib import pyplot as plt
 
 
 def gen_sine(n=10, omega=np.pi):
+    
     # generates a sequence of sines and cosines with a given frequency. sampling is 10 points per period
     t = np.linspace(start=0, stop=n / 50 * omega, num=n, endpoint=True)
     return np.sin(omega * t)
 
 
 def gen_cos(n=10, omega=np.pi):
+    
     # generates a sequence of sines and cosines with a given frequency. sampling is 10 points per period
     t = np.linspace(start=0, stop=n / 50 * omega, num=n, endpoint=True)
     return np.cos(omega * t)
 
 def gen_sincos(n=10, omega=np.pi, a_sc=1, b_sc=0.25, P_sc=3):
+    
     # generates a sequence of a_sc*sin(omega*t)^P_sc + b_sc*cos(omega*t)^P_sc
     # using gen_sine and gen_cos functions
     sine_wave = gen_sine(n, omega)
@@ -177,7 +180,7 @@ CASE 2: Vector to Vector
 
 
 def vector_to_vector(name, n_batch: int = 50, n_states: int = 2):
-
+    
     # make sure to have at least 1 testing sample
     n_batch = np.max([n_batch, 2])
 
@@ -287,4 +290,3 @@ if __name__ == '__main__':
 
     X_train, X_test, y_train, y_test = x_to_x(name='sincos2', n_batch=100, n_states_in=4, n_states_out=3,
                                               n_time_int=10, n_time_out=2)
-
