@@ -224,3 +224,6 @@ def extract_node_pagerank(adjacency_matrix):
 
 def example_for_check(hey):
     return
+
+def example_for_check(hey):
+    return
