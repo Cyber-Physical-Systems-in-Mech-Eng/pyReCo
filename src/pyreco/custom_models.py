@@ -25,16 +25,23 @@ from .utils_networks import (
 from .network_prop_extractor import NetworkQuantifier  # NodePropExtractor
 
 
-def sample_random_nodes(total_nodes: int, fraction: float):
+import numpy as np
+
+def sample_random_nodes(total_nodes: int, fraction: float) -> np.ndarray:
     """
     Select a subset of randomly chosen nodes.
 
-    Args:
-    total_nodes (int): Total number of available nodes.
-    fraction (float): Fraction of nodes to select.
+    Parameters:
+    ----------
+    total_nodes : int
+        Total number of available nodes.
+    fraction : float
+        Fraction of nodes to select.
 
     Returns:
-    np.ndarray: Array of randomly selected node indices.
+    -------
+    np.ndarray
+        Array of randomly selected node indices.
     """
     return np.random.choice(
         total_nodes, size=int(total_nodes * fraction), replace=False
@@ -42,6 +49,18 @@ def sample_random_nodes(total_nodes: int, fraction: float):
 
 
 def discard_transients_indices(n_batches, n_timesteps, transients):
+    """
+    Discards the indices of transients in a sequence of batches.
+
+    Args:
+        n_batches (int): The number of batches.
+        n_timesteps (int): The number of timesteps in each batch.
+        transients (int): The number of transients to discard.
+
+    Returns:
+        list: A list of indices to be removed.
+
+    """
     indices_to_remove = []
     for i in range(n_batches * n_timesteps):
         t = i % n_timesteps  # Current timestep within the batch
@@ -63,6 +82,14 @@ class CustomModel(ABC):
     def __init__(self):
         """
         Initialize the CustomModel with empty layers and default values.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
         # Initialize layers
         self.input_layer: InputLayer
@@ -79,20 +106,27 @@ class CustomModel(ABC):
         self.num_trainable_weights: int
 
     def add(self, layer: Layer):
-        """
-        Add a layer to the model.
+            """
+            Add a layer to the model.
 
-        Is type-sensitive and will assign the layer to the correct attribute.
+            Parameters
+            ----------
+            layer : Layer
+                Layer to be added to the model.
 
-        Args:
-        layer (Layer): Layer to be added to the model.
-        """
-        if isinstance(layer, InputLayer):
-            self.input_layer = layer
-        elif issubclass(type(layer), ReservoirLayer):
-            self.reservoir_layer = layer
-        elif isinstance(layer, ReadoutLayer):
-            self.readout_layer = layer
+            Notes
+            -----
+            This method is type-sensitive and will assign the layer to the correct attribute.
+            If the layer is an instance of `InputLayer`, it will be assigned to the `input_layer` attribute.
+            If the layer is a subclass of `ReservoirLayer`, it will be assigned to the `reservoir_layer` attribute.
+            If the layer is an instance of `ReadoutLayer`, it will be assigned to the `readout_layer` attribute.
+            """
+            if isinstance(layer, InputLayer):
+                self.input_layer = layer
+            elif issubclass(type(layer), ReservoirLayer):
+                self.reservoir_layer = layer
+            elif isinstance(layer, ReadoutLayer):
+                self.readout_layer = layer
 
     # TODO: the following method should be implemented in the CustomModel class
     #   def _set_readin_nodes(self, nodes: Union[list, np.ndarray] = None):
@@ -105,9 +139,15 @@ class CustomModel(ABC):
         """
         Set the nodes that will be linked to the output.
 
-        Args:
-        nodes (Union[list, np.ndarray], optional): Specific nodes to use for readout
-        provided as indices. If None, randomly sample nodes.
+        Parameters
+        ----------
+        nodes : Union[list, np.ndarray], optional
+            Specific nodes to use for readout provided as indices. If None, randomly sample nodes.
+
+        Notes
+        -----
+        If `nodes` is not provided, the function will randomly sample nodes from the reservoir layer.
+
         """
         if nodes is None:
             nodes = sample_random_nodes(
@@ -120,37 +160,71 @@ class CustomModel(ABC):
         """
         Set the optimizer that will find the readout weights.
 
-        Args:
-        optimizer (Union[str, Optimizer]): Name of the optimizer or an Optimizer
-        instance.
+        Parameters
+        ----------
+        optimizer : Union[str, Optimizer]
+            Name of the optimizer or an Optimizer instance.
+
+        Returns
+        -------
+        None
         """
         self.optimizer = assign_optimizer(optimizer)
 
     def _set_metrics(self, metrics: Union[list, str]):
-        """
-        Set the metric(s) for model evaluation.
+            """
+            Set the metric(s) for model evaluation.
 
-        Args:
-        metrics (Union[list, str]): List of metric names or a single metric name.
-        """
-        if isinstance(metrics, str):  # only single metric given
-            self.metrics = [metrics]
-        else:
-            self.metrics = metrics  # if metrics is a list of strings.
+            Parameters:
+            ----------
+            metrics : Union[list, str]
+                List of metric names or a single metric name.
 
-        # assign the metric functions (callable) according to the metric names
-        self.metrics_fun = []  # has been initialized, we reset it here
-        for metric in self.metrics:
-            self.metrics_fun.append(assign_metric(metric))
+            Returns:
+            -------
+            None
+
+            Notes:
+            ------
+            This method sets the metric(s) to be used for model evaluation. The metrics can be provided as a list of metric names or a single metric name. The metric names should be valid and supported by the system.
+
+            Examples:
+            ---------
+            >>> model._set_metrics(['accuracy', 'precision'])
+            >>> model._set_metrics('f1_score')
+            """
+            if isinstance(metrics, str):  # only single metric given
+                self.metrics = [metrics]
+            else:
+                self.metrics = metrics  # if metrics is a list of strings.
+
+            # assign the metric functions (callable) according to the metric names
+            self.metrics_fun = []  # has been initialized, we reset it here
+            for metric in self.metrics:
+                self.metrics_fun.append(assign_metric(metric))
 
     def _set_init_states(self, init_states=None, method=None):
         """
         Set the initial states of the reservoir nodes.
 
-        Args:
-        init_states (np.ndarray, optional): Array of initial states. If None, sample
-        initial states using the specified method.
-        method (str, optional): Method for sampling initial states.
+        Parameters:
+        ----------
+        init_states : np.ndarray, optional
+            Array of initial states. If None, sample initial states using the specified method.
+        method : str, optional
+            Method for sampling initial states.
+
+        Raises:
+        ------
+        ValueError
+            If the provided initial states do not match the number of reservoir nodes.
+
+        Notes:
+        ------
+        If `init_states` is not provided and `method` is specified, initial states are sampled using the specified method.
+
+        If neither `init_states` nor `method` is provided, a ValueError is raised.
+
         """
         if init_states is not None:
             if init_states.shape[0] != self.reservoir_layer.nodes:
@@ -172,14 +246,19 @@ class CustomModel(ABC):
 
     def _connect_input_to_reservoir(self, nodes: Union[list, np.ndarray] = None):
         """
-        Wire input layer with reservoir layer. Creates a random matrix of shape
-        [nodes x n_states], i.e. number of reservoir nodes x state dimension of input.
-        If no full connection is desired, a fraction of nodes will be selected according
-        to the fraction_input parameter of the reservoir layer.
+        Wire input layer with reservoir layer.
 
-        Args:
-        nodes (Union[list, np.ndarray], optional): Specific nodes to connect to the
-        input. If None, randomly sample nodes.
+        Creates a random matrix of shape [nodes x n_states], i.e. number of reservoir nodes x state dimension of input.
+        If no full connection is desired, a fraction of nodes will be selected according to the fraction_input parameter of the reservoir layer.
+
+        Parameters:
+        ----------
+        nodes : Union[list, np.ndarray], optional
+            Specific nodes to connect to the input. If None, randomly sample nodes.
+
+        Returns:
+        -------
+        None
         """
         num_input_states = self.input_layer.n_states
         num_reservoir_nodes = self.reservoir_layer.nodes
@@ -210,10 +289,14 @@ class CustomModel(ABC):
         """
         Configure the model for training.
 
-        Args:
-        optimizer (str): Name of the optimizer.
-        metrics (list): List of metric names.
-        discard_transients (int): Number of initial transient timesteps to discard.
+        Parameters:
+        ----------
+        optimizer : str, optional
+            Name of the optimizer. Default is "ridge".
+        metrics : list, optional
+            List of metric names. Default is ["mse"].
+        discard_transients : int, optional
+            Number of initial transient timesteps to discard. Default is 0.
         """
         # set the metrics (like in TensorFlow)
         self._set_metrics(metrics)
@@ -242,14 +325,19 @@ class CustomModel(ABC):
 
     def compute_reservoir_state(self, X: np.ndarray, seed=None) -> np.ndarray:
         """
-        Vectorized computation of reservoir states with batch processing.
+        Compute reservoir states with batch processing.
 
-        Args:
-            X (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
-            seed (int, optional): Random seed for reproducibility
+        Parameters
+        ----------
+        X : np.ndarray
+            Input data of shape (n_batch, n_timesteps, n_states)
+        seed : int, optional
+            Random seed for reproducibility
 
-        Returns:
-            np.ndarray: Reservoir states of shape [(n_batch * n_timesteps), N]
+        Returns
+        -------
+        np.ndarray
+            Reservoir states of shape (n_batch * n_timesteps, N)
         """
         # Extract shapes and parameters
         n_batch, n_time, n_states = X.shape
@@ -267,9 +355,7 @@ class CustomModel(ABC):
         input_contrib = np.einsum("ij,btj->bti", W_in.T, X)
         for t in range(n_time):
             reservoir_contrib = np.einsum("ij,bj->bi", A, states[:, t])
-            states[:, t + 1] = (1 - alpha) * states[
-                :, t
-            ] + alpha * self.reservoir_layer.activation_fun(
+            states[:, t + 1] = (1 - alpha) * states[:, t] + alpha * self.reservoir_layer.activation_fun(
                 reservoir_contrib + input_contrib[:, t]
             )
 
@@ -280,6 +366,37 @@ class CustomModel(ABC):
     ):
         """
         Optimized training with batch processing.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Input data of shape (n_batch, n_time, n_features), where n_batch is the number of samples, 
+            n_time is the time dimension, and n_features is the number of features in the input data.
+        y : np.ndarray
+            Target data of shape (n_batch, n_time, n_states_out), where n_batch is the number of samples, 
+            n_time is the number of time steps, and n_states_out is the number of output states.
+        n_init : int, optional
+            The number of initializations to perform. Default is 1.
+        store_states : bool, optional
+            Whether to store the reservoir states during training. Default is False.
+
+        Returns
+        -------
+        dict
+            A dictionary containing the training history with the following keys:
+                - 'init_res_states' : np.ndarray
+                    The initial reservoir states for each initialization of shape (n_init, n_nodes).
+                - 'readout_weights' : np.ndarray
+                    The readout weights for each initialization of shape (n_init, n_nodes, n_states_out).
+                - 'train_scores' : np.ndarray
+                    The scores of the model for each initialization of shape (n_init,).
+                - 'res_states' : list of np.ndarray, optional
+                    The reservoir states for each batch, returned only if `store_states` is True.
+
+        Notes
+        -----
+        The function uses batch processing for training, performs multiple initializations, 
+        computes reservoir states, and solves a regression problem to update the readout layer weights.
         """
         n_batch, n_time, n_states_out = X.shape[0], X.shape[1], y.shape[-1]
         n_nodes = self.reservoir_layer.nodes
@@ -377,14 +494,59 @@ class CustomModel(ABC):
         return history
 
     def fit_evolve(self, X: np.ndarray, y: np.ndarray):
-        # build an evolving reservoir computer: performance-dependent node addition and removal
+        """
+        Build an evolving reservoir computer: performance-dependent node addition and removal.
 
+        Parameters
+        ----------
+        X : np.ndarray
+            Input data of shape (n_samples, n_features).
+        y : np.ndarray
+            Target data of shape (n_samples,).
+
+        Returns
+        -------
+        unknown
+            The training history. The exact type is not known.
+        """
         history = None
         return history
 
     def evaluate_node_removal(
         self, X, y, loss_fun, init_score, del_idx, current_num_nodes
     ):
+        """
+        Evaluates the performance of the model after removing a node.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Input data of shape (n_samples, n_features), where n_samples is the number of samples 
+            and n_features is the number of input features.
+        y : np.ndarray
+            Target data of shape (n_samples, n_time, n_states_out), where n_samples is the number of 
+            samples, n_time is the number of time steps, and n_states_out is the number of output states.
+        loss_fun : callable
+            A loss function used to evaluate the model performance. It should take the true target values 
+            and predicted values as inputs and return a scalar loss value.
+        init_score : float
+            The initial score (loss) of the model before node removal, used for comparison after pruning.
+        del_idx : int
+            The index of the node to be removed from the model.
+        current_num_nodes : int
+            The current number of nodes in the model before the node removal.
+
+        Returns
+        -------
+        float
+            The score (loss) of the model after removing the node, as computed by the given loss function.
+
+        Notes
+        -----
+        This method creates a temporary deep copy of the model, removes a node, retrains the model, 
+        and evaluates the performance. The score after removal is compared with the original score to 
+        assess the impact of the node removal.
+        """
         # Create a deep copy of the current model
         temp_model = copy.deepcopy(self)
 
@@ -454,7 +616,27 @@ class CustomModel(ABC):
 
         def keep_pruning(init_score, current_score, max_perf_drop):
             """
-            Determine if pruning should continue based on current performance.
+            Determine if pruning should continue based on the current model's performance.
+
+            Parameters
+            ----------
+            init_score : float
+                The initial score (loss) of the model before any nodes were removed.
+            current_score : float
+                The current score (loss) of the model after removing some nodes.
+            max_perf_drop : float
+                The maximum acceptable performance drop (as a fraction of the initial score). 
+                If the current score exceeds the initial score by more than this fraction, pruning stops.
+
+            Returns
+            -------
+            bool
+                True if pruning should continue, False otherwise.
+
+            Notes
+            -----
+            This function compares the current score against the initial score and the maximum allowed 
+            performance drop. If the performance has dropped too much, pruning will stop.
             """
             if current_score < (init_score * (1.0 + max_perf_drop)):
                 return True
@@ -579,13 +761,17 @@ class CustomModel(ABC):
         """
         Make predictions for given input (single-step prediction).
 
-        Args:
-        X (np.ndarray): Input data of shape [n_batch, n_timestep, n_states]
-        one_shot (bool): If True, don't re-initialize reservoir between samples.
+        Parameters
+        ----------
+        X : np.ndarray
+            Input data of shape [n_batch, n_timestep, n_states].
 
-        Returns:
-        np.ndarray: Predictions of shape [n_batch, n_timestep, n_states]
+        Returns
+        -------
+        np.ndarray
+            Predictions of shape [n_batch, n_timestep, n_states]
         """
+
         # makes prediction for given input (single-step prediction)
         # expects inputs of shape [n_batch, n_timestep, n_states]
         # returns predictions in shape of [n_batch, n_timestep, n_states]
@@ -644,13 +830,21 @@ class CustomModel(ABC):
         """
         Evaluate metrics on predictions made for input data.
 
-        Args:
-        X (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
-        y (np.ndarray): Target data of shape [n_batch, n_timesteps_out, n_states_out]
-        metrics (Union[str, list, None], optional): List of metric names or a single metric name. If None, use metrics from .compile()
+        Parameters
+        ----------
+        X : np.ndarray
+            Input data of shape [n_batch, n_timesteps, n_states].
 
-        Returns:
-        tuple: Metric values
+        y : np.ndarray
+            Target data of shape [n_batch, n_timesteps_out, n_states_out].
+
+        metrics : Union[str, list of str, None], default=None
+            List of metric names or a single metric name. If None, uses metrics from `.compile()`.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the metric values.
         """
         # evaluate metrics on predictions made for input data
         # expects: X of shape [n_batch, n_timesteps, n_states]
@@ -697,11 +891,15 @@ class CustomModel(ABC):
         """
         Get parameters for scikit-learn compatibility.
 
-        Args:
-        deep (bool): If True, return a deep copy of parameters.
+        Parameters
+        ----------
+        deep : bool, default=True
+            If True, return a deep copy of parameters.
 
-        Returns:
-        dict: Dictionary of model parameters.
+        Returns
+        -------
+        dict
+            Dictionary of model parameters, with layer names as keys and their corresponding values.
         """
         # needed for scikit-learn compatibility
         return {
@@ -715,8 +913,14 @@ class CustomModel(ABC):
         """
         Store the model to disk.
 
-        Args:
-        path (str): Path to save the model.
+        Parameters
+        ----------
+        path : str
+            Path to save the model.
+
+        Returns
+        -------
+        None
         """
         # store the model to disk
         pass
@@ -725,8 +929,14 @@ class CustomModel(ABC):
         """
         Print the model to some figure file.
 
-        Args:
-        path (str): Path to save the figure.
+        Parameters
+        ----------
+        path : str
+            Path to save the figure.
+
+        Returns
+        -------
+        None
         """
         # print the model to some figure file
         pass
@@ -735,8 +945,13 @@ class CustomModel(ABC):
         """
         Remove one or multiple nodes from all relevant layers of the reservoir computer.
 
-        Args:
-        node_indices (int or list or np.array): Index or indices of the nodes to be removed.
+        Parameters
+        ----------
+        node_indices : int or list or np.ndarray
+            Index or indices of the nodes to be removed.
+        Returns
+        -------
+        None
         """
         # Convert single integer to list
         if isinstance(node_indices, int):
@@ -787,6 +1002,20 @@ class RC(CustomModel):  # the non-auto version
     """
 
     def __init__(self):
+        """
+        Initialize the object.
+
+        At the moment, no arguments are passed to the constructor. This method calls 
+        the constructor of the parent class using `super()`.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
         # at the moment we do not have any arguments to pass
         super().__init__()
 
@@ -797,18 +1026,37 @@ class AutoRC(CustomModel):
     """
 
     def __init__(self):
+        """
+        Initialize the object.
+
+        This method is the constructor for the class. It currently does not initialize
+        any attributes or perform any operations.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
         pass
 
     def predict_ar(self, X: np.ndarray, n_steps: int = 10):
         """
-        Perform auto-regressive prediction (time series forecasting).
+        Perform auto-regressive prediction for time series forecasting.
 
-        Args:
-        X (np.ndarray): Initial input data.
-        n_steps (int): Number of steps to predict into the future.
+        Parameters
+        ----------
+        X : np.ndarray
+            Initial input data.
+        n_steps : int
+            Number of steps to predict into the future.
 
-        Returns:
-        np.ndarray: Predicted future states.
+        Returns
+        -------
+        np.ndarray
+            Predicted future states.
         """
         pass
 
@@ -819,6 +1067,17 @@ class HybridRC(CustomModel):
     """
 
     def __init__(self):
+        """
+        Initialize the `HybridRC` model. Is passed.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
         pass
 
 
