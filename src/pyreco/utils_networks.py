@@ -57,26 +57,6 @@ def gen_ER_graph(nodes: int, density: float, spec_rad: float = 0.9, directed: bo
 
 
 def compute_density(network: np.ndarray) -> float:
-    """
-    Computes the density of a given adjacency matrix by the fraction of non-zero entries over N^2.
-
-    Parameters
-    ----------
-    network : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    float
-        The density of the network.
-
-    Raises
-    ------
-    TypeError
-        If the input is not a numpy.ndarray.
-    ValueError
-        If the network is not of square size.
-    """
     # compute density of a given adjacency matrix by the fraction of non-zero entries over  N^2
     if type(network) is not np.ndarray:
         raise (TypeError('Expect a np.ndarray as reservoir network'))
@@ -91,26 +71,6 @@ def compute_density(network: np.ndarray) -> float:
 
 
 def get_num_nodes(network: np.ndarray) -> int:
-    """
-    Returns the number of nodes in the given network. Assumes the adjacency matrix to be of square size.
-
-    Parameters
-    ----------
-    network : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    int
-        The number of non-isolated nodes in the network.
-
-    Raises
-    ------
-    TypeError
-        If the input is not a numpy.ndarray.
-    ValueError
-        If the network is not of square size.
-    """
     # returns the number of nodes in the given network. Assumes the adjacency matrix to be of square size
     if type(network) is not np.ndarray:
         raise (TypeError('Expect a np.ndarray as reservoir network'))
@@ -133,26 +93,6 @@ def get_num_nodes(network: np.ndarray) -> int:
 
 
 def compute_spec_rad(network: np.ndarray) -> float:
-    """
-    Computes the spectral radius of the network (maximum eigenvalue).
-
-    Parameters
-    ----------
-    network : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    float
-        The spectral radius of the network.
-
-    Raises
-    ------
-    TypeError
-        If the input is not a numpy.ndarray.
-    ValueError
-        If the network is not of square size.
-    """
     # compute the spectral radius of the network (max. eigenvalue)
     if type(network) is not np.ndarray:
         raise (TypeError('Expect a np.ndarray as reservoir network'))
@@ -164,28 +104,6 @@ def compute_spec_rad(network: np.ndarray) -> float:
 
 
 def set_spec_rad(network: np.ndarray, spec_radius:float) -> np.ndarray:
-    """
-    Adjusts the spectral radius of a given network to a specified value.
-
-    Parameters
-    ----------
-    network : numpy.ndarray
-        The adjacency matrix of the network.
-    spec_radius : float
-        The desired spectral radius.
-
-    Returns
-    -------
-    numpy.ndarray
-        The adjusted network with the specified spectral radius.
-
-    Raises
-    ------
-    ValueError
-        If the spectral radius is not larger than zero.
-    Warning
-        If the spectral radius is larger than 1.
-    """
     # obtains a network with given spectral radius
 
     if spec_radius <= 0:
@@ -207,21 +125,6 @@ def set_spec_rad(network: np.ndarray, spec_radius:float) -> np.ndarray:
 
 
 def is_zero_col_and_row(x: np.ndarray, idx: int) -> bool:
-    """
-    Returns True if the adjacency matrix x has only zeros in the column and row of the given index (i.e., missing node).
-
-    Parameters
-    ----------
-    x : numpy.ndarray
-        The adjacency matrix of the network.
-    idx : int
-        The index of the column and row to check.
-
-    Returns
-    -------
-    bool
-        True if both the column and row at the given index are all zeros, False otherwise.
-    """
     # returns zero if adjacency matrix x carries only zeros in column and row of index idx (i.e. missing node)
 
     is_zero_column = np.all(x[:, idx] == 0)
@@ -234,26 +137,6 @@ def is_zero_col_and_row(x: np.ndarray, idx: int) -> bool:
 
 
 def remove_node(x: np.ndarray, idx: int | list) -> np.ndarray:
-    """
-    Removes nodes from the adjacency matrix by setting the corresponding rows and columns to zero.
-
-    Parameters
-    ----------
-    x : numpy.ndarray
-        The adjacency matrix of the network.
-    idx : int or list of int
-        The index or indices of the nodes to be removed.
-
-    Returns
-    -------
-    numpy.ndarray
-        The adjacency matrix with the specified nodes removed (rows and columns set to zero).
-
-    Raises
-    ------
-    TypeError
-        If the input index is not an int or list of int.
-    """
     if type(idx) is not list:
         idx = [idx]
 
@@ -268,26 +151,6 @@ def remove_node(x: np.ndarray, idx: int | list) -> np.ndarray:
     return x
 
 def gen_init_states(num_nodes: int, method: str = 'random'):
-    """
-    Generates an array of initial states for a given number of nodes using different sampling methods.
-
-    Parameters
-    ----------
-    num_nodes : int
-        The number of nodes.
-    method : str, optional
-        The sampling method to use ('random', 'random_normal', 'ones', 'zeros'). Default is 'random'.
-
-    Returns
-    -------
-    numpy.ndarray
-        An array of initial states of length `num_nodes`.
-
-    Raises
-    ------
-    ValueError
-        If the sampling method is unknown.
-    """
     # returns an array of length <num_nodes>
     # creates the entries based on different sampling methods
     # when not setting specific values, the range is normalized to abs(1)
@@ -310,53 +173,13 @@ def gen_init_states(num_nodes: int, method: str = 'random'):
     return init_states
 
 def extract_density(adjacency_matrix):
-    """
-    Extracts the density of a given adjacency matrix.
-
-    Parameters
-    ----------
-    adjacency_matrix : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    float
-        The density of the network.
-
-    """
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return nx.density(G)
 
 def extract_spectral_radius(adjacency_matrix):
-    """
-    Extracts the spectral radius of a given adjacency matrix.
-
-    Parameters
-    ----------
-    adjacency_matrix : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    float
-        The spectral radius of the network.
-    """
     return np.max(np.abs(np.linalg.eigvals(adjacency_matrix)))
 
 def extract_in_degree_av(adjacency_matrix):
-    """
-    Extracts the average in-degree of a given adjacency matrix.
-
-    Parameters
-    ----------
-    adjacency_matrix : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    float
-        The average in-degree of the network.
-    """
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     in_degrees = G.in_degree()
     avg_in_degree = np.mean(list(dict(in_degrees).values()))
@@ -369,121 +192,30 @@ def extract_out_degree_av(adjacency_matrix):
     return avg_out_degree
 
 def extract_clustering_coefficient(adjacency_matrix):
-    """
-    Extracts the average out-degree of a given adjacency matrix.
-
-    Parameters
-    ----------
-    adjacency_matrix : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    float
-        The average out-degree of the network.
-    """
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return nx.average_clustering(G)
 
 def extract_node_degree(adjacency_matrix):
-    """
-    Extracts the degree of each node in a given adjacency matrix.
-
-    Parameters
-    ----------
-    adjacency_matrix : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    dict
-        A dictionary where keys are node indices and values are their degrees.
-    """
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return dict(G.degree())
 
 def extract_node_in_degree(adjacency_matrix):
-    """
-    Extracts the in-degree of each node in a given adjacency matrix.
-
-    Parameters
-    ----------
-    adjacency_matrix : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    dict
-        A dictionary where keys are node indices and values are their in-degrees.
-    """
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return dict(G.in_degree())
 
 def extract_node_out_degree(adjacency_matrix):
-    """
-    Extracts the out-degree of each node in a given adjacency matrix.
-
-    Parameters
-    ----------
-    adjacency_matrix : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    dict
-        A dictionary where keys are node indices and values are their out-degrees.
-    """
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return dict(G.out_degree())
 
 def extract_node_clustering_coefficient(adjacency_matrix):
-    """
-    Extracts the clustering coefficient of each node in a given adjacency matrix.
-
-    Parameters
-    ----------
-    adjacency_matrix : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    dict
-        A dictionary where keys are node indices and values are their clustering coefficients.
-    """
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return nx.clustering(G)
 
 def extract_node_betweenness_centrality(adjacency_matrix):
-    """
-    Extracts the betweenness centrality of each node in a given adjacency matrix.
-
-    Parameters
-    ----------
-    adjacency_matrix : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    dict
-        A dictionary where keys are node indices and values are their betweenness centrality.
-    """
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return nx.betweenness_centrality(G)
 
 def extract_node_pagerank(adjacency_matrix):
-    """
-    Extracts the PageRank of each node in a given adjacency matrix.
-
-    Parameters
-    ----------
-    adjacency_matrix : numpy.ndarray
-        The adjacency matrix of the network.
-
-    Returns
-    -------
-    dict
-        A dictionary where keys are node indices and values are their PageRank scores.
-    """
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return nx.pagerank(G)
 
