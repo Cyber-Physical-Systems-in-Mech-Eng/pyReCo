@@ -14,16 +14,18 @@ from abc import ABC, abstractmethod
 from .custom_models import RC, CustomModel
 from .layers import InputLayer, ReadoutLayer, RandomReservoirLayer
 from .metrics import mse, mae
+from .optimizers import Optimizer
 
 
 class Model(ABC):
 
-    def __init__(self, activation: str = "tanh", leakage_rate: float = 0.3):
+    def __init__(
+        self, num_nodes: int = 100, activation: str = "tanh", leakage_rate: float = 0.5
+    ):
         # basic architectural hyperparameters
         self.activation: str = activation
         self.leakage_rate: float = leakage_rate
-
-        pass
+        self.num_nodes: int = num_nodes
 
     @abstractmethod
     def fit(self, X: np.ndarray, y: np.ndarray):
@@ -35,7 +37,9 @@ class Model(ABC):
         # returns predictions for new input data
         pass
 
-    def compile(self, optimizer: str = "ridge", metrics: list = ["mse"]):
+    def compile(self, optimizer: str = "ridge", metrics: Union[None, list] = None):
+        if metrics is None:
+            metrics = ["mse"]
         # sets up things like optimizer and metrics (like in TensorFlow)
         self.optimizer = optimizer
         self.metrics = metrics
@@ -80,27 +84,28 @@ class ReservoirComputer(Model):
         spec_rad: float = 0.9,
         fraction_input: float = 1.0,
         fraction_output: float = 1.0,
-        n_time_out=None,
         n_time_in=None,
+        n_time_out=None,
         n_states_in=None,
         n_states_out=None,
         metrics: Union[str, list] = "mean_squared_error",
-        optimizer: str = "ridge",
-        init_res_sampling="random_normal",
+        optimizer: Union[str, Optimizer] = "ridge",
+        init_res_sampling="random_normal",  # todo: implement a class for generating initial reservoir states
     ):
         # initialize parent class
-        super().__init__(activation=activation, leakage_rate=leakage_rate)
+        super().__init__(
+            num_nodes=num_nodes, activation=activation, leakage_rate=leakage_rate
+        )
 
         # initialize child class
-        self.num_nodes = num_nodes  # former N
         self.density = density
         self.spec_rad = spec_rad
         self.fraction_input = fraction_input
         self.fraction_output = fraction_output
 
         # dimensionalities of the mapping problem
-        self.n_time_out = n_time_out
         self.n_time_in = n_time_in
+        self.n_time_out = n_time_out
         self.n_states_in = n_states_in
         self.n_states_out = n_states_out
 

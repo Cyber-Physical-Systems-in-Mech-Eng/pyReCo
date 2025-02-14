@@ -11,9 +11,9 @@ from pyreco.layers import (
     ReservoirLayer,
     ReadoutLayer,
 )
-from .optimizers import Optimizer, assign_optimizer
-from .metrics import assign_metric
-from .utils_networks import (
+from pyreco.optimizers import Optimizer, assign_optimizer
+from pyreco.metrics import assign_metric
+from pyreco.utils_networks import (
     gen_init_states,
     # set_spec_rad,
     # is_zero_col_and_row,
@@ -21,9 +21,11 @@ from .utils_networks import (
     get_num_nodes,
     # compute_spec_rad,
 )
+from pyreco.node_selector import NodeSelector
+from pyreco.initializer import NetworkInitializer
 
 # from .metrics import assign_metric
-from .network_prop_extractor import NetworkQuantifier  # NodePropExtractor
+from pyreco.network_prop_extractor import NetworkQuantifier  # NodePropExtractor
 
 
 def sample_random_nodes(total_nodes: int, fraction: float):
@@ -80,8 +82,8 @@ class CustomModel(ABC):
         self.num_trainable_weights: int
 
         self.n_time_in: int
-        self.n_states_in: int
         self.n_time_out: int
+        self.n_states_in: int
         self.n_states_out: int
 
     def add(self, layer: Layer):
@@ -93,12 +95,21 @@ class CustomModel(ABC):
         Args:
         layer (Layer): Layer to be added to the model.
         """
+        # Sanity check for the correct shape of the input argument layer
+        if not isinstance(layer, Layer):
+            raise TypeError(
+                "The layer must be an instance of the Layer class or its subclasses."
+            )
+
+        # assign the layer to the correct attribute
         if isinstance(layer, InputLayer):
             self.input_layer = layer
         elif issubclass(type(layer), ReservoirLayer):
             self.reservoir_layer = layer
         elif isinstance(layer, ReadoutLayer):
             self.readout_layer = layer
+        else:
+            raise ValueError("Unsupported layer type.")
 
     # TODO: the following method should be implemented in the CustomModel class
     #   def _set_readin_nodes(self, nodes: Union[list, np.ndarray] = None):
@@ -116,10 +127,13 @@ class CustomModel(ABC):
         provided as indices. If None, randomly sample nodes.
         """
         if nodes is None:
-            nodes = sample_random_nodes(
+            selector = NodeSelector(
                 total_nodes=self.reservoir_layer.nodes,
-                fraction=self.readout_layer.fraction_out,
+                strategy="random_uniform_wo_repl",
             )
+            nodes = selector.select_nodes(fraction=self.readout_layer.fraction_out)
+
+        # set the readout nodes in the readout layer
         self.readout_layer.readout_nodes = nodes
 
     def _set_optimizer(self, optimizer: Union[str, Optimizer]):
@@ -149,14 +163,26 @@ class CustomModel(ABC):
         for metric in self.metrics:
             self.metrics_fun.append(assign_metric(metric))
 
-    def _set_init_states(self, init_states=None, method=None):
+    def _initialize_network_states(self, method: str = "random_normal"):
+        """
+        Initialize the reservoir states.
+
+        Args:
+        method (str, optional): Method for sampling initial states.
+        """
+        num_nodes = self.reservoir_layer.nodes
+        initializer = NetworkInitializer(method=method)
+        init_states = initializer.gen_initial_states(num_nodes)
+
+        self._set_init_states(init_states=init_states)
+
+    def _set_init_states(self, init_states=None):
         """
         Set the initial states of the reservoir nodes.
 
         Args:
         init_states (np.ndarray, optional): Array of initial states. If None, sample
         initial states using the specified method.
-        method (str, optional): Method for sampling initial states.
         """
         if init_states is not None:
             if init_states.shape[0] != self.reservoir_layer.nodes:
@@ -165,16 +191,16 @@ class CustomModel(ABC):
                         "initial states not matching the number of reservoir nodes!"
                     )
                 )
-            self.reservoir_layer.set_initial_state(r_init=init_states)
-        elif (init_states is None) and (method is not None):
-            init_states = gen_init_states(self.reservoir_layer.nodes, method)
-            self.reservoir_layer.set_initial_state(r_init=init_states)
+
         else:
             raise (
                 ValueError(
                     "provide either an array of initial states or a method for sampling"
                 )
             )
+
+        # set the initial states in the reservoir layer
+        self.reservoir_layer.set_initial_state(r_init=init_states)
 
     def _connect_input_to_reservoir(self, nodes: Union[list, np.ndarray] = None):
         """
@@ -321,7 +347,7 @@ class CustomModel(ABC):
                 print(f"initialization {i}/{n_init}: computing reservoir states")
 
             # Set initial states
-            self._set_init_states(method=self.reservoir_layer.init_res_sampling)
+            self._initialize_network_states()
             n_R0[i] = self.reservoir_layer.initial_res_states
 
             # Compute reservoir states

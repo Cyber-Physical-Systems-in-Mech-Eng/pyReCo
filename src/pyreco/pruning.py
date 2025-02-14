@@ -78,7 +78,14 @@ class NetworkPruner:
         self.history = dict()
 
     def prune(self, model: RC, data_train: tuple, data_val: tuple):
-        # prune a given model by removing nodes.
+        """
+        Prune a given model by removing nodes.
+
+        Parameters:
+        - model (RC): The reservoir computer model to prune.
+        - data_train (tuple): Training data.
+        - data_val (tuple): Validation data.
+        """
 
         # Sanity checks for the input parameter types and values
         if not isinstance(model, RC):
@@ -113,13 +120,14 @@ class NetworkPruner:
         # Assigning the parameters to instance variables that can not be set
         # in the initializer
         n = model.reservoir_layer.nodes  # number of initial reservoir nodes
+        curr_score = model.evaluate(X=data_val[0], y=data_val[1])[0]
 
         if self.patience is None:
             self.patience = int(n / 10)
 
         # Initialize a dict that stores all relevant information during pruning
         history = dict()
-        history["num_nodes"] = [curr_total_nodes]
+        history["num_nodes"] = [n]
         history["score"] = [curr_score]
         history["graph_props"] = []  # graph property extractor
         history["node_props"] = []  # node property extractor
