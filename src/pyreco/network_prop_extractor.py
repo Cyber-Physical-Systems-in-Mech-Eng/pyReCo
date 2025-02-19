@@ -19,9 +19,18 @@ class NetworkQuantifier:
         """
         Initialize the NetworkQuantifier with specified quantities to extract.
 
-        Args:
-            quantities (list, optional): List of network properties to extract.
-                Defaults to ['density', 'spectral_radius', 'in_degree_av', 'out_degree_av', 'clustering_coefficient'].
+        Parameters
+        ----------
+        quantities : list, optional
+            A list of network properties to extract. If not provided, defaults to 
+            ['density', 'spectral_radius', 'in_degree_av', 'out_degree_av', 'clustering_coefficient'].
+            The properties are used to determine which network characteristics will be computed.
+
+        Notes
+        -----
+        - The `quantities` argument is a list of strings that correspond to network properties. If no 
+        argument is passed, the default set of quantities is used.
+        - The `extractors` dictionary maps the property names to their corresponding extraction functions.
         """
         self.quantities = quantities or ['density', 'spectral_radius', 'in_degree_av', 'out_degree_av', 'clustering_coefficient']
         self.extractors = {
@@ -36,11 +45,22 @@ class NetworkQuantifier:
         """
         Extract the specified network properties from the given adjacency matrix.
 
-        Args:
-            adjacency_matrix (numpy.ndarray): The adjacency matrix of the network.
+        Parameters
+        ----------
+        adjacency_matrix : numpy.ndarray
+            The adjacency matrix of the network, which represents the connectivity between nodes.
 
-        Returns:
-            dict: A dictionary containing the extracted network properties.
+        Returns
+        -------
+        dict
+            A dictionary containing the extracted network properties, where keys are the property names 
+            (e.g., 'density', 'spectral_radius') and values are the computed property values.
+
+        Notes
+        -----
+        - The method iterates over the list of quantities specified during initialization and applies 
+        the corresponding extraction function from the `extractors` dictionary.
+        - If a quantity is not recognized, a warning is printed.
         """
         network_props = {}
         for quantity in self.quantities:
@@ -62,9 +82,19 @@ class NodePropExtractor:
         """
         Initialize the NodePropExtractor with specified properties to extract.
 
-        Args:
-            properties (list, optional): List of node properties to extract.
-                Defaults to ['degree', 'in_degree', 'out_degree', 'clustering_coefficient', 'betweenness_centrality', 'pagerank'].
+        Parameters
+        ----------
+        properties : list, optional
+            A list of node properties to extract. Defaults to 
+            ['degree', 'in_degree', 'out_degree', 'clustering_coefficient', 
+            'betweenness_centrality', 'pagerank'].
+
+        Notes
+        -----
+        - The `properties` list allows users to specify which node attributes to extract from the network.
+        - If no properties are provided, the default properties are used, which include various centrality 
+        and connectivity measures for the nodes in the network.
+        - The `extractors` dictionary maps the property names to their corresponding extraction functions.
         """
         self.properties = properties or ['degree', 'in_degree', 'out_degree', 'clustering_coefficient', 'betweenness_centrality', 'pagerank']
         self.extractors = {
@@ -80,12 +110,27 @@ class NodePropExtractor:
         """
         Extract the specified node properties from the given adjacency matrix.
 
-        Args:
-            adjacency_matrix (numpy.ndarray): The adjacency matrix of the network.
-            states (numpy.ndarray, optional): Node states, if applicable. Defaults to None.
+        Parameters
+        ----------
+        adjacency_matrix : numpy.ndarray
+            The adjacency matrix of the network, where each element represents the connection 
+            between two nodes.
+            
+        states : numpy.ndarray, optional
+            Node states, if applicable. Defaults to None. If provided, the states may be used
+            in the extraction process for specific properties (e.g., centrality measures).
 
-        Returns:
-            dict: A dictionary containing the extracted node properties.
+        Returns
+        -------
+        dict
+            A dictionary containing the extracted node properties, where the keys are property names 
+            and the values are the corresponding computed values.
+
+        Notes
+        -----
+        - The method iterates over the list of properties specified in the `properties` attribute of the 
+        class and calls the corresponding extraction function from the `extractors` dictionary.
+        - If a property is not recognized, a warning is printed.
         """
         node_props = {}
         for property in self.properties:
