@@ -112,9 +112,35 @@ def print_and_compare_weights(model, history):
     """
     Prints and compares the reservoir and readout weights after pruning.
     
-    Args:
-    model (RC): The trained and pruned RC model.
-    history (dict): The history dictionary returned by fit_prune.
+    Parameters
+    ----------
+    model : RC
+        The trained and pruned RC model. The model must have a reservoir layer 
+        (`model.reservoir_layer.weights`) and a readout layer (`model.readout_layer.weights`).
+        
+    history : dict
+        The history dictionary returned by the `fit_prune` method. It should contain the 
+        number of nodes before and after pruning under the key `'num_nodes'`.
+
+    Notes
+    -----
+    This function prints the shape and values of the reservoir and readout weights. It also checks
+    for any inconsistencies between the pruned nodes in the reservoir and the corresponding readout 
+    weights. If inconsistencies are found (e.g., pruned nodes having non-zero readout weights), 
+    they are printed for inspection.
+
+    Example
+    -------
+    >>> print_and_compare_weights(model, history)
+    Original nodes: 1000, Final nodes: 500
+    Final Reservoir Weights (shape: (500, 500)):
+    [[ 0.4  0.2  ... ]
+     [ 0.1  0.5  ... ]]
+    Final Readout Weights (shape: (500, 1)):
+    [[0.3]
+     [0.7]
+     ...]
+    No inconsistencies found. Pruning is correctly reflected in both layers.
     """
     print("\nComparing weights after pruning:")
     
