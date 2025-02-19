@@ -9,6 +9,38 @@ from .metrics import r2
 
 def r2_scatter(y_true: np.ndarray, y_pred: np.ndarray, state_idx: int|tuple= None,
                title:str = None, xlabel:str=None, ylabel:str = None):
+    """
+    Plots predictions against ground truth values as a scatter plot and calculates the R² value.
+
+    This function allows the user to select the output state to plot (if there are multiple states).
+    If no state index is provided, all states are plotted. The function collapses the data along the time 
+    dimension to show time-dependent targets.
+
+    Parameters
+    ----------
+    y_true : numpy.ndarray
+        The true values of shape (n_batch, n_timesteps, n_states). The target values for the model.
+    y_pred : numpy.ndarray
+        The predicted values of shape (n_batch, n_timesteps, n_states). The model's predictions.
+    state_idx : int | tuple, optional
+        The index or tuple of indices specifying the output states to plot. Default is None, which plots all states.
+    title : str, optional
+        The title of the plot. Default is None.
+    xlabel : str, optional
+        The label for the x-axis. Default is 'ground truth' if not provided.
+    ylabel : str, optional
+        The label for the y-axis. Default is 'predictions' if not provided.
+
+    Raises
+    ------
+    ValueError
+        If the shapes of `y_true` and `y_pred` do not match or if the `state_idx` is invalid.
+
+    Returns
+    -------
+    None
+        Displays the scatter plot with the R² value as a label.
+    """
     # plots predictions against ground truth values as scatter plot
     # lets the user choose the output state to plot (if there are multiple states). If not provided, all states will
     # be plotted.
