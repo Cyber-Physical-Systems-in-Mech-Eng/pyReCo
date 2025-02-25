@@ -15,6 +15,7 @@ from pyreco.optimizers import Optimizer, assign_optimizer
 from pyreco.metrics import assign_metric
 from pyreco.node_selector import NodeSelector
 from pyreco.initializer import NetworkInitializer
+from pyreco.utils_networks import rename_nodes_after_removal
 
 
 # def sample_random_nodes(total_nodes: int, fraction: float):
@@ -148,6 +149,10 @@ class CustomModel(ABC):
 
         # Sample the input connections: create W_in read-in weight matrix
         self._connect_input_to_reservoir()  # check for dependency injection here!
+
+        # Set initial states of the reservoir
+        # TODO: let the user specify the reservoir initialization method
+        self._initialize_network(method="random_normal")
 
         # Select readout nodes according to the fraction specified by the user in the readout layer. By default, randomly sample nodes. User can also provide a list of nodes to use for readout.
         self._set_readout_nodes()
@@ -367,10 +372,6 @@ class CustomModel(ABC):
         n_batch = x.shape[0]
         n_time_out, n_states_out = y.shape[1], y.shape[2]
 
-        # Set initial states of the reservoir
-        # TODO: let the user specify the reservoir initialization method
-        self._initialize_network(method="random_normal")
-
         # Compute reservoir states. This is the most time-consuming part of the training process.
         # returns reservoir states of shape [n_batch, n_timesteps+1, n_nodes]
         # (n_timesteps+1 because we also store the initial state)
@@ -406,9 +407,9 @@ class CustomModel(ABC):
         # removes specific nodes from the reservoir matrix, and
         # deletes accordingly the relevant readin weights and readout weights
 
-        print(
-            f"removing nodes {nodes} from the reservoir. You need to retrain the model!"
-        )
+        # print(
+        # f"removing nodes {nodes} from the reservoir. You need to retrain the model!"
+        # )
 
         if not isinstance(nodes, list):
             raise TypeError("Nodes must be provided as a list of indices.")
@@ -419,30 +420,20 @@ class CustomModel(ABC):
         if np.min(nodes) < 0:
             raise ValueError("Node index must be positive.")
 
+        if len(nodes) >= self.reservoir_layer.nodes:
+            raise ValueError("You cannot remove all nodes from the reservoir.")
+
         # 1. remove nodes from the reservoir layer
         self.reservoir_layer.remove_nodes(nodes)
-
-        # TODO 1.b. check for isolated nodes and remove those as well?
 
         # 2. remove nodes from the read-in weights matrix of shape [num_nodes, num_states_in]
         self.input_layer.remove_nodes(nodes)
 
         # 3. remove nodes from the list of readout-nodes in the readout layer
         # update the indices in the readout.readout_nodes list
-        # Create a mapping of old indices to new indices
-        old_to_new = {}
-        new_index = 0
-        for old_index in range(self.reservoir_layer.nodes + len(nodes)):
-            if old_index not in nodes:
-                old_to_new[old_index] = new_index
-                new_index += 1
-
-        self.readout_layer.readout_nodes = [
-            old_to_new[node]
-            for node in self.readout_layer.readout_nodes
-            if node not in nodes
-        ]
-
+        self.readout_layer.readout_nodes = rename_nodes_after_removal(
+            original_nodes=self.readout_layer.readout_nodes, removed_nodes=nodes
+        )
         self.readout_layer.update_layer_properties()
 
         # TODO: any more attributes to change here?

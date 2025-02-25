@@ -82,18 +82,7 @@ def get_num_nodes(network: np.ndarray) -> int:
     if network.shape[0] != network.shape[1]:
         raise (ValueError("Expect network of square size!"))
 
-    non_zero_rows = np.any(network != 0, axis=1)
-
-    # Identify columns that are not entirely zero
-    non_zero_columns = np.any(network != 0, axis=0)
-
-    # Identify nodes where both row and column are not zero
-    non_isolated_nodes = np.where(non_zero_rows & non_zero_columns)[0]
-
-    # Number of non-isolated nodes
-    num_non_isolated_nodes = len(non_isolated_nodes)
-
-    return num_non_isolated_nodes
+    return network.shape[0]
 
 
 def compute_spec_rad(network: np.ndarray) -> float:
@@ -171,7 +160,30 @@ def remove_nodes_from_graph(graph: np.ndarray, nodes: list):
     # 3. convert the graph back to a NumPy array
     graph_trunc = nx.to_numpy_array(G)
 
+    if graph_trunc.shape[0] != graph.shape[0] - len(nodes):
+        raise ValueError("sth wrong!")
+
     return graph_trunc
+
+
+def rename_nodes_after_removal(original_nodes: list, removed_nodes: list):
+    # removes the nodes from the original list of nodes and renames the remaining nodes
+
+    # Create a mapping of old indices to new indices
+    old_to_new = {}
+    new_index = 0
+    for old_index in np.unique(
+        original_nodes
+    ):  # range(np.min(original_nodes), np.max(original_nodes)):
+        if old_index not in removed_nodes:
+            old_to_new[old_index] = new_index
+            new_index += 1
+
+    updated_nodes = [
+        old_to_new[node] for node in original_nodes if node not in removed_nodes
+    ]
+
+    return updated_nodes
 
 
 def gen_init_states(num_nodes: int, method: str = "random"):
@@ -260,3 +272,13 @@ def extract_node_pagerank(adjacency_matrix):
 
 
 # Add more network property extraction functions as needed
+
+
+if __name__ == "__main__":
+
+    # test the node renaming function
+    original_nodes = [0, 2, 1, 3, 4, 5, 6]
+    removed_nodes = [0, 5, 6]
+
+    updated_nodes = rename_nodes_after_removal(original_nodes, removed_nodes)
+    print(updated_nodes)

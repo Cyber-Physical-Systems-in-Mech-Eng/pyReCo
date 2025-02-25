@@ -194,6 +194,9 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         # 2. update reservoir properties
         self.update_layer_properties()
 
+        # 3. update the initial reservoir state
+        self.initial_res_states = np.delete(self.initial_res_states, nodes, axis=0)
+
     def update_layer_properties(self):
         # Updates the reservoir properties including the number of nodes, density, and spectral radius.
         self.nodes = get_num_nodes(self.weights)

@@ -28,7 +28,7 @@ model = RC()
 model.add(InputLayer(input_shape=input_shape))
 model.add(
     RandomReservoirLayer(
-        nodes=200, density=0.1, activation="tanh", leakage_rate=0.1, fraction_input=1.0
+        nodes=1000, density=0.1, activation="tanh", leakage_rate=0.1, fraction_input=1.0
     ),
 )
 model.add(ReadoutLayer(output_shape, fraction_out=0.9))
@@ -65,21 +65,26 @@ print(f"density of reservoir: \t{model.reservoir_layer.density:.3f}")
 """
 Now let's cut reservoir nodes and see how the performance changes
 """
+num_node_prune = 10
 scores = []
 num_nodes = []
-for i in range(20):
+remaining_nodes = model.reservoir_layer.nodes
+while (remaining_nodes - num_node_prune) > 0:
     nodes_to_delete = np.random.choice(
-        model.reservoir_layer.nodes, 5, replace=False
+        model.reservoir_layer.nodes, num_node_prune, replace=False
     ).tolist()
+    print(f"nodes to delete: {nodes_to_delete}")
+    print(f"nodes before deletion: {model.readout_layer.readout_nodes}")
     model.remove_reservoir_nodes(nodes_to_delete)
     print(f"number of nodes in the RC: {model.reservoir_layer.nodes}\n")
     model.fit(X_train, y_train)
     scores.append(model.evaluate(x=X_test, y=y_test)[0])
     num_nodes.append(model.reservoir_layer.nodes)
+    remaining_nodes = model.reservoir_layer.nodes
 
 plt.figure()
 plt.plot(num_nodes, scores, "o-")
 plt.xlabel("Number of nodes in reservoir")
 plt.ylabel("MSE")
-plt.title("Performance vs. Number of nodes in reservoir")
+plt.title("Loss vs. number of nodes in reservoir")
 plt.show()

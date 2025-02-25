@@ -20,6 +20,7 @@ class NetworkPruner:
         min_num_nodes: int = 2,
         patience: int = None,
         candidate_fraction: float = 0.1,
+        remove_isolated_nodes: bool = False,
     ):
         """
         Initializer for the pruning class.
@@ -75,6 +76,7 @@ class NetworkPruner:
         self.min_num_nodes = min_num_nodes
         self.patience = patience
         self.candidate_fraction = candidate_fraction
+        self.remove_isolated_nodes = remove_isolated_nodes
         self.history = dict()
 
     def prune(self, model: RC, data_train: tuple, data_val: tuple):
