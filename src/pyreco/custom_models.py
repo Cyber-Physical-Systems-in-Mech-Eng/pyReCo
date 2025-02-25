@@ -13,44 +13,33 @@ from pyreco.layers import (
 )
 from pyreco.optimizers import Optimizer, assign_optimizer
 from pyreco.metrics import assign_metric
-from pyreco.utils_networks import (
-    gen_init_states,
-    # set_spec_rad,
-    # is_zero_col_and_row,
-    # remove_node,
-    get_num_nodes,
-    # compute_spec_rad,
-)
 from pyreco.node_selector import NodeSelector
 from pyreco.initializer import NetworkInitializer
 
-# from .metrics import assign_metric
-from pyreco.network_prop_extractor import NetworkQuantifier  # NodePropExtractor
+
+# def sample_random_nodes(total_nodes: int, fraction: float):
+#     """
+#     Select a subset of randomly chosen nodes.
+
+#     Args:
+#     total_nodes (int): Total number of available nodes.
+#     fraction (float): Fraction of nodes to select.
+
+#     Returns:
+#     np.ndarray: Array of randomly selected node indices.
+#     """
+#     return np.random.choice(
+#         total_nodes, size=int(total_nodes * fraction), replace=False
+#     )
 
 
-def sample_random_nodes(total_nodes: int, fraction: float):
-    """
-    Select a subset of randomly chosen nodes.
-
-    Args:
-    total_nodes (int): Total number of available nodes.
-    fraction (float): Fraction of nodes to select.
-
-    Returns:
-    np.ndarray: Array of randomly selected node indices.
-    """
-    return np.random.choice(
-        total_nodes, size=int(total_nodes * fraction), replace=False
-    )
-
-
-def discard_transients_indices(n_batches, n_timesteps, transients):
-    indices_to_remove = []
-    for i in range(n_batches * n_timesteps):
-        t = i % n_timesteps  # Current timestep within the batch
-        if t < transients:
-            indices_to_remove.append(i)
-    return indices_to_remove
+# def discard_transients_indices(n_batches, n_timesteps, transients):
+#     indices_to_remove = []
+#     for i in range(n_batches * n_timesteps):
+#         t = i % n_timesteps  # Current timestep within the batch
+#         if t < transients:
+#             indices_to_remove.append(i)
+#     return indices_to_remove
 
 
 class CustomModel(ABC):
@@ -518,198 +507,6 @@ class CustomModel(ABC):
         history = None
         return history
 
-    def evaluate_node_removal(
-        self, X, y, loss_fun, init_score, del_idx, current_num_nodes
-    ):
-        # Create a deep copy of the current model
-        temp_model = copy.deepcopy(self)
-
-        # Remove node from the temporary model
-        temp_model.remove_node(del_idx)
-
-        # Train the temporary model
-        temp_model.fit(X, y)
-        y_discarded = y[:, self.discard_transients :, :]
-        # Evaluate the temporary model
-        temp_score = loss_fun(y_discarded, temp_model.predict(X=X))
-
-        print(
-            f"Pruning node {del_idx} / {current_num_nodes}: loss = {temp_score:.5f}, original loss = {init_score:.5f}"
-        )
-
-        return temp_score
-
-    def fit_prune(
-        self,
-        X: np.ndarray,
-        y: np.ndarray,
-        loss_metric="mse",
-        max_perf_drop=0.1,
-        frac_rem_nodes=0.20,
-        patience=None,
-        prop_extractor=None,
-    ):
-        """
-        Build a reservoir computer by performance-informed pruning of the initial reservoir network.
-
-        This method prunes the network down to better performance OR a tolerated performance reduction.
-
-        Args:
-            X (np.ndarray): Input data of shape [n_batch, n_time_in, n_states_in]
-            y (np.ndarray): Target data of shape [n_batch, n_time_out, n_states_out]
-            loss_metric (str): Metric for performance-informed node removal. Must be a member of existing metrics in pyReCo.
-            max_perf_drop (float): Maximum allowed performance drop before stopping pruning. Default: 0.1 (10%)
-            frac_rem_nodes (float): Fraction of nodes to attempt to remove in each iteration. Default: 0.01 (1%)
-            patience (int): Number of consecutive performance decreases allowed before early stopping
-            prop_extractor (object): Object to extract network properties during pruning
-
-        Returns:
-            dict: History of the pruning process
-        """
-
-        # Ensure frac_rem_nodes is within the valid range [0, 1]
-        frac_rem_nodes = max(0.0, min(1.0, frac_rem_nodes))
-
-        # Get a callable loss function for performance-informed node removal
-        loss_fun = assign_metric(loss_metric)
-
-        # Initialize reservoir states
-        self._set_init_states(method=self.reservoir_layer.init_res_sampling)
-
-        # Get size of original reservoir
-        num_nodes = self.reservoir_layer.weights.shape[0]
-
-        # Set default patience if not specified
-        if patience is None:
-            patience = num_nodes
-
-        # Compute initial score of full network on training set
-        self.fit(X, y)
-        y_discarded = y[:, self.discard_transients :, :]
-        init_score = loss_fun(y_discarded, self.predict(X=X))
-
-        def keep_pruning(init_score, current_score, max_perf_drop):
-            """
-            Determine if pruning should continue based on current performance.
-            """
-            if current_score < (init_score * (1.0 + max_perf_drop)):
-                return True
-            else:
-                print("Pruning stopping criterion reached.")
-                return False
-
-        # Initialize property extractor if not provided. TODO needs to be improved
-        if prop_extractor is None:
-            prop_extractor = NetworkQuantifier()
-
-        # Initialize pruning variables
-        i = 0
-        current_score = init_score
-        current_num_nodes = get_num_nodes(self.reservoir_layer.weights)
-        score_per_node = []
-        history = {
-            "pruned_nodes": [-1],
-            "pruned_nodes_scores": [init_score],
-            "num_nodes": [current_num_nodes],
-            "network_properties": [],
-        }
-
-        # Extract initial network properties
-        initial_props = prop_extractor.extract_properties(self.reservoir_layer.weights)
-        history["network_properties"].append(initial_props)
-
-        consecutive_increases = 0
-        best_score = init_score
-
-        best_model = copy.deepcopy(self)
-
-        # Main pruning loop
-        while i < num_nodes:
-            print(f"Pruning iteration {i}")
-
-            # Calculate number of nodes to try removing this iteration
-            num_nodes_to_try = max(1, int(current_num_nodes * frac_rem_nodes))
-
-            score_per_node.append([])
-            max_loss = init_score
-
-            # Prepare the partial function for multiprocessing
-            evaluate_func = partial(
-                self.evaluate_node_removal,
-                X,
-                y,
-                loss_fun,
-                init_score,
-                current_num_nodes=current_num_nodes,
-            )
-
-            # Use multiprocessing to evaluate node removals in parallel
-            with multiprocessing.Pool() as pool:
-                results = pool.map(evaluate_func, range(current_num_nodes))
-
-            # Process the results
-            score_per_node[i] = results
-            max_loss = max(max_loss, max(results))
-
-            # Find nodes which affect the loss the least
-            max_loss = max_loss + 1
-            score_per_node[i] = [
-                max_loss if x is None else x for x in score_per_node[i]
-            ]
-            sorted_indices = np.argsort(score_per_node[i])
-            nodes_to_remove = sorted_indices[:num_nodes_to_try]
-
-            if keep_pruning(init_score, current_score, max_perf_drop):
-                # Remove node from all layers
-                self.remove_node(nodes_to_remove)
-
-                # Retrain and evaluate
-                self.fit(X, y)
-                y_discarded = y[:, self.discard_transients :, :]
-                current_score = loss_fun(y_discarded, self.predict(X=X))
-                rel_score = (current_score - init_score) / init_score * 100
-
-                current_num_nodes = self.reservoir_layer.nodes
-
-                print(
-                    f"Removing node {nodes_to_remove}: new loss = {current_score:.5f}, original loss = {init_score:.5f} ({rel_score:+.2f} %); {current_num_nodes} nodes remain"
-                )
-
-                # Check for early stopping and update best model
-                if current_score < best_score:
-                    best_score = current_score
-                    best_model = copy.deepcopy(self)
-                    consecutive_increases = 0
-                else:
-                    consecutive_increases += 1
-                    if consecutive_increases >= patience:
-                        print(
-                            f"Stopping pruning: Loss increased for {patience} consecutive iterations."
-                        )
-                        break
-
-                # Extract and store network properties
-                network_props = prop_extractor.extract_properties(
-                    self.reservoir_layer.weights
-                )
-                history["network_properties"].append(network_props)
-
-                # Update pruning history
-                history["pruned_nodes"].append(nodes_to_remove.tolist())
-                history["pruned_nodes_scores"].append(
-                    [score_per_node[i][node] for node in nodes_to_remove]
-                )
-                history["num_nodes"].append(current_num_nodes)
-            else:
-                break
-
-            i += 1
-
-        # Add best score to history
-        history["best_score"] = best_score
-
-        return history, best_model
-
     # @abstractmethod
     def predict(self, x: np.ndarray) -> np.ndarray:
         """
@@ -729,10 +526,8 @@ class CustomModel(ABC):
         # one_shot = True will *not* re-initialize the reservoir from sample to sample. Introduces a dependency on the
         # sequence by which the samples are given
 
-        # TODO: external function that is going to check the dimensionality
+        # TODO: external function that is going to check the input dimensionality
         # and raise an error if shape is not correct
-        n_batch, n_time, n_states = x.shape[0], x.shape[1], x.shape[2]
-        n_nodes = self.reservoir_layer.nodes
 
         # Compute reservoir states. Returns reservoir states of shape
         # [n_batch, n_timesteps+1, n_nodes]
@@ -801,23 +596,23 @@ class CustomModel(ABC):
 
         return metric_values
 
-    # @abstractmethod
-    def get_params(self, deep=True):
-        """
-        Get parameters for scikit-learn compatibility.
+    # # @abstractmethod
+    # def get_params(self, deep=True):
+    #     """
+    #     Get parameters for scikit-learn compatibility.
 
-        Args:
-        deep (bool): If True, return a deep copy of parameters.
+    #     Args:
+    #     deep (bool): If True, return a deep copy of parameters.
 
-        Returns:
-        dict: Dictionary of model parameters.
-        """
-        # needed for scikit-learn compatibility
-        return {
-            "input_layer": self.input_layer,
-            "reservoir_layer": self.reservoir_layer,
-            "readout_layer": self.readout_layer,
-        }
+    #     Returns:
+    #     dict: Dictionary of model parameters.
+    #     """
+    #     # needed for scikit-learn compatibility
+    #     return {
+    #         "input_layer": self.input_layer,
+    #         "reservoir_layer": self.reservoir_layer,
+    #         "readout_layer": self.readout_layer,
+    #     }
 
     # @abstractmethod
     def save(self, path: str):
@@ -828,7 +623,7 @@ class CustomModel(ABC):
         path (str): Path to save the model.
         """
         # store the model to disk
-        pass
+        raise NotImplementedError("Method not implemented yet.")
 
     def plot(self, path: str):
         """
@@ -838,56 +633,7 @@ class CustomModel(ABC):
         path (str): Path to save the figure.
         """
         # print the model to some figure file
-        pass
-
-    def remove_node(self, node_indices):
-        """
-        Remove one or multiple nodes from all relevant layers of the reservoir computer.
-
-        Args:
-        node_indices (int or list or np.array): Index or indices of the nodes to be removed.
-        """
-        # Convert single integer to list
-        if isinstance(node_indices, int):
-            node_indices = [node_indices]
-
-        # Remove nodes from reservoir layer weights
-        self.reservoir_layer.weights = np.delete(
-            self.reservoir_layer.weights, node_indices, axis=0
-        )
-        self.reservoir_layer.weights = np.delete(
-            self.reservoir_layer.weights, node_indices, axis=1
-        )
-
-        # Remove nodes from initial reservoir states
-        self.reservoir_layer.initial_res_states = np.delete(
-            self.reservoir_layer.initial_res_states, node_indices, axis=0
-        )
-
-        # Remove nodes from input layer weights
-        self.input_layer.weights = np.delete(
-            self.input_layer.weights, node_indices, axis=1
-        )
-
-        # Remove nodes from readout layer weights
-        self.readout_layer.weights = np.delete(
-            self.readout_layer.weights, node_indices, axis=0
-        )
-
-        # Update readout nodes
-        mask = np.ones(len(self.readout_layer.readout_nodes), dtype=bool)
-        for idx in node_indices:
-            mask[self.readout_layer.readout_nodes == idx] = False
-        self.readout_layer.readout_nodes = self.readout_layer.readout_nodes[mask]
-
-        # Adjust the indices of the remaining readout nodes
-        for idx in sorted(node_indices, reverse=True):
-            self.readout_layer.readout_nodes[
-                self.readout_layer.readout_nodes > idx
-            ] -= 1
-
-        # Update node count
-        self.reservoir_layer.nodes -= len(node_indices)
+        raise NotImplementedError("Method not implemented yet.")
 
 
 class RC(CustomModel):  # the non-auto version
