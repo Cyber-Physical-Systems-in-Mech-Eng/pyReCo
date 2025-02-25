@@ -48,6 +48,11 @@ class Model(ABC):
         # let model run predictions for input data X and return the metrics against the ground truth y
         pass
 
+    @abstractmethod
+    def remove_reservoir_nodes(self, nodes: list):
+        # removes a set of nodes from the reservoir
+        pass
+
     # @abstractmethod
     def set_params(self, **get_params):
         # needed for scikit-learn compatibility
@@ -198,6 +203,12 @@ class ReservoirComputer(Model):
         metric_values = self.model.evaluate(x=x, y=y, metrics=metrics)
 
         return metric_values
+
+    def remove_reservoir_nodes(self, nodes: list):
+        # removes a set of nodes from the reservoir
+        self.model.remove_reservoir_nodes(nodes)
+
+        self.num_nodes = self.model.reservoir_layer.nodes
 
     def get_params(self, deep=True):
         # needed for scikit-learn compatibility

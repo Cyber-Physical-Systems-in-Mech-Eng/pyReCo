@@ -12,12 +12,14 @@ We will have an abstract Layer class, from which the following layers inherit:
 
 from abc import ABC, abstractmethod
 import numpy as np
+import networkx as nx
 
 from .utils_networks import (
     gen_ER_graph,
     compute_density,
     get_num_nodes,
     compute_spec_rad,
+    remove_nodes_from_graph,
 )
 
 
@@ -28,6 +30,10 @@ class Layer(ABC):
     def __init__(self):
         self.weights = None  # every layer will have some weights (trainable or not)
         self.name: str = "layer"
+        pass
+
+    @abstractmethod
+    def update_layer_properties(self):
         pass
 
 
@@ -43,6 +49,38 @@ class InputLayer(Layer):
         self.n_time = input_shape[0]
         self.n_states = input_shape[1]
         self.name = "input_layer"
+
+        # some properties of the readin layer
+        self.fraction_nonzero_entries: (
+            float  # fraction of nonzero entries in the input layer
+        )
+
+    def remove_nodes(self, nodes: list):
+        # removes a node from the input layer (i.e. if a reservoir node needs to be dropped)
+
+        if not isinstance(nodes, list):
+            raise TypeError("Nodes must be provided as a list of indices.")
+        if np.max(nodes) > self.weights.shape[0]:
+            raise ValueError(
+                "Node index exceeds the number of nodes in the input layer."
+            )
+        if np.min(nodes) < 0:
+            raise ValueError("Node index must be positive.")
+        if not all(isinstance(x, int) for x in nodes):
+            raise ValueError("All entries in the node list must be integers.")
+
+        # remove nodes from [n_reservoir_nodes, n_states] matrix
+        self.weights = np.delete(self.weights, nodes, axis=0)
+
+        # update the properties of the input layer
+        self.update_layer_properties()
+
+    def update_layer_properties(self):
+
+        # updates the properties of the input layer
+        self.fraction_nonzero_entries = (
+            np.count_nonzero(self.weights) / self.weights.size
+        )
 
 
 class ReadoutLayer(Layer):
@@ -60,6 +98,21 @@ class ReadoutLayer(Layer):
         self.name = "readout_layer"
 
         self.readout_nodes = []  # list of nodes that are linked to output
+
+    def remove_nodes(self, nodes: list):
+        # remove nodes from the readout layer, when the user wants to delete specific reservoir nodes
+
+        # # delete entries that equal the nodes to be removed
+        # idx_del = np.where(np.isin(self.readout_nodes, nodes))[0]
+        # self.readout_nodes = np.delete(self.readout_nodes, idx_del)
+        # self.update_layer_properties()
+        raise NotImplementedError("This method is not yet implemented.")
+
+    def update_layer_properties(self):
+
+        # updates the properties of the readout layer
+        self.fraction_out = len(self.readout_nodes) / self.weights.shape[0]
+        pass
 
 
 class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
@@ -101,9 +154,9 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         # Updates all related parameters
 
         self.weights = network
-        self.nodes = get_num_nodes(network)
-        self.density = compute_density(network)
-        self.spec_rad = compute_spec_rad(network)
+
+        # update reservoir properties
+        self.update_layer_properties()
 
     def set_initial_state(self, r_init: np.ndarray):
         # assigns an initial state to each of the reservoir nodes
@@ -115,6 +168,37 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
                 )
             )
         self.initial_res_states = r_init
+
+    def remove_nodes(self, nodes: list):
+        """
+        Remove specified nodes from the reservoir network.
+        Parameters:
+        nodes (list): A list of indices representing the nodes to be removed.
+        1. Removes the specified nodes from the adjacency matrix.
+        2. Updates the reservoir properties including the number of nodes, density, and spectral radius.
+        """
+        # remove nodes from the reservoir network
+
+        if not isinstance(nodes, list):
+            raise TypeError("Nodes must be provided as a list of indices.")
+
+        if np.max(nodes) > self.nodes:
+            raise ValueError("Node index exceeds the number of nodes in the reservoir.")
+
+        if np.min(nodes) < 0:
+            raise ValueError("Node index must be positive.")
+
+        # 1. remove nodes from the adjacency matrix
+        self.weights = remove_nodes_from_graph(graph=self.weights, nodes=nodes)
+
+        # 2. update reservoir properties
+        self.update_layer_properties()
+
+    def update_layer_properties(self):
+        # Updates the reservoir properties including the number of nodes, density, and spectral radius.
+        self.nodes = get_num_nodes(self.weights)
+        self.density = compute_density(self.weights)
+        self.spec_rad = compute_spec_rad(self.weights)
 
 
 class RandomReservoirLayer(ReservoirLayer):
@@ -153,6 +237,12 @@ class RandomReservoirLayer(ReservoirLayer):
             directed=True,
             seed=seed,
         )
+
+    def update_layer_properties(self):
+        # Updates the reservoir properties including the number of nodes, density, and spectral radius.
+        self.nodes = get_num_nodes(self.weights)
+        self.density = compute_density(self.weights)
+        self.spec_rad = compute_spec_rad(self.weights)
 
 
 # class ReccurrenceLayer(ReservoirLayer):

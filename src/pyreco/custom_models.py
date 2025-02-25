@@ -69,13 +69,11 @@ class CustomModel(ABC):
 
         # Initialize other attributes
         self.num_trainable_weights: int
-
         self.num_nodes: int
-
-        self.n_time_in: int
-        self.n_time_out: int
-        self.n_states_in: int
-        self.n_states_out: int
+        self.num_time_in: int
+        self.num_time_out: int
+        self.num_states_in: int
+        self.num_states_out: int
 
     def add(self, layer: Layer):
         """
@@ -108,7 +106,7 @@ class CustomModel(ABC):
     def compile(
         self,
         optimizer: str = "ridge",
-        metrics: list = ["mse"],
+        metrics: Union[list, str] = None,
         discard_transients: int = 0,
     ):
         """
@@ -125,6 +123,9 @@ class CustomModel(ABC):
             raise TypeError("discard_transients must be a positive integer!")
         elif discard_transients < 0:
             raise ValueError("discard_transients must be >=0")
+
+        if metrics is None:
+            metrics = ["mse"]
 
         # check consistency of layers, data shapes etc.
         # TODO: do we have input, reservoir and readout layer?
@@ -184,7 +185,7 @@ class CustomModel(ABC):
         # of shape [n_batch, n_timesteps, n_features]
         n_batch, n_time_in = x.shape[0], x.shape[1]
         n_time_out, n_states_out = y.shape[-2], y.shape[-1]
-        n_nodes = self.num_nodes
+        n_nodes = self.reservoir_layer.nodes
 
         # discard transients (warmup phase). This is done by removing the first n_transients timesteps from the reservoir states.
         # Hence, the targets can have a maximum of (t_in - t_discard) steps, before we have to cut also from the targets
@@ -209,10 +210,10 @@ class CustomModel(ABC):
             )
 
         # update some class attributes that depend on the training data
-        self.n_time_in = n_time_in
-        self.n_states_in = x.shape[-1]
-        self.n_time_out = n_time_out
-        self.n_states_out = n_states_out
+        self.num_time_in = n_time_in
+        self.num_states_in = x.shape[-1]
+        self.num_time_out = n_time_out
+        self.num_states_out = n_states_out
 
         # Pre-allocate arrays for storing results
         n_R0 = np.zeros((n_init, n_nodes))
@@ -264,6 +265,93 @@ class CustomModel(ABC):
 
         return history
 
+    def predict(self, x: np.ndarray) -> np.ndarray:
+        """
+        Make predictions for given input (single-step prediction).
+
+        Args:
+        x (np.ndarray): Input data of shape [n_batch, n_timestep, n_states]
+        one_shot (bool): If True, don't re-initialize reservoir between samples.
+
+        Returns:
+        np.ndarray: Predictions of shape [n_batch, n_timestep, n_states]
+        """
+        # makes prediction for given input (single-step prediction)
+        # expects inputs of shape [n_batch, n_timestep, n_states]
+        # returns predictions in shape of [n_batch, n_timestep, n_states]
+
+        # one_shot = True will *not* re-initialize the reservoir from sample to sample. Introduces a dependency on the
+        # sequence by which the samples are given
+
+        # TODO: external function that is going to check the input dimensionality
+        # and raise an error if shape is not correct
+
+        # Compute reservoir states. Returns reservoir states of shape
+        # [n_batch, n_timesteps+1, n_nodes]
+        # (n_timesteps+1 because we also store the initial state)
+        reservoir_states = self.compute_reservoir_state(x)
+
+        # discard the given transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
+        del_mask = np.arange(0, self.discard_transients + 1)
+        reservoir_states = np.delete(reservoir_states, del_mask, axis=1)
+
+        # Masking non-readout nodes: if the user specified to not use all nodes for output, we can get rid of the non-readout node states
+        reservoir_states = reservoir_states[:, :, self.readout_layer.readout_nodes]
+
+        # make predictions y = R * W_out, W_out has a shape of [n_out, N]
+        y_pred = np.einsum(
+            "bik,jk->bij", reservoir_states, self.readout_layer.weights.T
+        )
+
+        return y_pred
+
+    def evaluate(
+        self, x: np.ndarray, y: np.ndarray, metrics: Union[str, list, None] = None
+    ) -> tuple:
+        """
+        Evaluate metrics on predictions made for input data.
+
+        Args:
+        x (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
+        y (np.ndarray): Target data of shape [n_batch, n_timesteps_out, n_states_out]
+        metrics (Union[str, list, None], optional): List of metric names or a single metric name. If None, use metrics from .compile()
+
+        Returns:
+        tuple: Metric values
+        """
+        # evaluate metrics on predictions made for input data
+        # expects: x of shape [n_batch, n_timesteps, n_states]
+        # expects: y of shape [n_batch, n_timesteps_out, n_states_out]
+        # depends on self.metrics = metrics from .compile()
+        # returns float, if multiple metrics, then in given order (TODO: implement this)
+
+        if (
+            metrics is None
+        ):  # user did not specify metric, take the one(s) given to .compile()
+            metrics = self.metrics
+        if type(metrics) is str:  # make sure that we are working with lists of strings
+            metrics = [metrics]
+
+        # self.metrics_available = ['mse', 'mae        #
+        # eval_metrics = self.metrics + metrics  # combine from .compile and user specified
+        # eval_metrics = list(set(eval_metrics))  # removes potential duplicates
+
+        # get metric function handle from the list of metrics specified as str
+        metric_funs = [assign_metric(m) for m in metrics]
+
+        # make predictions
+        y_pred = self.predict(x=x)
+
+        # remove some initial transients from the ground truth if discard transients is active
+        # TODO: this should be done in the predict method
+
+        # get metric values
+        metric_values = []
+        for _metric_fun in metric_funs:
+            metric_values.append(float(_metric_fun(y, y_pred)))
+
+        return metric_values
+
     def _train_model(self, x: np.ndarray, y: np.ndarray):
         """
         Train the model with a single reservoir initialization.
@@ -313,6 +401,51 @@ class CustomModel(ABC):
             )
 
         return reservoir_states, self.readout_layer.weights
+
+    def remove_reservoir_nodes(self, nodes: list):
+        # removes specific nodes from the reservoir matrix, and
+        # deletes accordingly the relevant readin weights and readout weights
+
+        print(
+            f"removing nodes {nodes} from the reservoir. You need to retrain the model!"
+        )
+
+        if not isinstance(nodes, list):
+            raise TypeError("Nodes must be provided as a list of indices.")
+
+        if np.max(nodes) > self.reservoir_layer.nodes:
+            raise ValueError("Node index exceeds the number of nodes in the reservoir.")
+
+        if np.min(nodes) < 0:
+            raise ValueError("Node index must be positive.")
+
+        # 1. remove nodes from the reservoir layer
+        self.reservoir_layer.remove_nodes(nodes)
+
+        # TODO 1.b. check for isolated nodes and remove those as well?
+
+        # 2. remove nodes from the read-in weights matrix of shape [num_nodes, num_states_in]
+        self.input_layer.remove_nodes(nodes)
+
+        # 3. remove nodes from the list of readout-nodes in the readout layer
+        # update the indices in the readout.readout_nodes list
+        # Create a mapping of old indices to new indices
+        old_to_new = {}
+        new_index = 0
+        for old_index in range(self.reservoir_layer.nodes + len(nodes)):
+            if old_index not in nodes:
+                old_to_new[old_index] = new_index
+                new_index += 1
+
+        self.readout_layer.readout_nodes = [
+            old_to_new[node]
+            for node in self.readout_layer.readout_nodes
+            if node not in nodes
+        ]
+
+        self.readout_layer.update_layer_properties()
+
+        # TODO: any more attributes to change here?
 
     """
     The setter methods are used to set the parameters of the model.
@@ -506,95 +639,6 @@ class CustomModel(ABC):
 
         history = None
         return history
-
-    # @abstractmethod
-    def predict(self, x: np.ndarray) -> np.ndarray:
-        """
-        Make predictions for given input (single-step prediction).
-
-        Args:
-        x (np.ndarray): Input data of shape [n_batch, n_timestep, n_states]
-        one_shot (bool): If True, don't re-initialize reservoir between samples.
-
-        Returns:
-        np.ndarray: Predictions of shape [n_batch, n_timestep, n_states]
-        """
-        # makes prediction for given input (single-step prediction)
-        # expects inputs of shape [n_batch, n_timestep, n_states]
-        # returns predictions in shape of [n_batch, n_timestep, n_states]
-
-        # one_shot = True will *not* re-initialize the reservoir from sample to sample. Introduces a dependency on the
-        # sequence by which the samples are given
-
-        # TODO: external function that is going to check the input dimensionality
-        # and raise an error if shape is not correct
-
-        # Compute reservoir states. Returns reservoir states of shape
-        # [n_batch, n_timesteps+1, n_nodes]
-        # (n_timesteps+1 because we also store the initial state)
-        reservoir_states = self.compute_reservoir_state(x)
-
-        # discard the given transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
-        del_mask = np.arange(0, self.discard_transients + 1)
-        reservoir_states = np.delete(reservoir_states, del_mask, axis=1)
-
-        # Masking non-readout nodes: if the user specified to not use all nodes for output, we can get rid of the non-readout node states
-        reservoir_states = reservoir_states[:, :, self.readout_layer.readout_nodes]
-
-        # make predictions y = R * W_out, W_out has a shape of [n_out, N]
-        y_pred = np.einsum(
-            "bik,jk->bij", reservoir_states, self.readout_layer.weights.T
-        )
-
-        return y_pred
-
-    # @abstractmethod
-    def evaluate(
-        self, x: np.ndarray, y: np.ndarray, metrics: Union[str, list, None] = None
-    ) -> tuple:
-        """
-        Evaluate metrics on predictions made for input data.
-
-        Args:
-        x (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
-        y (np.ndarray): Target data of shape [n_batch, n_timesteps_out, n_states_out]
-        metrics (Union[str, list, None], optional): List of metric names or a single metric name. If None, use metrics from .compile()
-
-        Returns:
-        tuple: Metric values
-        """
-        # evaluate metrics on predictions made for input data
-        # expects: x of shape [n_batch, n_timesteps, n_states]
-        # expects: y of shape [n_batch, n_timesteps_out, n_states_out]
-        # depends on self.metrics = metrics from .compile()
-        # returns float, if multiple metrics, then in given order (TODO: implement this)
-
-        if (
-            metrics is None
-        ):  # user did not specify metric, take the one(s) given to .compile()
-            metrics = self.metrics
-        if type(metrics) is str:  # make sure that we are working with lists of strings
-            metrics = [metrics]
-
-        # self.metrics_available = ['mse', 'mae        #
-        # eval_metrics = self.metrics + metrics  # combine from .compile and user specified
-        # eval_metrics = list(set(eval_metrics))  # removes potential duplicates
-
-        # get metric function handle from the list of metrics specified as str
-        metric_funs = [assign_metric(m) for m in metrics]
-
-        # make predictions
-        y_pred = self.predict(x=x)
-
-        # remove some initial transients from the ground truth if discard transients is active
-        # TODO: this should be done in the predict method
-
-        # get metric values
-        metric_values = []
-        for _metric_fun in metric_funs:
-            metric_values.append(float(_metric_fun(y, y_pred)))
-
-        return metric_values
 
     # # @abstractmethod
     # def get_params(self, deep=True):
