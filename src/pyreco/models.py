@@ -119,7 +119,7 @@ class ReservoirComputer(Model):
         self.model = RC()
 
     def fit(
-        self, X: np.ndarray, y: np.ndarray, n_init: int = 1, store_states: bool = False
+        self, x: np.ndarray, y: np.ndarray, n_init: int = 1, store_states: bool = False
     ):
         # Computes the model weights (readout matrix) through fitting the training data.
 
@@ -131,15 +131,15 @@ class ReservoirComputer(Model):
         # finds the optimal model parameters (W_out): trains dense layer at output
 
         # TODO call some helper function with in-depth dimensionality and sanity checks
-        if np.iscomplexobj(X) or np.iscomplexobj(y):
+        if np.iscomplexobj(x) or np.iscomplexobj(y):
             raise ValueError("Complex data not supported")
 
         # check for object data types
-        if X.dtype == "O" or y.dtype == "O":
+        if x.dtype == "O" or y.dtype == "O":
             raise TypeError("Data type 'object' not supported")
 
         # obtain the input and output shapes
-        n_batch, self.n_time_in, self.n_states_in = X.shape[0], X.shape[1], X.shape[2]
+        n_batch, self.n_time_in, self.n_states_in = x.shape[0], x.shape[1], x.shape[2]
         self.n_time_out, self.n_states_out = y.shape[1], y.shape[2]
 
         # translate into the shapes requested by the layered model API
@@ -165,13 +165,13 @@ class ReservoirComputer(Model):
         self.model.compile(optimizer=self.optimizer, metrics=self.metrics)
 
         # fit to training data
-        history = self.model.fit(X=X, y=y, n_init=n_init, store_states=store_states)
+        history = self.model.fit(x=x, y=y, n_init=n_init, store_states=store_states)
 
         self.trainable_weights = self.model.num_trainable_weights
 
         return history
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, x: np.ndarray) -> np.ndarray:
         # returns predictions for given data X
         # expects:
         # - X input data of shape [n_batch, n_time_in, n_states_in]
@@ -181,21 +181,21 @@ class ReservoirComputer(Model):
         # just a dummy here. TODO insert the actual .predict function
         #
 
-        # check for object data types in X
-        if X.dtype == "O":
+        # check for object data types in x
+        if x.dtype == "O":
             raise TypeError("Data type 'object' not supported")
 
         # check for complex data types
-        if np.iscomplexobj(X):
+        if np.iscomplexobj(x):
             raise ValueError("Complex data not supported")
 
-        y_pred = self.model.predict(X=X)
+        y_pred = self.model.predict(x=x)
 
         return y_pred
 
-    def evaluate(self, X: np.ndarray, y: np.ndarray, metrics: list = ["mse"]):
+    def evaluate(self, x: np.ndarray, y: np.ndarray, metrics: list = ["mse"]):
         # let model run predictions for input data X and return the metrics against the ground truth y
-        metric_values = self.model.evaluate(X=X, y=y, metrics=metrics)
+        metric_values = self.model.evaluate(x=x, y=y, metrics=metrics)
 
         return metric_values
 

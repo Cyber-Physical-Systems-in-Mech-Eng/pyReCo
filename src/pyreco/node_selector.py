@@ -1,5 +1,7 @@
 import random
 import networkx as nx
+import numpy as np
+from typing import Union
 
 
 class NodeSelector:
@@ -21,7 +23,7 @@ class NodeSelector:
         self,
         strategy: str,
         total_nodes: int = None,
-        graph: nx.Graph = None,
+        graph: nx.Graph | np.ndarray = None,
     ):
         """
         Initializes the NodeSelector object.
@@ -48,10 +50,17 @@ class NodeSelector:
                 raise TypeError("total_nodes must be a positive integer")
             elif total_nodes <= 0:
                 raise ValueError("total_nodes must be a positive integer")
+            graph_shape = total_nodes
         elif graph is not None:
-            if not isinstance(graph, nx.Graph):
-                raise TypeError("graph must be a networkx graph")
-            total_nodes = graph.number_of_nodes()
+            if not isinstance(graph, nx.Graph) and not isinstance(graph, np.ndarray):
+                raise TypeError("graph must be a networkx graph or np.ndarray")
+
+            if isinstance(graph, nx.Graph):
+                total_nodes = graph.number_of_nodes()
+                graph_shape = total_nodes
+            elif isinstance(graph, np.ndarray):
+                total_nodes = graph.size
+                graph_shape = graph.shape
         else:
             raise ValueError("Either total_nodes or graph must be provided")
 
@@ -62,6 +71,7 @@ class NodeSelector:
 
         # Assign values to attributes
         self.num_total_nodes: int = total_nodes
+        self.graph_shape = graph_shape
         self.num_select_nodes: int = 0
         self.fraction: float = 0.0
         self.strategy: str = strategy
@@ -71,7 +81,7 @@ class NodeSelector:
         self,
         fraction: float = None,
         num: int = None,
-    ) -> list:
+    ):
         """
         Selects a specified number of nodes from the graph either by fraction or by exact number.
 
@@ -127,11 +137,30 @@ class NodeSelector:
         # Finally pick the node according to the strategy
         if self.strategy == "random_uniform_wo_repl":
             # random uniform WITHOUT replacement
+
             self.selected_nodes = random.sample(
                 range(0, self.num_total_nodes), self.num_select_nodes
             )
 
-            return self.selected_nodes
+            if isinstance(self.graph_shape, int):
+                # input was list, output will be list
+                return self.selected_nodes
+
+            elif isinstance(self.graph_shape, tuple) or isinstance(
+                self.graph_shape, list
+            ):
+                selected_graph = np.zeros(self.graph_shape).flatten()
+                selected_graph[self.selected_nodes] = 1
+                self.selected_nodes = np.reshape(selected_graph, self.graph_shape)
+
+                return self.selected_nodes
+
+            else:
+                raise ValueError("The graph shape/type is not supported")
+        else:
+            raise NotImplementedError(
+                "Only random w/o replacement ('random_uniform_wo_repl') strategy is implemented"
+            )
 
 
 if __name__ == "__main__":
