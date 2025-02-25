@@ -44,7 +44,7 @@ plt.tight_layout()
 plt.savefig("predictions_model.png")
 plt.show()
 
-metric_value = model.evaluate(X=X_test, y=y_test, metrics=["mse", "mae"])
+metric_value = model.evaluate(x=X_test, y=y_test, metrics=["mse", "mae"])
 print(f"scores:{metric_value}")
 
 
