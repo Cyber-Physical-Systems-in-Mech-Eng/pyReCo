@@ -21,7 +21,7 @@ class NodeSelector:
 
     def __init__(
         self,
-        strategy: str,
+        strategy: str = "random_uniform_wo_repl",
         total_nodes: int = None,
         graph: nx.Graph | np.ndarray = None,
     ):
