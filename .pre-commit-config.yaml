@@ -24,17 +24,24 @@ repos:
 #    args: [--convention=numpy]
 
 
+#- repo: https://github.com/PyCQA/flake8
+#  rev: 7.1.0
+#  hooks:
+#  - id: flake8
+#    args: [--docstring-convention=numpy]
+
+#D100 for module, D101 for class
 - repo: https://github.com/PyCQA/flake8
   rev: 7.1.0
   hooks:
-  - id: flake8
-    args: [--max-line-length=132, --select=D, --docstring-convention=numpy]
+    - id: flake8
+      args: [--docstring-convention=numpy, --select=D100,D101,D102,D103]
 
-- repo: https://github.com/terrencepreilly/darglint
-  rev: v1.8.1
-  hooks:
-  - id: darglint
-    args: [--docstring-style=numpy]
+#- repo: https://github.com/terrencepreilly/darglint
+#  rev: v1.8.1
+#  hooks:
+#  - id: darglint
+#    args: [--docstring-style=numpy]
 
 
 # - repo: https://github.com/PyCQA/isort
