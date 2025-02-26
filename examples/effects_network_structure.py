@@ -38,6 +38,59 @@ output_shape = (y_train.shape[1], y_train.shape[2])
 def run_trials(num_trials,
                x_train, y_train, x_test, y_test,
                num_nodes: int, activation: str = 'tanh'):
+    """
+    Train and evaluate multiple Reservoir Computing (RC) models on the same dataset.
+
+    This function fits `num_trials` separate RC models with the given number of nodes 
+    and activation function. Each model is trained on the provided training data and 
+    evaluated on the test data using the Mean Absolute Error (MAE). The function 
+    returns the test scores for all trials, as well as the best and worst models 
+    based on their evaluation performance.
+
+    Parameters
+    ----------
+    num_trials : int
+        The number of RC models to train and evaluate.
+    x_train : array-like
+        Input training data.
+    y_train : array-like
+        Target training data.
+    x_test : array-like
+        Input test data.
+    y_test : array-like
+        Target test data.
+    num_nodes : int
+        Number of reservoir nodes in each model.
+    activation : str, optional
+        Activation function used in the reservoir layer (default is 'tanh').
+
+    Returns
+    -------
+    test_scores : np.ndarray
+        A NumPy array containing the MAE scores for all trials.
+    best_model : ReservoirComputer
+        The trained model with the lowest MAE score on the test set.
+    worst_model : ReservoirComputer
+        The trained model with the highest MAE score on the test set.
+
+    Notes
+    -----
+    - The function prints progress updates for each model, including its score 
+      compared to previous best and worst models.
+    - Each model is created, trained, evaluated, and deleted within the loop 
+      to prevent excessive memory usage.
+    - The `ReservoirComputer` class should be predefined and support `fit()` and 
+      `evaluate()` methods.
+
+    Examples
+    --------
+    >>> test_scores, best_model, worst_model = run_trials(
+    ...     num_trials=10,
+    ...     x_train=X_train, y_train=Y_train,
+    ...     x_test=X_test, y_test=Y_test,
+    ...     num_nodes=100, activation='relu'
+    ... )
+    """
     # fits num_trials RCs to the same data,
     # returns the list of scores, as well as best and worst model
 
