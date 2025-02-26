@@ -22,6 +22,7 @@ dependencies = [
     "scikit-learn>=1.0.0",
     "networkx>=2.5",
     "numpy>=1.21.0",
+    "tensorflow>=2.10",
 ]
 
 [tool.hatch.build]
