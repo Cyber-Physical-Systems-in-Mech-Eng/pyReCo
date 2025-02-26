@@ -301,8 +301,11 @@ class NetworkPruner:
         model.fit(x=x_train, y=y_train)
         final_loss = model.evaluate(x=x_test, y=y_test, metrics=self.criterion)[0]
         final_metrics = model.evaluate(x=x_test, y=y_test, metrics=self.metrics)
-        print(f"\nfinal model has {model.reservoir_layer.nodes} nodes")
-        print(f"final model loss: {final_loss:.6f}")
+        print(
+            f"\nimproved loss from {self._curr_loss_history[0]:.6f} to {final_loss:.6f}"
+        )
+        print(f"final model has {model.reservoir_layer.nodes} nodes")
+        print(f"final model loss {self.criterion}: {final_loss:.6f}")
         print(f"final model metrics ({self.metrics}): {final_metrics}")
         return model, self.history
 
