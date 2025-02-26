@@ -415,7 +415,9 @@ class CustomModel(ABC):
             raise TypeError("Nodes must be provided as a list of indices.")
 
         if np.max(nodes) > self.reservoir_layer.nodes:
-            raise ValueError("Node index exceeds the number of nodes in the reservoir.")
+            raise ValueError(
+                f"Node index {np.max(nodes)} exceeds the number of nodes {self.reservoir_layer.nodes} in the reservoir."
+            )
 
         if np.min(nodes) < 0:
             raise ValueError("Node index must be positive.")

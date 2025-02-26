@@ -28,7 +28,7 @@ model = RC()
 model.add(InputLayer(input_shape=input_shape))
 model.add(
     RandomReservoirLayer(
-        nodes=1000, density=0.1, activation="tanh", leakage_rate=0.1, fraction_input=1.0
+        nodes=200, density=0.1, activation="tanh", leakage_rate=0.1, fraction_input=1.0
     ),
 )
 model.add(ReadoutLayer(output_shape, fraction_out=0.9))
@@ -65,7 +65,7 @@ print(f"density of reservoir: \t{model.reservoir_layer.density:.3f}")
 """
 Now let's cut reservoir nodes and see how the performance changes
 """
-num_node_prune = 10
+num_node_prune = 3
 scores = []
 num_nodes = []
 remaining_nodes = model.reservoir_layer.nodes

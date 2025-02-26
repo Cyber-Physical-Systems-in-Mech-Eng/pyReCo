@@ -8,6 +8,7 @@ from pyreco.custom_models import RC
 from pyreco.node_selector import NodeSelector
 import networkx as nx
 import math
+from typing import Union
 
 
 class NetworkPruner:
@@ -18,9 +19,11 @@ class NetworkPruner:
         target_score: float = None,
         stop_at_minimum: bool = True,
         min_num_nodes: int = 2,
-        patience: int = None,
+        patience: int = 0,
         candidate_fraction: float = 0.1,
         remove_isolated_nodes: bool = False,
+        metrics: Union[list, str] = ["mse"],
+        maintain_spectral_radius: bool = False,
     ):
         """
         Initializer for the pruning class.
@@ -42,6 +45,12 @@ class NetworkPruner:
 
         - candidate_fraction (float): number of randomly chosen reservoir nodes during
         every pruning iteration that is a candidate for pruning. Refers to the fraction of nodes w.r.t. current number of nodes during pruning iteration.
+
+        - remove_isolated_nodes (bool): Whether to remove isolated nodes during pruning.
+
+        - metrics (list or str): The metrics to be used for evaluating the model. Default is ["mse"].
+
+        - maintain_spectral_radius (bool): Whether to maintain the spectral radius of the reservoir layer during pruning.
         """
 
         # Sanity checks for the input parameter types and values
@@ -54,8 +63,8 @@ class NetworkPruner:
         if min_num_nodes is not None:
             if not isinstance(min_num_nodes, int):
                 raise TypeError("min_num_nodes must be an integer")
-            if min_num_nodes <= 2:
-                raise ValueError("min_num_nodes must be larger than 2")
+            if min_num_nodes <= 1:
+                raise ValueError("min_num_nodes must be larger than 1")
 
         if patience is not None and not isinstance(patience, int):
             raise TypeError("patience must be an integer")
@@ -66,18 +75,21 @@ class NetworkPruner:
         if candidate_fraction <= 0 or candidate_fraction > 1:
             raise ValueError("candidate_fraction must be a float in (0, 1]")
 
-        # Additional sanity checks: logical constraints on the input parameters
-        if min_num_nodes is not None and stop_at_minimum:
-            raise ValueError("min_num_nodes conflicts with stop_at_minimum set to True")
-
         # Assigning the parameters to instance variables
-        self.target_score = target_score
+        if target_score is None:
+            self.target_score = 0.0
+        else:
+            self.target_score = target_score
         self.stop_at_minimum = stop_at_minimum
         self.min_num_nodes = min_num_nodes
         self.patience = patience
         self.candidate_fraction = candidate_fraction
         self.remove_isolated_nodes = remove_isolated_nodes
-        self.history = dict()
+        self.metrics = metrics
+        self.maintain_spectral_radius = maintain_spectral_radius
+
+        # store the history of the pruning process here
+        self.history = {}
 
     def prune(self, model: RC, data_train: tuple, data_val: tuple):
         """
@@ -100,12 +112,14 @@ class NetworkPruner:
             raise ValueError("data_train and data_val must have 2 elements each")
 
         for idx, elem in enumerate(data_train):
-            if not isinstance(elem, list) or not isinstance(elem, np.ndarray):
-                raise TypeError(f"data_train[{idx}] must be a list or numpy array")
+            if not isinstance(elem, list):
+                if not isinstance(elem, np.ndarray):
+                    raise TypeError(f"data_train[{idx}] must be a list or numpy array")
 
         for idx, elem in enumerate(data_val):
-            if not isinstance(elem, list) or not isinstance(elem, np.ndarray):
-                raise TypeError(f"data_val[{idx}] must be a list or numpy array")
+            if not isinstance(elem, list):
+                if not isinstance(elem, np.ndarray):
+                    raise TypeError(f"data_val[{idx}] must be a list or numpy array")
 
         if len(data_train[0]) != len(data_train[1]):
             raise ValueError(
@@ -118,86 +132,145 @@ class NetworkPruner:
                 "data_val[0] and data_val[1] must have the same length, "
                 "i.e. same number of samples"
             )
+        if isinstance(self.metrics, list) and len(self.metrics) > 1:
+            raise ValueError(
+                "we can only accept a single metric that guides the pruning"
+            )
+
+        # obtain data
+        x_test, y_test = data_val[0], data_val[1]
+        x_train, y_train = data_train[0], data_train[1]
 
         # Assigning the parameters to instance variables that can not be set
         # in the initializer
-        n = model.reservoir_layer.nodes  # number of initial reservoir nodes
-        curr_score = model.evaluate(X=data_val[0], y=data_val[1])[0]
+        num_nodes = model.reservoir_layer.nodes  # number of initial reservoir nodes
 
-        if self.patience is None:
-            self.patience = int(n / 10)
+        # initialize the quantities that affect the stop condition
+        self._curr_loss = model.evaluate(x=x_test, y=y_test, metrics=self.metrics)[0]
+        self._curr_num_nodes = model.reservoir_layer.nodes
+        self._curr_loss_history = [self._curr_loss]
+        self._patience_counter = 0
 
-        # Initialize a dict that stores all relevant information during pruning
-        history = dict()
-        history["num_nodes"] = [n]
-        history["score"] = [curr_score]
-        history["graph_props"] = []  # graph property extractor
-        history["node_props"] = []  # node property extractor
-        history["node_idx_pruned"] = []  # index of the node pruned per iteration
-        history["pruned_node_props"] = []  # node property of the node that was pruned
+        # # Initialize a dict that stores all relevant information during pruning
+        # history = dict()
+        # history["num_nodes"] = [n]
+        # history["score"] = [curr_score]
+        # history["graph_props"] = []  # graph property extractor
+        # history["node_props"] = []  # node property extractor
+        # history["node_idx_pruned"] = []  # index of the node pruned per iteration
+        # history["pruned_node_props"] = []  # node property of the node that was pruned
 
-        # Initialize stopping criteria values
-        self._curr_score = model.evaluate(X=data_val[0], y=data_val[1])
-
-        iter = 0
-
+        iter_count = 0
         while self._keep_pruning():
 
-            self._curr_iter = iter
-            _curr_total_nodes = model.reservoir_layer.nodes
-
             # propose a list of nodes to prune using a random uniform distribution. If the user specified a candidate_fraction of 1.0, we will try out all nodes
-            _num_nodes_to_prune = math.ceil(self.candidate_fraction * _curr_total_nodes)
-            selector = NodeSelector(
-                total_nodes=_curr_total_nodes, strategy="uniform_random_wo_repl"
+            _num_nodes_to_prune = math.ceil(
+                self.candidate_fraction * self._curr_num_nodes
             )
+            selector = NodeSelector(
+                total_nodes=self._curr_num_nodes, strategy="random_uniform_wo_repl"
+            )
+            # sample the nodes to propose for pruning
             _curr_candidate_nodes = selector.select_nodes(num=_num_nodes_to_prune)
 
-            _node_scores = []
+            # self._update_pruning_history()
             _candidate_scores = []
-            _cand_node_props = []
-            _cand_graph_props = []
 
+            # _node_scores = []
+            # _cand_node_props = []
+            # _cand_graph_props = []
+
+            print(
+                f"pruning iteration {iter_count}. current loss: {self._curr_loss:.4f}"
+            )
             for node in _curr_candidate_nodes:
 
-                print(f"pruning iteration {iter}: deleting candidate node {node}")
+                print(f"propsing to delete candidate node {node}")
 
-                # get a copy of the original model
+                # get a copy of the original model (we just try to remove a node here)
                 _model = model
 
-                # _model._remove_nodes(node)  # will also delete unconnected nodes
-                # _model.set_spec_rad()
-                # _model.fit(X_train,y_train)
-                # _candidate_scores.append(_model.evaluate(X_test, y_test)[0])
+                # remove current candidate node
+                _model.remove_reservoir_nodes(nodes=[node])
+
+                # TODO: remove isolated nodes using utility function from utils_networks
+                # if self.remove_isolated_nodes:
+                # iso_nodes = ...
+                # _model.remove_reservoir_nodes(nodes=[iso_nodes])
+
+                # TODO: maintain the spectral radius of the reservoir layer
+                # if self.maintain_spectral_radius:
+                # spec_rad = model.reservoir_layer.spectral_radius
+                # _model.set_spec_rad(spec_rad)
+
+                _model.fit(x=x_train, y=y_train)
+                _candidate_scores.append(
+                    _model.evaluate(x=x_test, y=y_test, metrics=self.metrics)[0]
+                )
 
                 # _cand_node_props.append(NodePropsExtractor())
                 # _cand_graph_props(GraphPropsExtractor())
 
                 del _model
 
-            # select the node to prune
-            idx = np.argmax(_node_scores)
+            # select the node to prune, i.e. the one that has minimal loss
+            idx = np.argmin(_candidate_scores)
+
+            """ ??? if we prune here, we may violate the pruning condition, i.e. the score is below the target score."""
+            model.remove_reservoir_nodes(nodes=[_curr_candidate_nodes[idx]])
+            # TODO: remove isolated nodes using utility function from utils_networks
+            # if self.remove_isolated_nodes:
+            # iso_nodes = ...
+            # _model.remove_reservoir_nodes(nodes=[iso_nodes])
+
+            # TODO: maintain the spectral radius of the reservoir layer
+            # if self.maintain_spectral_radius:
+            # spec_rad = model.reservoir_layer.spectral_radius
+            # _model.set_spec_rad(spec_rad)
 
             # model._remove_nodes(node)  # will also delete unconnected nodes
             # model.set_spec_rad()
             # model.fit(X_train, y_train)
 
-            # some logging
-            self._curr_idx_prune = idx
-            self._curr_nodes_before_pruning = _curr_total_nodes
-            self._curr_nodes_after_pruning = model.reservoir_layer.nodes
-            self._curr_candidate_nodes = _curr_candidate_nodes
-            self._curr_candidate_scores = _candidate_scores
-            self._curr_score = _candidate_scores[idx]
-            self._curr_node_props = _cand_node_props[idx]
-            self._curr_graph_props = _cand_graph_props[idx]
+            # update relevant quantities
+            self._curr_num_nodes = model.reservoir_layer.nodes
+            self._curr_loss = model.evaluate(
+                x=data_val[0], y=data_val[1], metrics=self.metrics
+            )[0]
+            self._curr_loss_history.append(self._curr_loss)
 
-            self._update_pruning_history()
+            # self._update_pruning_history()
 
             # update counter
-            iter += 1
+            iter_count += 1
 
-        pass
+        # we should fit the final model
+        model.fit(x=x_train, y=y_train)
+
+        return model
+
+    def _keep_pruning(self):
+
+        # Keep pruning as long as all of the following conditions are met:
+        # 1. The current score is below the target score
+        if self._curr_loss >= self.target_score:
+            return True
+
+        # 2. The current number of nodes is above the minimum number of nodes
+        if self._curr_num_nodes > self.min_num_nodes:
+            return True
+
+        # 3. The current loss is smaller than the previous loss
+        if self.stop_at_minimum:
+            if self._curr_loss_history[-2] > self._curr_loss_history[-1]:
+                self._patience_counter = 0
+                return True
+            else:  # current loss is larger than previous
+                self._patience_counter += 1
+                if self._patience_counter < self.patience:
+                    return True
+
+        return False
 
     def _update_pruning_history(self):
         # this will keep track of all quantities that are relevant during the pruning iterations.
@@ -209,31 +282,89 @@ class NetworkPruner:
         Candidate nodes: trying out different nodes at current iteration
         """
 
-        # Number of nodes that are being tried to at current iteration
-        self.history["num_candidate_nodes"].append(len(self._curr_candidate_nodes))
+        #       # some logging
+        # self._curr_idx_prune = idx
+        # self._curr_nodes_before_pruning = _curr_total_nodes
+        # self._curr_nodes_after_pruning = model.reservoir_layer.nodes
+        # self._curr_candidate_nodes = _curr_candidate_nodes
+        # self._curr_candidate_scores = _candidate_scores
+        # self._curr_score = _candidate_scores[idx]
+        # self._curr_node_props = _cand_node_props[idx]
+        # self._curr_graph_props = _cand_graph_props[idx]
 
-        # Nodes indices of nodes that are being tried to at current iteration
-        self.history["candidate_nodes"].append(self._curr_candidate_nodes)
+        # # Number of nodes that are being tried to at current iteration
+        # self.history["num_candidate_nodes"].append(len(self._curr_candidate_nodes))
 
-        # Scores obtained when deleting a respective candidate node
-        self.history["candidate_node_scores"].append(self._curr_candidate_scores)
+        # # Nodes indices of nodes that are being tried to at current iteration
+        # self.history["candidate_nodes"].append(self._curr_candidate_nodes)
+
+        # # Scores obtained when deleting a respective candidate node
+        # self.history["candidate_node_scores"].append(self._curr_candidate_scores)
 
         """
         Final choice: node to prune is selected
         """
-        # Stats once a nodes is chosen to be deleted finally
-        self.history["node_idx_pruned"].append(self._curr_idx_prune)
+        # # Stats once a nodes is chosen to be deleted finally
+        # self.history["node_idx_pruned"].append(self._curr_idx_prune)
 
-    def _keep_pruning(self):
 
-        if score > self.target_score:
-            return True
+if __name__ == "__main__":
+    # test the pruning
 
-        if num_nodes > self.min_num_nodes:
-            return True
+    from pyreco.utils_data import sequence_to_sequence as seq_2_seq
+    from pyreco.custom_models import RC as RC
+    from pyreco.layers import InputLayer, ReadoutLayer
+    from pyreco.layers import RandomReservoirLayer
+    from pyreco.optimizers import RidgeSK
 
-        return False
+    # get some data
+    X_train, X_test, y_train, y_test = seq_2_seq(
+        name="sine_pred", n_batch=20, n_states=2, n_time=150
+    )
 
+    input_shape = X_train.shape[1:]
+    output_shape = y_train.shape[1:]
+
+    # build a classical RC
+    model = RC()
+    model.add(InputLayer(input_shape=input_shape))
+    model.add(
+        RandomReservoirLayer(
+            nodes=200,
+            density=0.1,
+            activation="tanh",
+            leakage_rate=0.1,
+            fraction_input=1.0,
+        ),
+    )
+    model.add(ReadoutLayer(output_shape, fraction_out=0.9))
+
+    # Compile the model
+    optim = RidgeSK(alpha=0.5)
+    model.compile(
+        optimizer=optim,
+        metrics=["mean_squared_error"],
+    )
+
+    # Train the model
+    model.fit(X_train, y_train)
+
+    print(f"score: \t\t\t{model.evaluate(x=X_test, y=y_test)[0]:.4f}")
+
+    # prune the model
+    pruner = NetworkPruner(
+        stop_at_minimum=True,
+        min_num_nodes=2,
+        patience=3,
+        candidate_fraction=0.1,
+        remove_isolated_nodes=False,
+        metrics=["mse"],
+        maintain_spectral_radius=False,
+    )
+
+    model_pruned = pruner.prune(
+        model=model, data_train=(X_train, y_train), data_val=(X_test, y_test)
+    )
 
 """
 Some left-over
