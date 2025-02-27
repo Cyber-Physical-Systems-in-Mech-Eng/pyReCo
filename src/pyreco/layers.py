@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import networkx as nx
 
-from .utils_networks import (
+from pyreco.utils_networks import (
     gen_ER_graph,
     compute_density,
     get_num_nodes,
