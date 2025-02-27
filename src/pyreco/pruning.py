@@ -394,6 +394,8 @@ class NetworkPruner:
                         f"Loss increased for {self.patience} consecutive iterations. Terminating pruning"
                     )
                     return False
+        else:
+            return True
 
     def _update_pruning_history(self, model: RC, mode: str = "prune"):
         # this will keep track of all quantities that are relevant during the pruning iterations.
@@ -549,9 +551,9 @@ if __name__ == "__main__":
 
     # prune the model
     pruner = NetworkPruner(
-        stop_at_minimum=True,
+        stop_at_minimum=False,
         min_num_nodes=20,
-        patience=5,
+        patience=2,
         candidate_fraction=0.9,
         remove_isolated_nodes=False,
         metrics=["mse"],
