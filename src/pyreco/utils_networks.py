@@ -2,6 +2,7 @@
 Helper routines for networks
 """
 
+from typing import Union
 import networkx as nx
 import numpy as np
 
@@ -213,60 +214,107 @@ def gen_init_states(num_nodes: int, method: str = "random"):
     return init_states
 
 
-def extract_density(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return nx.density(G)
+def convert_to_nx_graph(graph: np.ndarray) -> nx.Graph:
+    """
+    Convert a numpy array to a NetworkX graph.
+    Args:
+        adjacency_matrix (np.ndarray): The adjacency matrix of the graph.
+    Returns:
+        nx.Graph: The NetworkX graph.
+    """
+    if isinstance(graph, np.ndarray):
+        graph = nx.from_numpy_array(graph, create_using=nx.DiGraph)
+    elif not isinstance(graph, (nx.Graph, nx.DiGraph)):
+        raise ValueError("adjacency_matrix must be a numpy array or a NetworkX graph.")
+    return graph
 
 
-def extract_spectral_radius(adjacency_matrix):
-    return np.max(np.abs(np.linalg.eigvals(adjacency_matrix)))
+def extract_density(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+    """
+    Extract the density of a graph from its adjacency matrix.
+    Args:
+        adjacency_matrix (np.ndarray, nx.Graph, nx.DiGraph): The adjacency matrix of the graph.
+    Returns:
+        float: The density of the graph.
+    """
+    graph = convert_to_nx_graph(graph)
+
+    return nx.density(graph)
 
 
-def extract_in_degree_av(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    in_degrees = G.in_degree()
+def extract_spectral_radius(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+
+    graph = convert_to_nx_graph(graph)
+
+    # Get the adjacency matrix of the graph
+    adjacency_matrix = nx.to_numpy_array(graph)
+
+    # Compute the eigenvalues of the adjacency matrix
+    eigenvalues = np.linalg.eigvals(adjacency_matrix)
+
+    # Compute the spectral radius (maximum absolute eigenvalue)
+    spectral_radius = np.max(np.abs(eigenvalues))
+
+    return spectral_radius
+
+
+def extract_av_in_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+    graph = convert_to_nx_graph(graph)
+    in_degrees = graph.in_degree()
     avg_in_degree = np.mean(list(dict(in_degrees).values()))
     return avg_in_degree
 
 
-def extract_out_degree_av(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    out_degrees = G.out_degree()
+def extract_av_out_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+    graph = convert_to_nx_graph(graph)
+    out_degrees = graph.out_degree()
     avg_out_degree = np.mean(list(dict(out_degrees).values()))
     return avg_out_degree
 
 
-def extract_clustering_coefficient(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return nx.average_clustering(G)
+def extract_clustering_coefficient(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph]
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return nx.average_clustering(graph)
 
 
-def extract_node_degree(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return dict(G.degree())
+def extract_node_degree(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return graph.degree[node]
 
 
-def extract_node_in_degree(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return dict(G.in_degree())
+def extract_node_in_degree(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return graph.in_degree[node]
 
 
-def extract_node_out_degree(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return dict(G.out_degree())
+def extract_node_out_degree(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return graph.out_degree[node]
 
 
-def extract_node_clustering_coefficient(adjacency_matrix):
+def extract_node_clustering_coefficient(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph]
+) -> float:
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return nx.clustering(G)
 
 
-def extract_node_betweenness_centrality(adjacency_matrix):
+def extract_node_betweenness_centrality(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph]
+) -> float:
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return nx.betweenness_centrality(G)
 
 
-def extract_node_pagerank(adjacency_matrix):
+def extract_node_pagerank(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
     G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
     return nx.pagerank(G)
 
