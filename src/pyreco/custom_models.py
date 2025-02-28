@@ -431,6 +431,14 @@ class CustomModel(ABC):
         # 2. remove nodes from the read-in weights matrix of shape [num_nodes, num_states_in]
         self.input_layer.remove_nodes(nodes)
 
+        # 2.b update input-receiving nodes in reservoir layer
+        # Find non-zero rows
+        non_zero_rows = np.all(self.input_layer.weights != 0, axis=1)
+
+        # Get the indices of zero rows
+        non_zero_row_indices = np.where(non_zero_rows)[0]
+        self.reservoir_layer.input_receiving_nodes = non_zero_row_indices
+
         # 3. remove nodes from the list of readout-nodes in the readout layer
         # update the indices in the readout.readout_nodes list
         self.readout_layer.readout_nodes = rename_nodes_after_removal(
@@ -463,7 +471,7 @@ class CustomModel(ABC):
         # read-in weights matrix has to have the shape [n_nodes, n_states_in]
         if weights.shape != (self.reservoir_layer.nodes, self.num_states_in):
             raise ValueError(
-                f"Read-in weights matrix has to have the shape [n_nodes, n_states_in], i.e. {self.reservoir_layer.nodes}, {self.n_states_in}]"
+                f"Read-in weights matrix has to have the shape [n_nodes, n_states_in], i.e. {self.reservoir_layer.nodes}, {self.num_states_in}]"
             )
 
         # set the read-in weights in the input layer
@@ -554,14 +562,18 @@ class CustomModel(ABC):
 
         # select read-in node indices according to the fraction specified by the user
         node_selector = NodeSelector(
-            graph=full_input_weights,
+            total_nodes=self.num_nodes,
             strategy="random_uniform_wo_repl",
         )
 
         # select the fraction of nodes that are input nodes [nodes, n_states_in]
-        node_mask = node_selector.select_nodes(
+        input_receiving_nodes = node_selector.select_nodes(
             fraction=self.reservoir_layer.fraction_input
         )
+
+        self.reservoir_layer.input_receiving_nodes = input_receiving_nodes
+        node_mask = np.ones_like(full_input_weights)
+        node_mask[input_receiving_nodes] = 0
 
         # set the input layer weight matrix
         self._set_readin_weights(weights=(full_input_weights * node_mask))

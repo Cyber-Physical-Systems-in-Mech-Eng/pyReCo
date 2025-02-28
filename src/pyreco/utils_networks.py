@@ -301,22 +301,25 @@ def extract_node_out_degree(
 
 
 def extract_node_clustering_coefficient(
-    graph: Union[np.ndarray, nx.Graph, nx.DiGraph]
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
 ) -> float:
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return nx.clustering(G)
+    graph = convert_to_nx_graph(graph)
+
+    return nx.clustering(graph, node)
 
 
 def extract_node_betweenness_centrality(
-    graph: Union[np.ndarray, nx.Graph, nx.DiGraph]
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
 ) -> float:
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return nx.betweenness_centrality(G)
+    graph = convert_to_nx_graph(graph)
+    return nx.betweenness_centrality(graph)[node]
 
 
-def extract_node_pagerank(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return nx.pagerank(G)
+def extract_node_pagerank(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return nx.pagerank(graph)[node]
 
 
 # Add more network property extraction functions as needed
