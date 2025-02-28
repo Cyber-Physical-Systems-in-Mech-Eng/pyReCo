@@ -11,6 +11,7 @@ import math
 from typing import Union
 import copy
 from pyreco.graph_analyzer import GraphAnalyzer
+from pyreco.node_analyzer import NodeAnalyzer
 
 
 class NetworkPruner:
@@ -31,7 +32,7 @@ class NetworkPruner:
         graph_props_extractor=None,
         return_best_model: bool = True,
         graph_analyzer: GraphAnalyzer = None,
-        # node_analyzer: NodeAnalyzer = None,
+        node_analyzer: NodeAnalyzer = None,
     ):
         """
         Initializer for the pruning class.
@@ -93,6 +94,11 @@ class NetworkPruner:
         if graph_analyzer is None:
             graph_analyzer = GraphAnalyzer()
 
+        if node_analyzer is not None and not isinstance(node_analyzer, NodeAnalyzer):
+            raise TypeError("node_analyzer must be an instance of NodeAnalyzer")
+        if node_analyzer is None:
+            node_analyzer = NodeAnalyzer()
+
         # Assigning the parameters to instance variables
         if target_score is None:
             self.target_score = 0.0
@@ -104,21 +110,24 @@ class NetworkPruner:
         self.min_num_nodes = min_num_nodes
         self.patience = patience
         self.candidate_fraction = candidate_fraction
-        self.remove_isolated_nodes = remove_isolated_nodes
         self.metrics = metrics
         self.return_best_model = return_best_model
         self.graph_analyzer = graph_analyzer
-        # self.node_analyzer = node
+        self.node_analyzer = node_analyzer
 
+        # TODO not implemented yet
+        self.remove_isolated_nodes = remove_isolated_nodes
         self.maintain_spectral_radius = maintain_spectral_radius
 
-        # store the history of the pruning process here
+        # store the history of the pruning process in a nested dictionary
         self.history = {}
 
-        # initialize attributes that will be used during pruning
+        # initialize attributes that will be used during pruning (and changed during the process)
+        # needs to be attributes as the history updates depend on them
         self._curr_loss = None
         self._curr_num_nodes = None
         self._curr_loss_history = []
+        self._idx_prune = None
         self._patience_counter = 0
         self._curr_metrics = None
 
@@ -170,27 +179,37 @@ class NetworkPruner:
 
         # Assigning the parameters to instance variables that can not be set
         # in the initializer, as they depend on the model and data
-        # TODO: any?
+        self._curr_num_nodes = model.reservoir_layer.nodes
 
         # initialize the quantities that affect the stop condition
         self._curr_loss = model.evaluate(x=x_test, y=y_test, metrics=self.criterion)[0]
-        self._curr_num_nodes = model.reservoir_layer.nodes
         self._curr_loss_history = [self._curr_loss]
-        self._patience_counter = 0
 
         # initialize quantities that we track for the pruning history
         # these do not affect the pruning process
         self._curr_metrics = model.evaluate(x=x_test, y=y_test, metrics=self.metrics)
 
-        # Store all relevant information during pruning inside self.history
-        self._update_pruning_history(model=model)
-
+        # storing all pruned models during the pruning iteration
+        # allows to recover models from previous iterations, e.g. when the best model is not the last one in the iteration (positive patience value)
         _pruned_models = [copy.deepcopy(model)]
 
-        iter_count = 0
+        # initialize the pruning iterator
+        self._iter_count = 0
+
+        # Store all relevant information during pruning inside self.history
+        # self._update_pruning_history(model=model)
+        self.add_val_to_history(["loss"], self._curr_loss)
+        self.add_val_to_history(["metrics"], self._curr_metrics)
+        self.add_val_to_history(["num_nodes"], self._curr_num_nodes)
+        self.add_val_to_history(["iteration"], self._iter_count)
+
+        _graph = model.reservoir_layer.weights
+        _graph_props = self.graph_analyzer.extract_properties(graph=_graph)
+        self.add_dict_to_history(["graph_props"], _graph_props)
+
         while True:  # self._curr_num_nodes>self.min_num_nodes:
 
-            print(f"pruning iteration {iter_count}")
+            print(f"pruning iteration {self._iter_count}")
 
             print(
                 f"current reservoir size: {self._curr_num_nodes}, current loss: {self._curr_loss:.8f}"
@@ -212,10 +231,15 @@ class NetworkPruner:
             # track the performance of the RC with the candidate nodes removed
             _candidate_scores = []
             _candidate_models = []
-
-            # _node_scores = []
-            # _cand_node_props = []
-            # _cand_graph_props = []
+            _cand_node_props = []  # properties of the to-be removed node
+            _cand_node_input_receiving = (
+                []
+            )  # whether the node is connected to input layer
+            _cand_node_output_sending = (
+                []
+            )  # whether the node is connected to output layer
+            _cand_graph_props_before = []  # properties of the graph before pruning
+            _cand_graph_props_after = []  # properties of the graph after pruning
 
             # iteratate over the candidate nodes: delete one-by-one, measure performance,
             # and also track node/graph-level properties
@@ -223,6 +247,25 @@ class NetworkPruner:
 
                 # get a copy of the original model to try out the deletion
                 _model = copy.deepcopy(model)
+
+                # extract information about the node that we will prune,
+                # and about the graph before we prune it
+                _graph = _model.reservoir_layer.weights
+                _node_props = self.node_analyzer.extract_properties(
+                    graph=_graph, node=node
+                )
+                _graph_props = self.graph_analyzer.extract_properties(graph=_graph)
+
+                # check for links to input and read-out layer of the current node
+                _is_input_receiving = (
+                    node in _model.reservoir_layer.input_receiving_nodes
+                )
+                _is_output_sending = node in _model.readout_layer.readout_nodes
+
+                _cand_node_props.append(_node_props)
+                _cand_graph_props_before.append(_graph_props)
+                _cand_node_input_receiving.append(_is_input_receiving)
+                _cand_node_output_sending.append(_is_output_sending)
 
                 # remove current candidate node
                 _model.remove_reservoir_nodes(nodes=[node])
@@ -243,12 +286,14 @@ class NetworkPruner:
                 # evaluate the pruned model
                 _score = _model.evaluate(x=x_test, y=y_test, metrics=self.criterion)[0]
 
+                # extract graph properties after pruning
+                _graph = _model.reservoir_layer.weights
+                _graph_props = self.graph_analyzer.extract_properties(graph=_graph)
+                _cand_graph_props_after.append(_graph_props)
+
                 print(
                     f"deletion of candidate node {node}. loss: \t{_score:.6f} ({(self._curr_loss-_score)/self._curr_loss:+.3%})"
                 )
-
-                # TODO: extract node and graph properties for candidate
-                self._update_pruning_history(model=_model, mode="candidate")
 
                 # store the relevant candidate information
                 _candidate_scores.append(_score)
@@ -258,11 +303,41 @@ class NetworkPruner:
                 del (
                     _model,
                     _score,
+                    _graph,
+                    _graph_props,
+                    _node_props,
                 )
+
+            # store the candidate properties in the history object
+            self.add_val_to_history(
+                ["candidate_scores"],
+                _candidate_scores,
+            )
+
+            self.add_val_to_history(
+                ["candidate_nodes"],
+                _curr_candidate_nodes,
+            )
+
+            self.add_val_to_history(
+                ["candidate_node_props"],
+                dictlist_to_dict(_cand_node_props),
+            )
+
+            self.add_val_to_history(
+                ["candidate_graph_props_before"],
+                dictlist_to_dict(_cand_graph_props_before),
+            )
+
+            self.add_val_to_history(
+                ["candidate_graph_props_after"],
+                dictlist_to_dict(_cand_graph_props_after),
+            )
 
             # after trying out all candidate nodes, we need to select the node to prune,
             # i.e. the one that has the smallest loss among all candidate nodes
             idx_prune = np.argmin(_candidate_scores)
+            self._curr_idx_prune = idx_prune  # just for history logging
 
             # update the termination relevant quantities,
             # assuming that we will prune that node
@@ -273,9 +348,6 @@ class NetworkPruner:
             # check if we should actually prune the node, or if that would violate the termination criteria (no optimal design by now to do it here though)
             if not self._keep_pruning():
 
-                # TODO: remove last entries from the history to not report
-                # sth. that is acually not happening (i.e. pruning the current node)
-
                 # exit the pruning loop
                 break
 
@@ -285,35 +357,57 @@ class NetworkPruner:
             )
 
             # prune the node that gives us the least performance drop. as we have already
-            # pruned the node and stored the model, we only need to update the model. Saves # at least one training run and all the pruning logic
+            # pruned the node and stored the model, we only need to update the model.
+            # Saves at least one training run and all the pruning logic
             model = _candidate_models[idx_prune]
 
-            # update the pruning history object with all relevant quantities
+            # store the model for later use
+            _pruned_models.append(copy.deepcopy(model))
+
+            # compute things that are required for the history, but not for the
+            # pruning loop termination criteria
             self._curr_metrics = model.evaluate(
                 x=x_test, y=y_test, metrics=self.metrics
             )
-            # self._update_pruning_history()
-            _pruned_models.append(copy.deepcopy(model))
 
-            # update
-            self._update_pruning_history(model=model, mode="prune")
+            # self._update_pruning_history
+
+            self.add_val_to_history(["loss"], self._curr_loss)
+            self.add_val_to_history(["metrics"], self._curr_metrics)
+            self.add_val_to_history(["num_nodes"], self._curr_num_nodes)
+            self.add_val_to_history(["idx_prune"], self._curr_idx_prune)
+            self.add_val_to_history(["iteration"], self._iter_count)
+
+            self.add_val_to_history(
+                ["del_node_props", "input_receiving_node"],
+                _cand_node_input_receiving[idx_prune],
+            )
+            self.add_val_to_history(
+                ["del_node_props", "output_sending_node"],
+                _cand_node_output_sending[idx_prune],
+            )
+
+            self.add_dict_to_history(["del_node_props"], _cand_node_props[idx_prune])
+            self.add_dict_to_history(
+                ["graph_props"], _cand_graph_props_after[idx_prune]
+            )
 
             # update counter
-            iter_count += 1
+            self._iter_count += 1
 
         # in case we have a non-zero patience, we need to return the best model
-        # instead of the last one
+        # instead of the last one (i.e. when a positive patience value was given)
         if self.return_best_model:
             idx_best = np.argmin(self._curr_loss_history[:-1])
             model = copy.deepcopy(_pruned_models[idx_best])
             print(f"returning model {idx_best} as the best, i.e. with lowest loss")
 
-        # we should fit the final model
+        # we should fit the final model, and evaluate it
         model.fit(x=x_train, y=y_train)
         final_loss = model.evaluate(x=x_test, y=y_test, metrics=self.criterion)[0]
         final_metrics = model.evaluate(x=x_test, y=y_test, metrics=self.metrics)
         print(
-            f"\nimproved loss from {self._curr_loss_history[0]:.6f} to {final_loss:.6f}"
+            f"\ninitial loss{self._curr_loss_history[0]:.6f}, loss after pruning: {final_loss:.6f}"
         )
         print(f"final model has {model.reservoir_layer.nodes} nodes")
         print(f"final model loss {self.criterion}: {final_loss:.6f}")
@@ -397,102 +491,136 @@ class NetworkPruner:
         else:
             return True
 
-    def _update_pruning_history(self, model: RC, mode: str = "prune"):
-        # this will keep track of all quantities that are relevant during the pruning iterations.
-
-        # Pruning iteration
-        # self.history["iteration"].append(self._curr_iter)
-
-        if not self.history:
-            # initialize the history object
-            self.history["loss"] = []
-            self.history["metrics"] = []
-            self.history["num_nodes"] = []
-
-            # initialize the dicts for the graph and node properties with empty lists
-            graph_keys = self.graph_analyzer.list_properties()
-            # node_keys = self.node_analyzer.list_properties()
-
-            self.history["graph_props"] = {key: [] for key in graph_keys}
-            self.history["candidate_graph_props"] = {key: [] for key in graph_keys}
-
-            self.history["node_props"] = {key: [] for key in graph_keys}
-            self.history["candidate_node_props"] = {key: [] for key in graph_keys}
-
-        # we will extract properties from the reservoir network of the model
-        graph = model.reservoir_layer.weights
-        graph_props = self.graph_analyzer.extract_properties(graph)
-
-        # choose the node to extract properties from
-        # node =
-        # node_props = self.node_analyzer.extract_properties(graph, node)
-
-        # now select where to store the information in the history object
-        if mode == "prune":
-            # high-level properties
-            self.history["num_nodes"].append(self._curr_num_nodes)
-            self.history["loss"].append(self._curr_loss)
-            self.history["metrics"].append(self._curr_metrics)
-
-            self.history["graph_props"] = append_to_dict(
-                graph_props, self.history["graph_props"]
-            )
-            # self.history["node_props"] = append_to_dict(
-            #     node_props, self.history["node_props"]
-            # )
-        elif mode == "candidate":  # properties of the candidate node
-            self.history["candidate_graph_props"] = append_to_dict(
-                graph_props, self.history["candidate_graph_props"]
-            )
-            # self.history["candidate_node_props"] = append_to_dict(
-            #     node_props, self.history["candidate_node_props"]
-            # )
-
-        else:
-            raise ValueError("mode must be either 'prune' or 'candidate'")
-
-            # extract the graph properties of the current
-            # self.history["num_nodes"] = [n]
-            # self.history["loss"].append(self._curr_loss)
-            # self.history["metrics"].append(self._curr_metrics)
-            # self.history["num_nodes"].append(self._curr_num_nodes)
-            # self.history["graph_props"] = []  # graph property extractor
-            # self.history["node_props"] = []  # node property extractor
-            # self.history["node_idx_pruned"] = []  # index of the node pruned per iteration
-            # self.history["pruned_node_props"] = []  # node property of the node that was pruned
-
-        # history["num_nodes"] = [n]
-        # history["score"] = [curr_score]
-        # history["graph_props"] = []  # graph property extractor
-        # history["node_props"] = []  # node property extractor
-        # history["node_idx_pruned"] = []  # index of the node pruned per iteration
-        # history["pruned_node_props"] = []  # node property of the node that was pruned
-
+    def add_val_to_history(self, keys, value):
         """
-        Candidate nodes: trying out different nodes at current iteration
+        Add a value to history dictionary based on a list of keys.
+
+        Args:
+            keys (list): A list of keys specifying the path in the nested dictionary.
+            value: The value to add.
+        """
+        if len(keys) == 1:
+            if keys[0] not in self.history:
+                self.history[keys[0]] = []
+            self.history[keys[0]].append(value)
+
+        elif len(keys) == 2:
+            if keys[0] not in self.history:
+                self.history[keys[0]] = {}
+            if keys[1] not in self.history[keys[0]]:
+                self.history[keys[0]][keys[1]] = []
+            self.history[keys[0]][keys[1]].append(value)
+
+        # for key in keys[:-1]:
+        #     if key not in self.history:
+        #         self.history[key] = {}
+        #     self.history = self.history[key]
+        # if keys[-1] not in self.history:
+        #     self.history[keys[-1]] = []
+        # self.history[keys[-1]].append(value)
+
+    def add_dict_to_history(self, keys, value_dict):
+        """
+        Add a dictionary to history dictionary based on a list of keys.
+
+        Args:
+        nested_dict (dict): The nested dictionary.
+        keys (list): A list of keys specifying the path in the nested dictionary.
+        value_dict (dict): The dictionary to add.
         """
 
-        #       # some logging
-        # self._curr_idx_prune = idx
-        # self._curr_nodes_before_pruning = _curr_total_nodes
-        # self._curr_nodes_after_pruning = model.reservoir_layer.nodes
-        # self._curr_candidate_nodes = _curr_candidate_nodes
-        # self._curr_candidate_scores = _candidate_scores
-        # self._curr_score = _candidate_scores[idx]
-        # self._curr_node_props = _cand_node_props[idx]
-        # self._curr_graph_props = _cand_graph_props[idx]
+        for key in keys[:-1]:
+            if key not in self.history:
+                self.history[key] = {}
+            self.history = self.history[key]
+        if keys[-1] not in self.history:
+            self.history[keys[-1]] = {}
+        for k, v in value_dict.items():
+            if k not in self.history[keys[-1]]:
+                self.history[keys[-1]][k] = []
+            self.history[keys[-1]][k].append(v)
 
-        # # Number of nodes that are being tried to at current iteration
-        # self.history["num_candidate_nodes"].append(len(self._curr_candidate_nodes))
 
-        # # Nodes indices of nodes that are being tried to at current iteration
-        # self.history["candidate_nodes"].append(self._curr_candidate_nodes)
+def dictlist_to_dict(dict_list):
+    """
+    Join dictionaries in a list into a common dictionary.
 
-        # # Scores obtained when deleting a respective candidate node
-        # self.history["candidate_node_scores"].append(self._curr_candidate_scores)
+    Args:
+        dict_list (list): A list of dictionaries to join.
 
-        # # Stats once a nodes is chosen to be deleted finally
-        # self.history["node_idx_pruned"].append(self._curr_idx_prune)
+    Returns:
+        dict: A common dictionary containing all key-value pairs from the dictionaries in the list.
+    """
+    common_dict = {}
+    for d in dict_list:
+        for key, value in d.items():
+            if key in common_dict:
+                if isinstance(common_dict[key], list):
+                    common_dict[key].append(value)
+                else:
+                    common_dict[key] = [common_dict[key], value]
+            else:
+                common_dict[key] = value
+    return common_dict
+
+    # def _update_pruning_history(self, model: RC):
+    #     # this will keep track of all quantities that are relevant during the pruning iterations.
+
+    #     # Pruning iteration
+    #     # self.history["iteration"].append(self._curr_iter)
+
+    #     if not self.history:
+    #         # initialize the history object
+    #         self.history["iteration"] = []
+    #         self.history["loss"] = []
+    #         self.history["metrics"] = []
+    #         self.history["num_nodes"] = []
+
+    #         # initialize the dicts for the graph and node properties with empty lists
+    #         graph_keys = self.graph_analyzer.list_properties()
+    #         node_keys = self.node_analyzer.list_properties()
+
+    #         self.history["graph_props"] = {key: [] for key in graph_keys}
+    #         # self.history["candidate_graph_props"] = {key: [] for key in graph_keys}
+
+    #         self.history["del_node_props"] = {key: [] for key in graph_keys}
+    #         # self.history["candidate_node_props"] = {key: [] for key in graph_keys}
+
+    #     else:
+    #         # store the most relevant information
+
+    #         # we will extract properties from the reservoir network of the model
+    #         graph = model.reservoir_layer.weights
+    #         graph_props = self.graph_analyzer.extract_properties(graph)
+
+    #         # # choose the node to extract properties from
+    #         # node = int(self._curr_idx_prune)
+    #         # node_props = self.node_analyzer.extract_properties(graph, node)
+
+    #         # high-level properties
+    #         self.add_val_to_history(
+    #             ["num_nodes"],
+    #             self._curr_num_nodes,
+    #         )
+
+    #         self.add_val_to_history(
+    #             ["loss"],
+    #             self._curr_loss,
+    #         )
+
+    #         self.add_val_to_history(
+    #             ["metrics"],
+    #             self._curr_metrics,
+    #         )
+
+    #         self.add_val_to_history(
+    #             ["iteration"],
+    #             self._iter_count,
+    #         )
+    #         self.add_val_to_history(
+    #             ["graph_props"],
+    #             graph_props,
+    #         )
 
 
 def append_to_dict(dict1, dict2):
@@ -532,7 +660,7 @@ if __name__ == "__main__":
             density=0.1,
             activation="tanh",
             leakage_rate=0.1,
-            fraction_input=1.0,
+            fraction_input=0.5,
         ),
     )
     model.add(ReadoutLayer(output_shape, fraction_out=0.9))
@@ -552,7 +680,7 @@ if __name__ == "__main__":
     # prune the model
     pruner = NetworkPruner(
         stop_at_minimum=False,
-        min_num_nodes=20,
+        min_num_nodes=46,
         patience=2,
         candidate_fraction=0.9,
         remove_isolated_nodes=False,

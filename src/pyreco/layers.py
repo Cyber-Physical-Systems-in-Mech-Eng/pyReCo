@@ -136,6 +136,7 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         self.name = "reservoir_layer"
         self.fraction_input = fraction_input
         self.weights = None
+        self.input_receiving_nodes = None
 
         # initial reservoir state (will be set later)
         self.initial_res_states = None
@@ -196,6 +197,9 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
 
         # 3. update the initial reservoir state
         self.initial_res_states = np.delete(self.initial_res_states, nodes, axis=0)
+
+        # # 4. update the info about input-receiving nodes
+        # self.input_receiving_nodes = np.delete(self.input_receiving_nodes, nodes)
 
     def update_layer_properties(self):
         # Updates the reservoir properties including the number of nodes, density, and spectral radius.
