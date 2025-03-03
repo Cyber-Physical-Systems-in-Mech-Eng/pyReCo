@@ -7,7 +7,7 @@ from sklearn.linear_model import Ridge
 
 class Optimizer(ABC):
 
-    def __init__(self, name: str = ''):
+    def __init__(self, name: str = ""):
         self.name = name
         pass
 
@@ -22,7 +22,7 @@ class RidgeSK(Optimizer):
     # solves a linear regression model using sklearn's Ridge method,
     # see https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html
 
-    def __init__(self, name: str = '', alpha=1.0):
+    def __init__(self, name: str = "", alpha=1.0):
         super().__init__(name)
         self.alpha = 1.0
 
@@ -51,16 +51,24 @@ def assign_optimizer(optimizer: str or Optimizer) -> Optimizer:
     ValueError
         If the given optimizer name is not implemented.
     """
+
+    if not isinstance(optimizer, str):
+        if not isinstance(optimizer, Optimizer):
+            raise TypeError(
+                f"Optimizer must be a string or Optimizer object! Given optimizer is of type:{type(optimizer)}"
+            )
+
     # maps names of optimizers to the correct implementation.
-    if optimizer == 'ridge':
+    if optimizer == "ridge" or optimizer == "Ridge":
         return RidgeSK()
-    
+
     if isinstance(optimizer, Optimizer):
         return optimizer
-    
-    # if isinstance(optimizer, Ridge):
-    #     return optimizer
 
     # TODO: add more solvers (sparsity promoting, ...)
     else:
-        raise (ValueError(f'{optimizer} not implemented! Check optimizers.py and assign_optimizers()'))
+        raise (
+            ValueError(
+                f"{optimizer} not implemented! Check optimizers.py and assign_optimizers()"
+            )
+        )

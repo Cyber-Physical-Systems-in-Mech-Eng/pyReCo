@@ -1,13 +1,17 @@
 """
 Helper routines for networks
 """
+
+from typing import Union
 import networkx as nx
 import numpy as np
 
 
-def gen_ER_graph(nodes: int, density: float, spec_rad: float = 0.9, directed: bool=True, seed=None):
+def gen_ER_graph(
+    nodes: int, density: float, spec_rad: float = 0.9, directed: bool = True, seed=None
+):
     """Generate an Erdős-Rényi random graph with specified properties.
-    
+
     Bug Fix Documentation:
     ---------------------
     Previous Bug:
@@ -37,7 +41,7 @@ def gen_ER_graph(nodes: int, density: float, spec_rad: float = 0.9, directed: bo
 
     # Instead of removing isolated nodes (old buggy behavior):
     # G.remove_nodes_from(list(nx.isolates(G)))
-    
+
     # New: Connect isolated nodes to maintain matrix size
     isolated_nodes = list(nx.isolates(G))
     if isolated_nodes:
@@ -51,7 +55,7 @@ def gen_ER_graph(nodes: int, density: float, spec_rad: float = 0.9, directed: bo
 
     GNet = nx.to_numpy_array(G)
     curr_spec_rad = max(abs(np.linalg.eigvals(GNet)))
-    graph = GNet * spec_rad/curr_spec_rad
+    graph = GNet * spec_rad / curr_spec_rad
 
     return graph
 
@@ -59,14 +63,14 @@ def gen_ER_graph(nodes: int, density: float, spec_rad: float = 0.9, directed: bo
 def compute_density(network: np.ndarray) -> float:
     # compute density of a given adjacency matrix by the fraction of non-zero entries over  N^2
     if type(network) is not np.ndarray:
-        raise (TypeError('Expect a np.ndarray as reservoir network'))
+        raise (TypeError("Expect a np.ndarray as reservoir network"))
 
     # check if the matrix is square
-    if network.shape[0] != network.shape[1]:    
-        raise (ValueError('Expect network of square size!'))
+    if network.shape[0] != network.shape[1]:
+        raise (ValueError("Expect network of square size!"))
 
     N = len(network)
-    num_links = np.sum(network.flatten()>0)
+    num_links = np.sum(network.flatten() > 0)
     return num_links / (N**2)
 
 
@@ -74,53 +78,41 @@ def get_num_nodes(network: np.ndarray) -> int:
 
     # returns the number of nodes in the given network. Assumes the adjacency matrix to be of square size
     if type(network) is not np.ndarray:
-        raise (TypeError('Expect a np.ndarray as reservoir network'))
+        raise (TypeError("Expect a np.ndarray as reservoir network"))
 
     if network.shape[0] != network.shape[1]:
-        raise (ValueError('Expect network of square size!'))
+        raise (ValueError("Expect network of square size!"))
 
-    non_zero_rows = np.any(network != 0, axis=1)
-
-    # Identify columns that are not entirely zero
-    non_zero_columns = np.any(network != 0, axis=0)
-
-    # Identify nodes where both row and column are not zero
-    non_isolated_nodes = np.where(non_zero_rows & non_zero_columns)[0]
-
-    # Number of non-isolated nodes
-    num_non_isolated_nodes = len(non_isolated_nodes)
-
-    return num_non_isolated_nodes
+    return network.shape[0]
 
 
 def compute_spec_rad(network: np.ndarray) -> float:
     # compute the spectral radius of the network (max. eigenvalue)
     if type(network) is not np.ndarray:
-        raise (TypeError('Expect a np.ndarray as reservoir network'))
+        raise (TypeError("Expect a np.ndarray as reservoir network"))
 
     if network.shape[0] != network.shape[1]:
-        raise (ValueError('Expect network of square size!'))
+        raise (ValueError("Expect network of square size!"))
 
     return np.max(np.abs(np.linalg.eigvals(network)))
 
 
-def set_spec_rad(network: np.ndarray, spec_radius:float) -> np.ndarray:
+def set_spec_rad(network: np.ndarray, spec_radius: float) -> np.ndarray:
     # obtains a network with given spectral radius
 
     if spec_radius <= 0:
-        raise(ValueError('spectral radius must be larger than zero'))
-    elif (spec_radius > 1.0):
-        raise(Warning('a spectral radius larger than 1 is unusual!'))
+        raise (ValueError("spectral radius must be larger than zero"))
+    elif spec_radius > 1.0:
+        raise (Warning("a spectral radius larger than 1 is unusual!"))
 
     # compute current spectral radius
     current_spectral_radius = compute_spec_rad(network)
 
-    if current_spectral_radius < 10**(-9):
-        print('spectral radius smaller than 10^-9!')
-        current_spectral_radius = 10**(-6)
+    if current_spectral_radius < 10 ** (-9):
+        print("spectral radius smaller than 10^-9!")
+        current_spectral_radius = 10 ** (-6)
 
     scaling_factor = spec_radius / current_spectral_radius
-
 
     return network * scaling_factor
 
@@ -137,87 +129,207 @@ def is_zero_col_and_row(x: np.ndarray, idx: int) -> bool:
         return False
 
 
-def remove_node(x: np.ndarray, idx: int | list) -> np.ndarray:
-    if type(idx) is not list:
-        idx = [idx]
+def remove_nodes_from_graph(graph: np.ndarray, nodes: list):
+    # removes a node from the graph given as np adjacency matrix
 
-    if x.ndim == 1:
-        for idxx in idx:
-            x[idxx] = 0
-    elif x.ndim == 2:
-        for idxx in idx:
-            x[:, idxx] = 0
-            x[idxx, :] = 0
+    # TODO: allow the user to input a networkx graph instead of a numpy array
 
-    return x
+    if not isinstance(nodes, list):
+        raise TypeError("Nodes must be provided as a list of indices.")
 
-def gen_init_states(num_nodes: int, method: str = 'random'):
+    num_nodes = get_num_nodes(graph)
+    if np.max(nodes) > num_nodes:
+        raise ValueError("Node index exceeds the number of nodes in the graph.")
+
+    if np.min(nodes) < 0:
+        raise ValueError("Node index must be positive.")
+
+    if not isinstance(graph, np.ndarray):
+        raise TypeError("Adjacency matrix must be numpy.ndarray")
+
+    if not all(isinstance(x, int) for x in nodes):
+        raise ValueError("All entries in the node list must be integers.")
+
+    # remove nodes from the network using networkx
+
+    # 1. create a graph from the weights matrix
+    G = nx.from_numpy_array(graph, create_using=nx.DiGraph)
+
+    # 2. remove the specified nodes from the graph
+    G.remove_nodes_from(nodes)
+
+    # 3. convert the graph back to a NumPy array
+    graph_trunc = nx.to_numpy_array(G)
+
+    if graph_trunc.shape[0] != graph.shape[0] - len(nodes):
+        raise ValueError("sth wrong!")
+
+    return graph_trunc
+
+
+def rename_nodes_after_removal(original_nodes: list, removed_nodes: list):
+    # removes the nodes from the original list of nodes and renames the remaining nodes
+
+    # Create a mapping of old indices to new indices
+    old_to_new = {}
+    new_index = 0
+    for old_index in np.unique(
+        original_nodes
+    ):  # range(np.min(original_nodes), np.max(original_nodes)):
+        if old_index not in removed_nodes:
+            old_to_new[old_index] = new_index
+            new_index += 1
+
+    updated_nodes = [
+        old_to_new[node] for node in original_nodes if node not in removed_nodes
+    ]
+
+    return updated_nodes
+
+
+def gen_init_states(num_nodes: int, method: str = "random"):
     # returns an array of length <num_nodes>
     # creates the entries based on different sampling methods
     # when not setting specific values, the range is normalized to abs(1)
 
-    if method == 'random':
+    if method == "random":
         init_states = np.random.random(num_nodes)
-    elif method == 'random_normal':
+    elif method == "random_normal":
         init_states = np.random.randn(num_nodes)
-    elif method == 'ones':
+    elif method == "ones":
         init_states = np.ones(num_nodes)
-    elif method == 'zeros':
+    elif method == "zeros":
         init_states = np.zeros(num_nodes)
     else:
-        raise(ValueError(f'Sampling method {method} is unknown for generating initial reservoir states'))
+        raise (
+            ValueError(
+                f"Sampling method {method} is unknown for generating initial reservoir states"
+            )
+        )
 
     # normalize to max. absolute value of 1
-    if method != 'zeros':
+    if method != "zeros":
         init_states = init_states / np.max(np.abs(init_states))
 
     return init_states
 
-def extract_density(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return nx.density(G)
 
-def extract_spectral_radius(adjacency_matrix):
-    return np.max(np.abs(np.linalg.eigvals(adjacency_matrix)))
+def convert_to_nx_graph(graph: np.ndarray) -> nx.Graph:
+    """
+    Convert a numpy array to a NetworkX graph.
+    Args:
+        adjacency_matrix (np.ndarray): The adjacency matrix of the graph.
+    Returns:
+        nx.Graph: The NetworkX graph.
+    """
+    if isinstance(graph, np.ndarray):
+        graph = nx.from_numpy_array(graph, create_using=nx.DiGraph)
+    elif not isinstance(graph, (nx.Graph, nx.DiGraph)):
+        raise ValueError("adjacency_matrix must be a numpy array or a NetworkX graph.")
+    return graph
 
-def extract_in_degree_av(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    in_degrees = G.in_degree()
+
+def extract_density(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+    """
+    Extract the density of a graph from its adjacency matrix.
+    Args:
+        adjacency_matrix (np.ndarray, nx.Graph, nx.DiGraph): The adjacency matrix of the graph.
+    Returns:
+        float: The density of the graph.
+    """
+    graph = convert_to_nx_graph(graph)
+
+    return nx.density(graph)
+
+
+def extract_spectral_radius(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+
+    graph = convert_to_nx_graph(graph)
+
+    # Get the adjacency matrix of the graph
+    adjacency_matrix = nx.to_numpy_array(graph)
+
+    # Compute the eigenvalues of the adjacency matrix
+    eigenvalues = np.linalg.eigvals(adjacency_matrix)
+
+    # Compute the spectral radius (maximum absolute eigenvalue)
+    spectral_radius = np.max(np.abs(eigenvalues))
+
+    return spectral_radius
+
+
+def extract_av_in_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+    graph = convert_to_nx_graph(graph)
+    in_degrees = graph.in_degree()
     avg_in_degree = np.mean(list(dict(in_degrees).values()))
     return avg_in_degree
 
-def extract_out_degree_av(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    out_degrees = G.out_degree()
+
+def extract_av_out_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+    graph = convert_to_nx_graph(graph)
+    out_degrees = graph.out_degree()
     avg_out_degree = np.mean(list(dict(out_degrees).values()))
     return avg_out_degree
 
-def extract_clustering_coefficient(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return nx.average_clustering(G)
 
-def extract_node_degree(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return dict(G.degree())
+def extract_clustering_coefficient(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph]
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return nx.average_clustering(graph)
 
-def extract_node_in_degree(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return dict(G.in_degree())
 
-def extract_node_out_degree(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return dict(G.out_degree())
+def extract_node_degree(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return graph.degree[node]
 
-def extract_node_clustering_coefficient(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return nx.clustering(G)
 
-def extract_node_betweenness_centrality(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return nx.betweenness_centrality(G)
+def extract_node_in_degree(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return graph.in_degree[node]
 
-def extract_node_pagerank(adjacency_matrix):
-    G = nx.from_numpy_array(adjacency_matrix, create_using=nx.DiGraph)
-    return nx.pagerank(G)
+
+def extract_node_out_degree(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return graph.out_degree[node]
+
+
+def extract_node_clustering_coefficient(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
+) -> float:
+    graph = convert_to_nx_graph(graph)
+
+    return nx.clustering(graph, node)
+
+
+def extract_node_betweenness_centrality(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return nx.betweenness_centrality(graph)[node]
+
+
+def extract_node_pagerank(
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
+) -> float:
+    graph = convert_to_nx_graph(graph)
+    return nx.pagerank(graph)[node]
+
 
 # Add more network property extraction functions as needed
+
+
+if __name__ == "__main__":
+
+    # test the node renaming function
+    original_nodes = [0, 2, 1, 3, 4, 5, 6]
+    removed_nodes = [0, 5, 6]
+
+    updated_nodes = rename_nodes_after_removal(original_nodes, removed_nodes)
+    print(updated_nodes)
