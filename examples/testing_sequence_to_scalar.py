@@ -32,7 +32,7 @@ model_rc.add(
 )
 model_rc.add(ReadoutLayer(output_shape, fraction_out=0.99))
 # Compile the model
-model_rc.compile()
+model_rc.compile(discard_transients=10)
 # Train the model
 model_rc.fit(X_train, y_train)
 # Make predictions for new data
