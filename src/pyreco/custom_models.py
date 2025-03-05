@@ -195,6 +195,7 @@ class CustomModel(ABC):
         # discard transients (warmup phase). This is done by removing the first n_transients timesteps from the reservoir states.
         # Hence, the targets can have a maximum of (t_in - t_discard) steps, before we have to cut also from the targets
         # If the number of t_out steps is even smaller, we will discard more steps from the reservoir states
+        self.num_transients_to_remove = 0
         if self.discard_transients >= n_time_in:
             raise ValueError(
                 f"Number of transients to discard ({self.discard_transients}) must be smaller than the number of time steps in the input data ({n_time_in})."
@@ -206,12 +207,13 @@ class CustomModel(ABC):
             # cut first steps from the targets to match the desired warmup phase
             y = y[:, self.discard_transients :, :]
             n_time_out = n_time_in - self.discard_transients
+            self.num_transients_to_remove = self.discard_transients
 
         if (n_time_in - self.discard_transients) > n_time_out:
             # enlarge the number of transients to discard to match the output shape
-            self.discard_transients = n_time_in - n_time_out
+            self.num_transients_to_remove = n_time_in - n_time_out
             print(
-                f"discarding {self.discard_transients} reservoir states to match the number of time steps on the output."
+                f"discarding {self.num_transients_to_remove} reservoir states to match the number of time steps on the output."
             )
 
         # update some class attributes that depend on the training data
@@ -297,7 +299,7 @@ class CustomModel(ABC):
         reservoir_states = self.compute_reservoir_state(x)
 
         # discard the given transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
-        del_mask = np.arange(0, self.discard_transients + 1)
+        del_mask = np.arange(0, self.num_transients_to_remove + 1)
         reservoir_states = np.delete(reservoir_states, del_mask, axis=1)
 
         # Masking non-readout nodes: if the user specified to not use all nodes for output, we can get rid of the non-readout node states
@@ -347,8 +349,11 @@ class CustomModel(ABC):
         # make predictions
         y_pred = self.predict(x=x)
 
-        # remove some initial transients from the ground truth if discard transients is active
-        y = y[:, self.discard_transients :, :]
+        # remove the time steps that were discarded during training (transient removal, generic seq-to-seq modeling)
+        n_time_out = y_pred.shape[-2]
+        y = y[:, -n_time_out:, :]
+        # if self.discard_transients > 0:
+        # y = y[:, self.discard_transients :, :]
 
         # get metric values
         metric_values = []
@@ -377,9 +382,14 @@ class CustomModel(ABC):
         # (n_timesteps+1 because we also store the initial state)
         reservoir_states = self.compute_reservoir_state(x)
 
-        # discard the given transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
-        del_mask = np.arange(0, self.discard_transients + 1)
+        # discard the requested transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
+        # self.num_transients_to_remove
+        del_mask = np.arange(0, self.num_transients_to_remove + 1)
+        # del_mask = np.arange(0, self.discard_transients + 1)
         reservoir_states = np.delete(reservoir_states, del_mask, axis=1)
+
+        # # now select only the reservoir states that are needed for the output
+        # reservoir_states = reservoir_states[:, -self.num_time_out :, :]
 
         # Masking non-readout nodes: if the user specified to not use all nodes for output, we can get rid of the non-readout node states
         # TODO: check if the readout nodes are in the correct order!!!
@@ -494,7 +504,7 @@ class CustomModel(ABC):
             nodes = selector.select_nodes(fraction=self.readout_layer.fraction_out)
 
         # set the readout nodes in the readout layer
-        self.readout_layer.readout_nodes = sorted(nodes)
+        self.readout_layer.readout_nodes = nodes  # sorted(nodes)
 
     def _set_optimizer(self, optimizer: Union[str, Optimizer]):
         """
