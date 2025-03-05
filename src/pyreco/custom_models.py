@@ -204,7 +204,7 @@ class CustomModel(ABC):
                 f"Discarding {self.discard_transients} time steps will reduce the number of output time steps to {n_time_in-self.discard_transients}. The given targets had {n_time_out} time steps."
             )
             # cut first steps from the targets to match the desired warmup phase
-            y = y[:, (n_time_in - self.discard_transients) :, :]
+            y = y[:, self.discard_transients :, :]
             n_time_out = n_time_in - self.discard_transients
 
         if (n_time_in - self.discard_transients) > n_time_out:
@@ -272,7 +272,7 @@ class CustomModel(ABC):
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """
-        Make predictions for given input (single-step prediction).
+        Make predictions for given input.
 
         Args:
         x (np.ndarray): Input data of shape [n_batch, n_timestep, n_states]
@@ -348,7 +348,7 @@ class CustomModel(ABC):
         y_pred = self.predict(x=x)
 
         # remove some initial transients from the ground truth if discard transients is active
-        # TODO: this should be done in the predict method
+        y = y[:, self.discard_transients :, :]
 
         # get metric values
         metric_values = []
@@ -382,6 +382,7 @@ class CustomModel(ABC):
         reservoir_states = np.delete(reservoir_states, del_mask, axis=1)
 
         # Masking non-readout nodes: if the user specified to not use all nodes for output, we can get rid of the non-readout node states
+        # TODO: check if the readout nodes are in the correct order!!!
         reservoir_states = reservoir_states[:, :, self.readout_layer.readout_nodes]
 
         # Training: Solve regression problem y = R^T * W_out
@@ -493,7 +494,7 @@ class CustomModel(ABC):
             nodes = selector.select_nodes(fraction=self.readout_layer.fraction_out)
 
         # set the readout nodes in the readout layer
-        self.readout_layer.readout_nodes = nodes
+        self.readout_layer.readout_nodes = sorted(nodes)
 
     def _set_optimizer(self, optimizer: Union[str, Optimizer]):
         """
