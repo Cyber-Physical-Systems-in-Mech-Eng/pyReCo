@@ -27,7 +27,7 @@ print(
 from pyreco.models import ReservoirComputer as RC
 from pyreco.plotting import r2_scatter
 
-model = RC(num_nodes=600, density=0.1, activation="tanh")
+model = RC(num_nodes=200, density=0.2, activation="sigmoid", leakage_rate=0.1)
 model.fit(X_train, y_train)
 y_pred = model.predict(X_test)
 

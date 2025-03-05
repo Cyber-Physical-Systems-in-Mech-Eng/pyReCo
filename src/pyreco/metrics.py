@@ -34,17 +34,21 @@ def r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def available_metrics() -> list:
-    return ['mse', 'mean_squared_error', 'mae', 'mean_absolute_error', 'r2', 'r2_score']
+    return ["mse", "mean_squared_error", "mae", "mean_absolute_error", "r2", "r2_score"]
 
 
 def assign_metric(metric: str):
     if metric not in available_metrics():
-        raise (ValueError(f'metric {metric} is not implemented. Check for implementation in metrics.py and in '
-                          f'assign_metric() function'))
+        raise (
+            ValueError(
+                f"metric {metric} is not implemented. Check for implementation in metrics.py and in "
+                f"assign_metric() function"
+            )
+        )
 
-    if metric == 'mse' or metric == 'mean_squared_error':
+    if metric == "mse" or metric == "mean_squared_error":
         return mse
-    elif metric == 'mae' or metric == 'mean_absolute_error':
+    elif metric == "mae" or metric == "mean_absolute_error":
         return mae
-    elif metric == 'r2' or metric == 'r2_score':
+    elif metric == "r2" or metric == "r2_score":
         return r2
