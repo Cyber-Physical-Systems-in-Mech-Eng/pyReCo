@@ -20,12 +20,13 @@ from pyreco.utils_networks import (
     get_num_nodes,
     compute_spec_rad,
     remove_nodes_from_graph,
+    set_spec_rad
 )
 
 
 # implements the abstract base class
 class Layer(ABC):
-
+    HYPERPARAMETERS = set()
     @abstractmethod
     def __init__(self):
         self.weights = None  # every layer will have some weights (trainable or not)
@@ -36,12 +37,18 @@ class Layer(ABC):
     def update_layer_properties(self):
         pass
 
+    def set_hp(self, key, value):
+        if key in self.HYPERPARAMETERS:
+            setattr(self, key, value)
+        else:
+            raise ValueError(f"'{key}' is not a hyperparameter of {self.__class__.__name__}")
+
 
 class InputLayer(Layer):
     # Shape of the read-in weights is: N x n_states, where N is the number of nodes in the reservoir, and n_states is
     # the state dimension of the input (irrespective if a time series or a vector was put in)
     # the actual read-in layer matrix will be created by mode.compile()!
-
+    HYPERPARAMETERS = set()
     def __init__(self, input_shape):
         # input shape is (n_timesteps, n_states)
         super().__init__()
@@ -84,7 +91,7 @@ class InputLayer(Layer):
 
 
 class ReadoutLayer(Layer):
-
+    HYPERPARAMETERS = set()
     def __init__(self, output_shape, fraction_out=1.0):
         # expects output_shape = (n_timesteps, n_states)
         super().__init__()
@@ -116,6 +123,8 @@ class ReadoutLayer(Layer):
 
 
 class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
+
+    HYPERPARAMETERS = {"nodes", "density", "spec_rad", "leakage_rate", "activation", "fraction_input"}
 
     def __init__(
         self,
@@ -207,8 +216,23 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         self.density = compute_density(self.weights)
         self.spec_rad = compute_spec_rad(self.weights)
 
+    def set_hp(self, key, value):
+        if key == "spec_rad":
+            if self.weights is not None:
+                self.weights = set_spec_rad(self.weights, value)
+                self.spec_rad = compute_spec_rad(self.weights)
+            else:
+                self.spec_rad = value
+        elif key in ("nodes", "density"):
+            raise RuntimeError(f"Changing '{key}' requires recreation of the layer.")
+        elif key in self.HYPERPARAMETERS:
+            setattr(self, key, value)
+        else:
+            super().set_hp(key, value)
 
 class RandomReservoirLayer(ReservoirLayer):
+    HYPERPARAMETERS = ReservoirLayer.HYPERPARAMETERS
+
     def __init__(
         self,
         nodes,
@@ -250,6 +274,27 @@ class RandomReservoirLayer(ReservoirLayer):
         self.nodes = get_num_nodes(self.weights)
         self.density = compute_density(self.weights)
         self.spec_rad = compute_spec_rad(self.weights)
+
+    def set_hp(self, key, value):
+        if key in ("nodes", "density", "fraction_input"):
+            # Set the new HP value first
+            setattr(self, key, value)
+            # Then reinitialize weights and update any derived properties
+            self._reinitialize()
+        else:
+            # Delegate to parent for the rest (including spec_rad and others)
+            super().set_hp(key, value)
+
+    def _reinitialize(self):
+        """Rebuild the random reservoir network according to the current HPs."""
+        self.weights = gen_ER_graph(
+            nodes=self.nodes,
+            density=self.density,
+            spec_rad=self.spec_rad,
+            directed=True,
+            seed=getattr(self, 'seed', None)
+        )
+        self.update_layer_properties()
 
 
 # class ReccurrenceLayer(ReservoirLayer):

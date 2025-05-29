@@ -650,6 +650,23 @@ class CustomModel(ABC):
         # states[:, 1:].reshape(-1, num_nodes)
         return states
 
+    def set_hp(self, **kwargs):
+        for key, value in kwargs.items():
+            if "__" in key:
+                obj_name, attr = key.split("__", 1)
+                obj = getattr(self, obj_name, None)
+                if obj is not None and hasattr(obj, "set_hp"):
+                    obj.set_hp(**{attr: value})
+                elif obj is not None and hasattr(obj, attr):
+                    setattr(obj, attr, value)
+                else:
+                    raise ValueError(f"Layer/attribute '{key}' not found.")
+            elif hasattr(self, key):
+                setattr(self, key, value)
+            else:
+                raise ValueError(f"Parameter '{key}' not found in model.")
+        return self
+
     def fit_evolve(self, X: np.ndarray, y: np.ndarray):
         # build an evolving reservoir computer: performance-dependent node addition and removal
 
