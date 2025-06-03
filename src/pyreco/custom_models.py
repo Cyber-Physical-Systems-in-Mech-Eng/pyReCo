@@ -695,6 +695,35 @@ class CustomModel(ABC):
         # print the model to some figure file
         raise NotImplementedError("Method not implemented yet.")
 
+    def set_hp(self, **kwargs):
+        """
+        Set one or more reservoir hyperparameters.
+        Supported kwargs: spec_rad, leakage_rate, activation
+        """
+        if 'spec_rad' in kwargs:
+            self.reservoir_layer.set_spec_rad(kwargs['spec_rad'])
+        if 'leakage_rate' in kwargs:
+            self.reservoir_layer.set_leakage_rate(kwargs['leakage_rate'])
+        if 'activation' in kwargs:
+            self.reservoir_layer.set_activation(kwargs['activation'])
+        # Add more as needed
+
+    def get_hp(self, *args):
+        """
+        Get one or more reservoir hyperparameters. If no args, returns all.
+        Usage: get_hp('spec_rad', 'activation') or get_hp()
+        """
+        all_hps = {
+            'spec_rad': self.reservoir_layer.get_spec_rad(),
+            'leakage_rate': self.reservoir_layer.get_leakage_rate(),
+            'activation': self.reservoir_layer.get_activation(),
+            # Add more as needed
+        }
+        if args:
+            return {hp: all_hps[hp] for hp in args if hp in all_hps}
+        else:
+            return all_hps
+
 
 class RC(CustomModel):  # the non-auto version
     """

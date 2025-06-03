@@ -207,6 +207,33 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         self.density = compute_density(self.weights)
         self.spec_rad = compute_spec_rad(self.weights)
 
+    def get_spec_rad(self):
+        return self.spec_rad
+
+    def set_spec_rad(self, value):
+        if value <= 0:
+            raise ValueError("Spectral radius must be positive")
+        if self.weights is not None:
+            from pyreco.utils_networks import set_spec_rad
+            self.weights = set_spec_rad(self.weights, value)
+        self.spec_rad = value
+
+    def get_leakage_rate(self):
+        return self.leakage_rate
+
+    def set_leakage_rate(self, value):
+        if not (0 < value <= 1):
+            raise ValueError("Leakage rate must be in (0, 1]")
+        self.leakage_rate = value
+
+    def get_activation(self):
+        return self.activation
+
+    def set_activation(self, value):
+        if value not in ["tanh", "sigmoid"]:
+            raise ValueError("Activation must be 'tanh' or 'sigmoid'")
+        self.activation = value
+
 
 class RandomReservoirLayer(ReservoirLayer):
     def __init__(
