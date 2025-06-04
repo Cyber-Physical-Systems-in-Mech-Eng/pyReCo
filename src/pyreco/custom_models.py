@@ -700,6 +700,11 @@ class CustomModel(ABC):
         Set one or more reservoir hyperparameters.
         Supported kwargs: spec_rad, leakage_rate, activation
         """
+        supported_hps = {"spec_rad", "leakage_rate", "activation"}
+        unsupported = set(kwargs) - supported_hps
+        if unsupported:
+            raise ValueError(f"Unsupported hyperparameter(s): {', '.join(unsupported)}")
+
         if 'spec_rad' in kwargs:
             self.reservoir_layer.set_spec_rad(kwargs['spec_rad'])
         if 'leakage_rate' in kwargs:
