@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from pyreco.custom_models import RC
 from pyreco.layers import InputLayer, ReadoutLayer, RandomReservoirLayer
 
@@ -36,7 +37,6 @@ def test_setter_and_getters():
     model.set_hp(leakage_rate=0.15)
     assert np.isclose(model.get_hp()['leakage_rate'], 0.15), "Leakage rate not set"
 
-
     # 3. Set activation, test numerically for both tanh and sigmoid
     model.set_hp(activation='tanh')
     test_vec = np.array([0.5, -1.0, 0.0])
@@ -45,9 +45,3 @@ def test_setter_and_getters():
     model.set_hp(activation='sigmoid')
     out2 = model.reservoir_layer.activation_fun(test_vec)
     assert np.allclose(out2, 1/(1+np.exp(-test_vec))), "sigmoid activation not correct"
-
-    print("All set/get tests passed numerically!")
-
-# To run the test:
-if __name__ == "__main__":
-    test_setter_and_getters()
