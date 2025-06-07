@@ -71,11 +71,13 @@ class NetworkPruner:
         if not isinstance(stop_at_minimum, bool):
             raise TypeError("stop_at_minimum must be a boolean")
 
-        if min_num_nodes is not None:
-            if not isinstance(min_num_nodes, int):
-                raise TypeError("min_num_nodes must be an integer")
-            if min_num_nodes <= 1:
-                raise ValueError("min_num_nodes must be larger than 1")
+        if not isinstance(min_num_nodes, int):
+            raise TypeError("min_num_nodes must be an integer")
+        if min_num_nodes <= 2:
+            raise ValueError("min_num_nodes must be larger than 2")
+            # Add this block:
+        if stop_at_minimum is True and min_num_nodes is not None:
+            raise ValueError("Conflicting arguments: stop_at_minimum and min_num_nodes")
 
         if patience is not None and not isinstance(patience, int):
             raise TypeError("patience must be an integer")

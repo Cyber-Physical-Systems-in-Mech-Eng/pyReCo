@@ -5,6 +5,7 @@ Helper routines for networks
 from typing import Union
 import networkx as nx
 import numpy as np
+import warnings
 
 
 def gen_ER_graph(
@@ -61,59 +62,46 @@ def gen_ER_graph(
 
 
 def compute_density(network: np.ndarray) -> float:
-    # compute density of a given adjacency matrix by the fraction of non-zero entries over  N^2
-    if type(network) is not np.ndarray:
-        raise (TypeError("Expect a np.ndarray as reservoir network"))
-
-    # check if the matrix is square
+    if not isinstance(network, np.ndarray):
+        raise TypeError("adjacency matrix must be numpy.ndarray")
     if network.shape[0] != network.shape[1]:
-        raise (ValueError("Expect network of square size!"))
-
+        raise ValueError("adjacency matrix must be square")
     N = len(network)
     num_links = np.sum(network.flatten() > 0)
     return num_links / (N**2)
 
 
 def get_num_nodes(network: np.ndarray) -> int:
-
-    # returns the number of nodes in the given network. Assumes the adjacency matrix to be of square size
-    if type(network) is not np.ndarray:
-        raise (TypeError("Expect a np.ndarray as reservoir network"))
-
+    if not isinstance(network, np.ndarray):
+        raise TypeError("adjacency matrix must be numpy.ndarray")
     if network.shape[0] != network.shape[1]:
-        raise (ValueError("Expect network of square size!"))
-
+        raise ValueError("adjacency matrix must be square")
     return network.shape[0]
 
 
 def compute_spec_rad(network: np.ndarray) -> float:
-    # compute the spectral radius of the network (max. eigenvalue)
-    if type(network) is not np.ndarray:
-        raise (TypeError("Expect a np.ndarray as reservoir network"))
-
+    if not isinstance(network, np.ndarray):
+        raise TypeError("adjacency matrix must be numpy.ndarray")
     if network.shape[0] != network.shape[1]:
-        raise (ValueError("Expect network of square size!"))
-
+        raise ValueError("adjacency matrix must be square")
     return np.max(np.abs(np.linalg.eigvals(network)))
 
-
 def set_spec_rad(network: np.ndarray, spec_radius: float) -> np.ndarray:
-    # obtains a network with given spectral radius
-
+    if not isinstance(network, np.ndarray):
+        raise TypeError("adjacency matrix must be numpy.ndarray")
+    if network.shape[0] != network.shape[1]:
+        raise ValueError("adjacency matrix must be square")
+    if np.count_nonzero(network) == 0:
+        raise ValueError("adjacency matrix must have at least one link")
     if spec_radius <= 0:
-        raise (ValueError("spectral radius must be larger than zero"))
-    elif spec_radius > 1.0:
-        raise (Warning("a spectral radius larger than 1 is unusual!"))
-
-    # compute current spectral radius
+        raise ValueError("spectral radius must be larger than zero")
+    if spec_radius > 1.0:
+        warnings.warn("a spectral radius larger than 1 is unusual!", Warning)
     current_spectral_radius = compute_spec_rad(network)
-
     if current_spectral_radius < 10 ** (-9):
         print("spectral radius smaller than 10^-9!")
         current_spectral_radius = 10 ** (-6)
-
     scaling_factor = spec_radius / current_spectral_radius
-
     return network * scaling_factor
 
 
