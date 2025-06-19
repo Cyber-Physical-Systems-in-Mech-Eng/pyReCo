@@ -6,12 +6,12 @@ from pyreco.node_selector import NodeSelector
 
 def test_node_selector_initialization():
     # Test valid initialization with total_nodes
-    selector = NodeSelector(strategy="uniform_random_sampling_wo_repl", total_nodes=10)
+    selector = NodeSelector(strategy="random_uniform_wo_repl", total_nodes=10)
     assert selector.num_total_nodes == 10
 
     # Test valid initialization with graph
     G = nx.erdos_renyi_graph(10, 0.5)
-    selector = NodeSelector(strategy="uniform_random_sampling_wo_repl", graph=G)
+    selector = NodeSelector(strategy="random_uniform_wo_repl", graph=G)
     assert selector.num_total_nodes == G.number_of_nodes()
 
     # Test invalid initialization with both total_nodes and graph
