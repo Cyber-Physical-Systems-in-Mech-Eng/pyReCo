@@ -3,7 +3,7 @@ import random
 from abc import ABC, abstractmethod
 
 from sklearn.linear_model import Ridge
-
+from typing import Optional, Union
 
 class Optimizer(ABC):
 
@@ -22,9 +22,9 @@ class RidgeSK(Optimizer):
     # solves a linear regression model using sklearn's Ridge method,
     # see https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html
 
-    def __init__(self, name: str = "", alpha=1.0):
+    def __init__(self, name: str = "", optimizer_properties: dict = {}):
         super().__init__(name)
-        self.alpha = 1.0
+        self.alpha = optimizer_properties.get("lambda", 1.0)  # regularization strength
 
     def solve(self, A: np.ndarray, b: np.ndarray) -> np.ndarray:
         clf = Ridge(self.alpha, fit_intercept=False).fit(A, b)
@@ -32,7 +32,7 @@ class RidgeSK(Optimizer):
         return W_out
 
 
-def assign_optimizer(optimizer: str or Optimizer) -> Optimizer:
+def assign_optimizer(optimizer: Union[str, Optimizer], optimizer_properties: Optional[dict] = None) -> Optimizer:
     """
     Maps names of optimizers to the correct implementation.
 
@@ -60,7 +60,7 @@ def assign_optimizer(optimizer: str or Optimizer) -> Optimizer:
 
     # maps names of optimizers to the correct implementation.
     if optimizer == "ridge" or optimizer == "Ridge":
-        return RidgeSK()
+        return RidgeSK(optimizer_properties = optimizer_properties)
 
     if isinstance(optimizer, Optimizer):
         return optimizer
