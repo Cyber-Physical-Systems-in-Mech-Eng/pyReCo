@@ -107,6 +107,7 @@ class CustomModel(ABC):
     def compile(
         self,
         optimizer: str = "ridge",
+        optimizer_properties: Union[dict, None] = None,
         metrics: Union[list, str] = None,
         discard_transients: int = 0,
     ):
@@ -137,7 +138,7 @@ class CustomModel(ABC):
         self._set_metrics(metrics)
 
         # set the optimizer that will find the readout weights
-        self._set_optimizer(optimizer)
+        self._set_optimizer(optimizer=optimizer, optimizer_properties=optimizer_properties)
 
         # set number of transients to discard (warmup phase)
         self.discard_transients = int(discard_transients)
@@ -506,7 +507,7 @@ class CustomModel(ABC):
         # set the readout nodes in the readout layer
         self.readout_layer.readout_nodes = nodes  # sorted(nodes)
 
-    def _set_optimizer(self, optimizer: Union[str, Optimizer]):
+    def _set_optimizer(self, optimizer: Union[str, Optimizer], optimizer_properties: Union[dict, None] = None):
         """
         Sets the optimizer that will find the readout weights.
 
@@ -514,7 +515,7 @@ class CustomModel(ABC):
         optimizer (Union[str, Optimizer]): Name of the optimizer or an Optimizer
         instance.
         """
-        self.optimizer = assign_optimizer(optimizer)
+        self.optimizer = assign_optimizer(optimizer = optimizer, optimizer_properties = optimizer_properties)
 
     def _set_metrics(self, metrics: Union[list, str]):
         """
