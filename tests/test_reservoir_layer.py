@@ -55,9 +55,23 @@ def test_set_weights():
     assert np.isclose(new_density, model.reservoir_layer.density)
     assert np.isclose(new_density, 1.0)  # since we set all weights to 1
     assert np.isclose(new_spec_rad, model.reservoir_layer.spec_rad)
-    
-    
-if __name__ == "__main__":
-    # pytest.main()
 
-    test_set_weights()
+    # check for inconsistent shape
+    with pytest.raises(ValueError):
+        model.reservoir_layer.set_weights(np.ones((50, 50)))  # wrong shape, should be (100, 100)
+
+    # check for wrong shape (i.e. not square)
+    with pytest.raises(ValueError):
+        model.reservoir_layer.set_weights(np.ones((100, 50)))  # wrong shape, should be (100, 100)
+
+    # check for different size (i.e. deviation from what was defined initially)
+    with pytest.raises(ValueError):
+        model.reservoir_layer.set_weights(np.ones((200, 200)))  # wrong shape, should be (100, 100)
+
+    # now check for types
+    with pytest.raises(TypeError):
+        model.reservoir_layer.set_weights([1.0, 2.0, 3.0]) 
+
+
+if __name__ == "__main__":
+    pytest.main()

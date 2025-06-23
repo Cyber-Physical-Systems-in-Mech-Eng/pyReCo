@@ -166,7 +166,7 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
             raise ValueError("Network must be square (same number of rows and columns).")
         
         # for now, we only accept matrices that have the same shape as the existing reservoir
-        if self._is_compiled and network.shape != self.weights.shape:
+        if self._is_compiled and (network.shape != self.weights.shape):
             raise ValueError(f"Network must have the same shape as the existing reservoir ({self.weights.shape}).")
 
         # overwrite the existing adjacency matrix
