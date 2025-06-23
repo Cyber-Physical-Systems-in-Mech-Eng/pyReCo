@@ -158,9 +158,9 @@ class CustomModel(ABC):
         self._set_readout_nodes()
 
         # flag all layers as compiled (required for later manipulation from outside)
-        self.input_layer.compiled = True
-        self.reservoir_layer.compiled = True
-        self.readout_layer.compiled = True
+        self.input_layer._is_compiled = True
+        self.reservoir_layer._is_compiled = True
+        self.readout_layer._is_compiled = True
 
     def fit(self, x: np.ndarray,
             y: np.ndarray,

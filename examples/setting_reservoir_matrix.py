@@ -91,7 +91,7 @@ Visual comparison of the predictions with the old and new reservoir weights.
 y_test = y_test[:, 20:, :]
 X_test = X_test[:, 20:, :]
 
-plt.figure()
+plt.figure(figsize=(12, 6))
 plt.subplot(1, 2, 1)
 plt.scatter(y_test.flatten(), y_pred.flatten(), label="old weights", color='red')
 plt.scatter(y_test.flatten(), y_pred_new.flatten(), label="new weights", color="green")
@@ -116,7 +116,7 @@ plt.title("sequence to scalar prediction")
 plt.show()
 
 # figure comparing the network weights
-plt.figure()
+plt.figure(figsize=(12, 6))
 plt.subplot(1, 2, 1)
 plt.imshow(weights_old, cmap="viridis", aspect="auto")
 plt.gca().set_aspect("equal", adjustable="box")
