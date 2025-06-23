@@ -6,9 +6,7 @@ from matplotlib import pyplot as plt
 from pyreco.custom_models import RC as RC
 from pyreco.layers import InputLayer, ReadoutLayer
 from pyreco.layers import RandomReservoirLayer
-from pyreco.plotting import r2_scatter
 from pyreco.utils_data import sequence_to_sequence
-from pyreco.optimizers import RidgeSK
 
 """
 Classic RC built on random networks. 
@@ -39,12 +37,7 @@ model.add(
 model.add(ReadoutLayer(output_shape, fraction_out=0.99))
 
 # Compile the model
-optim = RidgeSK(alpha=0.5)
-model.compile(
-    optimizer=optim,
-    metrics=["mean_squared_error"],
-    discard_transients=20,
-)
+model.compile(discard_transients=10)
 
 # Train the model
 model.fit(X_train, y_train)
@@ -69,6 +62,9 @@ density_old = model.reservoir_layer.density
 # set the new reservoir weights
 weights_new = np.random.randn(200, 200) * 0.1
 model.reservoir_layer.set_weights(weights_new)
+
+# we can now also set the spectral radius
+model.reservoir_layer.set_spec_rad(0.456789)
 spec_rad_new = model.reservoir_layer.spec_rad
 density_new = model.reservoir_layer.density
 
@@ -87,9 +83,12 @@ print(f"shape of predictions on test set: {y_pred.shape}")
 Visual comparison of the predictions with the old and new reservoir weights.
 """
 
-# as we have discarded 20 transients, we can only compare the predictions after that
-y_test = y_test[:, 20:, :]
-X_test = X_test[:, 20:, :]
+print(f"old reservoir density: {density_old:.3f}, spectral radius: {spec_rad_old:.5f}")
+print(f"new reservoir density: {density_new:.3f}, spectral radius: {spec_rad_new:.5f}")
+
+# as we have discarded 10 transients, we can only compare the predictions after that
+y_test = y_test[:, 10:, :]
+X_test = X_test[:, 10:, :]
 
 plt.figure(figsize=(12, 6))
 plt.subplot(1, 2, 1)
