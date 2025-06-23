@@ -20,6 +20,7 @@ from pyreco.utils_networks import (
     get_num_nodes,
     compute_spec_rad,
     remove_nodes_from_graph,
+    set_spec_rad
 )
 
 
@@ -136,7 +137,7 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         self.leakage_rate = leakage_rate
         self.name = "reservoir_layer"
         self.fraction_input = fraction_input
-        self.weights = None
+        self.weights = None  # the adjacency matrix / reservoir network
         self.input_receiving_nodes = None
 
         # initial reservoir state (will be set later)
@@ -172,10 +173,8 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         # overwrite the existing adjacency matrix
         self.weights = network
 
-        # update related reservoir properties
-        self.nodes = get_num_nodes(self.weights)
-        self.density = compute_density(self.weights)
-        self.spec_rad = compute_spec_rad(self.weights)
+        # update related reservoir properties (density, spectral radius, etc.)
+        self.update_layer_properties()
 
     def set_initial_state(self, r_init: np.ndarray):
         # assigns an initial state to each of the reservoir nodes
@@ -219,16 +218,41 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         # # 4. update the info about input-receiving nodes
         # self.input_receiving_nodes = np.delete(self.input_receiving_nodes, nodes)
 
+    def update_layer_properties(self):
+        """
+        Updates the reservoir properties including the number of nodes, density, and spectral radius.
+        This method should be called after any changes to the reservoir network.
+        """
+        self.nodes = get_num_nodes(self.weights)
+        self.density = compute_density(self.weights)
+        self.spec_rad = compute_spec_rad(self.weights)
+
     def get_spec_rad(self):
         return self.spec_rad
 
     def set_spec_rad(self, value):
+        """ Sets the spectral radius of the reservoir network.
+        Parameters:
+        - value (float): The desired spectral radius.
+        Raises:
+        - ValueError: If the value is not positive or if the weights are not set."""
+
+        # check that the value is positive and that the weights are set
         if value <= 0:
             raise ValueError("Spectral radius must be positive")
         if self.weights is not None:
-            from pyreco.utils_networks import set_spec_rad
             self.weights = set_spec_rad(self.weights, value)
-        self.spec_rad = value
+        else:
+            raise ValueError("Weights must be set before changing spectral radius.")
+        
+        # check that the weights re-scaling was successful
+        _new_spec_rad = compute_spec_rad(self.weights)
+        if np.isclose(value, _new_spec_rad, atol=1e-5):
+            self.spec_rad = _new_spec_rad
+        else:
+            raise ValueError(
+                f"Failed to set spectral radius within tolerance 1e-5. Expected {value}, got {_new_spec_rad}."
+            )
 
     def get_leakage_rate(self):
         return self.leakage_rate
@@ -284,11 +308,32 @@ class RandomReservoirLayer(ReservoirLayer):
             seed=seed,
         )
 
-    def update_layer_properties(self):
-        # Updates the reservoir properties including the number of nodes, density, and spectral radius.
-        self.nodes = get_num_nodes(self.weights)
-        self.density = compute_density(self.weights)
-        self.spec_rad = compute_spec_rad(self.weights)
+        # update the spectral radius and the density to the actual values
+        self.update_layer_properties()
+
+        # check that the graph actually satisfies the spectral radius and 
+        # density requested by the user
+        _spec_rad = compute_spec_rad(self.weights)
+        _density = compute_density(self.weights)
+        if np.isclose(self.spec_rad, _spec_rad, atol=1e-5):
+            self.spec_rad = _spec_rad
+        else:
+            raise ValueError(
+                f"Failed to set spectral radius within tolerance 1e-5. Expected {self.spec_rad}, got {_spec_rad}."
+            )
+        
+        if np.isclose(self.density, _density, atol=1e-5):
+            self.density = _density
+        else:
+            raise ValueError(
+                f"Failed to set density within tolerance 1e-5. Expected {self.density}, got {_density}."
+            )
+
+    #def update_layer_properties(self):
+        #Updates the reservoir properties including the number of nodes, density, and spectral radius.
+        #self.nodes = get_num_nodes(self.weights)
+        #self.density = compute_density(self.weights)
+        # self.spec_rad = compute_spec_rad(self.weights)
 
 
 # class ReccurrenceLayer(ReservoirLayer):
