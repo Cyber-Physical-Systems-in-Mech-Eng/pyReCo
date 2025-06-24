@@ -21,7 +21,7 @@ class NetworkPruner:
         self,
         target_score: float = None,
         stop_at_minimum: bool = True,
-        min_num_nodes: int = 2,
+        min_num_nodes: int = 3,
         patience: int = 0,
         candidate_fraction: float = 0.1,
         remove_isolated_nodes: bool = False,
@@ -71,12 +71,10 @@ class NetworkPruner:
         if not isinstance(stop_at_minimum, bool):
             raise TypeError("stop_at_minimum must be a boolean")
 
-        if min_num_nodes is not None:
-            if not isinstance(min_num_nodes, int):
-                raise TypeError("min_num_nodes must be an integer")
-            if min_num_nodes <= 1:
-                raise ValueError("min_num_nodes must be larger than 1")
-
+        if not isinstance(min_num_nodes, int):
+            raise TypeError("min_num_nodes must be an integer")
+        if min_num_nodes <= 2:
+            raise ValueError("min_num_nodes must be larger than 2")
         if patience is not None and not isinstance(patience, int):
             raise TypeError("patience must be an integer")
 

@@ -157,9 +157,16 @@ class CustomModel(ABC):
         # Select readout nodes according to the fraction specified by the user in the readout layer. By default, randomly sample nodes. User can also provide a list of nodes to use for readout.
         self._set_readout_nodes()
 
-    def fit(
-        self, x: np.ndarray, y: np.ndarray, n_init: int = 1, store_states: bool = False
-    ):
+        # flag all layers as compiled (required for later manipulation from outside)
+        self.input_layer._is_compiled = True
+        self.reservoir_layer._is_compiled = True
+        self.readout_layer._is_compiled = True
+
+    def fit(self, x: np.ndarray,
+            y: np.ndarray,
+            n_init: int = 1,
+            store_states: bool = False
+            ) -> dict:
         """
         RC training with batch processing.
         """
@@ -694,6 +701,40 @@ class CustomModel(ABC):
         """
         # print the model to some figure file
         raise NotImplementedError("Method not implemented yet.")
+
+    def set_hp(self, **kwargs):
+        """
+        Set one or more reservoir hyperparameters.
+        Supported kwargs: spec_rad, leakage_rate, activation
+        """
+        supported_hps = {"spec_rad", "leakage_rate", "activation"}
+        unsupported = set(kwargs) - supported_hps
+        if unsupported:
+            raise ValueError(f"Unsupported hyperparameter(s): {', '.join(unsupported)}")
+
+        if 'spec_rad' in kwargs:
+            self.reservoir_layer.set_spec_rad(kwargs['spec_rad'])
+        if 'leakage_rate' in kwargs:
+            self.reservoir_layer.set_leakage_rate(kwargs['leakage_rate'])
+        if 'activation' in kwargs:
+            self.reservoir_layer.set_activation(kwargs['activation'])
+        # Add more as needed
+
+    def get_hp(self, *args):
+        """
+        Get one or more reservoir hyperparameters. If no args, returns all.
+        Usage: get_hp('spec_rad', 'activation') or get_hp()
+        """
+        all_hps = {
+            'spec_rad': self.reservoir_layer.get_spec_rad(),
+            'leakage_rate': self.reservoir_layer.get_leakage_rate(),
+            'activation': self.reservoir_layer.get_activation(),
+            # Add more as needed
+        }
+        if args:
+            return {hp: all_hps[hp] for hp in args if hp in all_hps}
+        else:
+            return all_hps
 
 
 class RC(CustomModel):  # the non-auto version
