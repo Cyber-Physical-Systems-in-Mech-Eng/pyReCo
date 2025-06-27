@@ -20,7 +20,8 @@ from pyreco.utils_networks import (
     get_num_nodes,
     compute_spec_rad,
     remove_nodes_from_graph,
-    set_spec_rad
+    set_spec_rad,
+    scale_in_weights
 )
 
 
@@ -44,14 +45,14 @@ class InputLayer(Layer):
     # the state dimension of the input (irrespective if a time series or a vector was put in)
     # the actual read-in layer matrix will be created by mode.compile()!
 
-    def __init__(self, input_shape):
+    def __init__(self, input_shape, in_scal = 1):
         # input shape is (n_timesteps, n_states)
         super().__init__()
         self.shape = input_shape
         self.n_time = input_shape[0]
         self.n_states = input_shape[1]
         self.name = "input_layer"
-
+        self.in_scal = in_scal
         # some properties of the readin layer
         self.fraction_nonzero_entries: (
             float  # fraction of nonzero entries in the input layer
@@ -83,6 +84,17 @@ class InputLayer(Layer):
         self.fraction_nonzero_entries = (
             np.count_nonzero(self.weights) / self.weights.size
         )
+
+    def set_in_scal(self, in_scal):
+
+        if self.weights is not None:
+            self.weights = scale_in_weights(self.weights, new_scal=in_scal)
+
+        self.in_scal = in_scal
+        self.update_layer_properties()
+
+    def get_in_scal(self):
+        return self.in_scal
 
 
 class ReadoutLayer(Layer):
