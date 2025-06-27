@@ -15,7 +15,7 @@ from pyreco.optimizers import Optimizer, assign_optimizer
 from pyreco.metrics import assign_metric
 from pyreco.node_selector import NodeSelector
 from pyreco.initializer import NetworkInitializer
-from pyreco.utils_networks import rename_nodes_after_removal
+from pyreco.utils_networks import rename_nodes_after_removal, scale_in_weights
 
 
 # def sample_random_nodes(total_nodes: int, fraction: float):
@@ -586,8 +586,9 @@ class CustomModel(ABC):
         node_mask = np.ones_like(full_input_weights)
         node_mask[input_receiving_nodes] = 0
 
-        # set the input layer weight matrix
-        self._set_readin_weights(weights=(full_input_weights * node_mask))
+        masked_weights = full_input_weights * node_mask
+        scaled_weights = scale_in_weights(masked_weights, self.input_layer.in_scal)
+        self._set_readin_weights(weights=scaled_weights)
 
     def compute_reservoir_state(self, x: np.ndarray) -> np.ndarray:
         """
@@ -700,7 +701,7 @@ class CustomModel(ABC):
         Set one or more reservoir hyperparameters.
         Supported kwargs: spec_rad, leakage_rate, activation
         """
-        supported_hps = {"spec_rad", "leakage_rate", "activation"}
+        supported_hps = {"spec_rad", "leakage_rate", "activation", "in_scal", "alpha"}
         unsupported = set(kwargs) - supported_hps
         if unsupported:
             raise ValueError(f"Unsupported hyperparameter(s): {', '.join(unsupported)}")
@@ -711,6 +712,9 @@ class CustomModel(ABC):
             self.reservoir_layer.set_leakage_rate(kwargs['leakage_rate'])
         if 'activation' in kwargs:
             self.reservoir_layer.set_activation(kwargs['activation'])
+        if "in_scal" in kwargs:
+            self.input_layer.set_in_scal(kwargs['in_scal'])
+
         # Add more as needed
 
     def get_hp(self, *args):
@@ -722,7 +726,7 @@ class CustomModel(ABC):
             'spec_rad': self.reservoir_layer.get_spec_rad(),
             'leakage_rate': self.reservoir_layer.get_leakage_rate(),
             'activation': self.reservoir_layer.get_activation(),
-            # Add more as needed
+            "in_scal": self.input_layer.get_in_scal(),
         }
         if args:
             return {hp: all_hps[hp] for hp in args if hp in all_hps}
