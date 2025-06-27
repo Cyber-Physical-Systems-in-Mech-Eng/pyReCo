@@ -157,9 +157,16 @@ class CustomModel(ABC):
         # Select readout nodes according to the fraction specified by the user in the readout layer. By default, randomly sample nodes. User can also provide a list of nodes to use for readout.
         self._set_readout_nodes()
 
-    def fit(
-        self, x: np.ndarray, y: np.ndarray, n_init: int = 1, store_states: bool = False
-    ):
+        # flag all layers as compiled (required for later manipulation from outside)
+        self.input_layer._is_compiled = True
+        self.reservoir_layer._is_compiled = True
+        self.readout_layer._is_compiled = True
+
+    def fit(self, x: np.ndarray,
+            y: np.ndarray,
+            n_init: int = 1,
+            store_states: bool = False
+            ) -> dict:
         """
         RC training with batch processing.
         """
