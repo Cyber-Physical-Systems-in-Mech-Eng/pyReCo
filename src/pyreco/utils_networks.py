@@ -116,6 +116,25 @@ def is_zero_col_and_row(x: np.ndarray, idx: int) -> bool:
     else:
         return False
 
+def scale_in_weights(weights: np.ndarray, new_scal: float) -> np.ndarray:
+    if not isinstance(weights, np.ndarray):
+        raise TypeError("Input weights must be a numpy array.")
+    if weights.ndim != 2:
+        raise ValueError("Input weights must be a 2D matrix.")
+
+    if not isinstance(new_scal, (float, int)):
+        raise TypeError("new_scal must be a float or int.")
+    if new_scal < 0:
+        raise ValueError("new_scal must be non-negative.")
+    if np.count_nonzero(weights) == 0:
+        raise ValueError("Input weights must have at least one non-zero entry.")
+
+    current_max = np.max(np.abs(weights))
+    if current_max < 1e-12:
+        raise ValueError("Current weights are too close to zero for reliable scaling.")
+
+    return weights * (new_scal / current_max)
+
 
 def remove_nodes_from_graph(graph: np.ndarray, nodes: list):
     # removes a node from the graph given as np adjacency matrix

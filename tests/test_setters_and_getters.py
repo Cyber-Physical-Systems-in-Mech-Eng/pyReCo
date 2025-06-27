@@ -45,3 +45,14 @@ def test_setter_and_getters():
     model.set_hp(activation='sigmoid')
     out2 = model.reservoir_layer.activation_fun(test_vec)
     assert np.allclose(out2, 1/(1+np.exp(-test_vec))), "sigmoid activation not correct"
+
+    new_in_scal = 0.42
+    model.set_hp(in_scal=new_in_scal)
+
+    assert np.isclose(model.get_hp()['in_scal'], new_in_scal, atol=1e-6), "Input scaling value not set"
+
+    # check that input weights were scaled accordingly
+    max_abs_weight = np.max(np.abs(model.input_layer.weights))
+    assert np.isclose(max_abs_weight, new_in_scal, atol=1e-2), (
+        f"Max abs W_in {max_abs_weight} != expected in_scal {new_in_scal}"
+    )
