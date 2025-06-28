@@ -273,6 +273,45 @@ class CustomModel(ABC):
 
         return history
 
+    def autoregress(self, x_context_np: np.ndarray, pred_len: int = 10) -> np.ndarray:
+        """
+        Perform autoregressive prediction.
+
+        Args:
+        x (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
+        predict_length (int): Number of steps to predict into the future.
+
+        Returns:
+        np.ndarray: Predicted future states of shape [n_batch, predict_length, n_states_out]
+        """
+        B, _, D = x_context_np.shape
+        reservoir_states: np.ndarray = self.compute_reservoir_state(x_context_np)
+        last_state = reservoir_states[:, -1:, :]
+        output_buffer = np.zeros((B, pred_len, D), dtype=x_context_np.dtype)
+        for t in range(pred_len):
+            last_state_tu_rc = last_state[:, :, self.readout_layer.readout_nodes]
+            predict_at_t = np.einsum(
+                "bik,jk->bij", last_state_tu_rc, self.readout_layer.weights.T
+            )
+            if predict_at_t.shape[1] != 1:
+                raise ValueError(
+                    f"Expected predict_at_t to have shape [B, 1, D], but got {predict_at_t.shape}"
+                )
+            output_buffer[:, t : t + 1, :] = predict_at_t
+            # Update reservoir state with the new output
+            input_item = np.einsum(
+                "ij,btj->bti", self.input_layer.weights, predict_at_t
+            )
+            echo_item = np.einsum(
+                "ij,bpj->bpi", self.reservoir_layer.weights, last_state
+            )
+            last_state = (
+                1 - self.reservoir_layer.leakage_rate
+            ) * last_state + self.reservoir_layer.leakage_rate * self.reservoir_layer.activation_fun(
+                input_item + echo_item
+            )
+        return output_buffer
+
     def predict(self, x: np.ndarray) -> np.ndarray:
         """
         Make predictions for given input.
