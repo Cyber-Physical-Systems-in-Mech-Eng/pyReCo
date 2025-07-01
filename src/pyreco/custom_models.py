@@ -340,6 +340,12 @@ class CustomModel(ABC):
         # Compute reservoir states. Returns reservoir states of shape
         # [n_batch, n_timesteps+1, n_nodes]
         # (n_timesteps+1 because we also store the initial state)
+        # Normalize input (if enabled)
+        if self.normalize_inputs:
+            if self.input_mean is None or self.input_std is None:
+                raise RuntimeError("Input normalization parameters not set. Fit the model first.")
+            x = (x - self.input_mean) / self.input_std
+
         reservoir_states = self.compute_reservoir_state(x)
 
         # discard the given transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
