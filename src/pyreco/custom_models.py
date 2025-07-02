@@ -76,6 +76,20 @@ class CustomModel(ABC):
         self.num_states_in: int
         self.num_states_out: int
 
+        # Normalization flags
+        self.normalize_inputs: bool = True
+        self.normalize_outputs: bool = True
+
+        # Scaling parameters (apply after normalization)
+        self.input_scaling: float or np.ndarray = 1.0  # scalar or (d,) vector
+        self.output_scaling: float = 1.0  # usually scalar
+
+        # Stored normalization parameters (learned during training)
+        self.input_mean: np.ndarray = None  # shape: (d,)
+        self.input_std: np.ndarray = None  # shape: (d,)
+        self.output_mean: np.ndarray = None  # shape: (k,)
+        self.output_std: np.ndarray = None  # shape: (k,)
+
     def add(self, layer: Layer):
         """
         Add a layer to the model.
@@ -199,6 +213,29 @@ class CustomModel(ABC):
         n_time_out, n_states_out = y.shape[-2], y.shape[-1]
         n_nodes = self.reservoir_layer.nodes
 
+        # Input normalization (z-score per channel)
+
+        if self.normalize_inputs:
+            self.input_mean = x.mean(axis=(0, 1))  # mean over batches and time
+            self.input_std = x.std(axis=(0, 1))
+            self.input_std[self.input_std == 0] = 1.0  # avoid divide-by-zero
+            x = (x - self.input_mean) / self.input_std
+
+
+        # Output normalization (z-score per channel)
+
+        if self.normalize_outputs:
+            self.output_mean = y.mean(axis=(0, 1))  # mean over batches and time
+            self.output_std = y.std(axis=(0, 1))
+            self.output_std[self.output_std == 0] = 1.0
+            y = (y - self.output_mean) / self.output_std
+
+        # Apply input scaling
+        x = x * self.input_scaling  # scalar or (features,)
+
+        # Apply output scaling (optional, rare)
+        y = y * self.output_scaling
+
         # discard transients (warmup phase). This is done by removing the first n_transients timesteps from the reservoir states.
         # Hence, the targets can have a maximum of (t_in - t_discard) steps, before we have to cut also from the targets
         # If the number of t_out steps is even smaller, we will discard more steps from the reservoir states
@@ -303,6 +340,12 @@ class CustomModel(ABC):
         # Compute reservoir states. Returns reservoir states of shape
         # [n_batch, n_timesteps+1, n_nodes]
         # (n_timesteps+1 because we also store the initial state)
+        # Normalize input (if enabled)
+        if self.normalize_inputs:
+            if self.input_mean is None or self.input_std is None:
+                raise RuntimeError("Input normalization parameters not set. Fit the model first.")
+            x = (x - self.input_mean) / self.input_std
+
         reservoir_states = self.compute_reservoir_state(x)
 
         # discard the given transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
@@ -316,6 +359,16 @@ class CustomModel(ABC):
         y_pred = np.einsum(
             "bik,jk->bij", reservoir_states, self.readout_layer.weights.T
         )
+        # Undo output scaling (if any)
+        y_pred = y_pred / self.output_scaling
+
+        # -------------------------------
+        # Denormalize output
+        # -------------------------------
+        if self.normalize_outputs:
+            if self.output_mean is None or self.output_std is None:
+                raise RuntimeError("Outpaut normalization parameters not set. Fit the model first.")
+            y_pred = y_pred * self.output_std + self.output_mean
 
         return y_pred
 
@@ -702,12 +755,47 @@ class CustomModel(ABC):
         # print the model to some figure file
         raise NotImplementedError("Method not implemented yet.")
 
+    def set_normalization(
+            self,
+            normalize_inputs: bool = None,
+            normalize_outputs: bool = None,
+    ):
+        """
+        Set normalization flags independently.
+
+        Args:
+            normalize_inputs (bool or None): Enable/disable input normalization. If None, leave unchanged.
+            normalize_outputs (bool or None): Enable/disable output normalization. If None, leave unchanged.
+        """
+        if normalize_inputs is not None:
+            self.normalize_inputs = normalize_inputs
+        if normalize_outputs is not None:
+            self.normalize_outputs = normalize_outputs
+
+    def set_input_scaling(self, input_scaling: float or np.ndarray):
+        """
+        Set input scaling factor.
+
+        Args:
+            input_scaling (float or np.ndarray): Scalar or per-channel vector.
+        """
+        self.input_scaling = input_scaling
+
+    def set_output_scaling(self, output_scaling: float):
+        """
+        Set output scaling factor.
+
+        Args:
+            output_scaling (float): Scalar value for output scaling.
+        """
+        self.output_scaling = output_scaling
+
     def set_hp(self, **kwargs):
         """
         Set one or more reservoir hyperparameters.
         Supported kwargs: spec_rad, leakage_rate, activation
         """
-        supported_hps = {"spec_rad", "leakage_rate", "activation"}
+        supported_hps = {"spec_rad", "leakage_rate", "activation", "input_scaling", "output_scaling"}
         unsupported = set(kwargs) - supported_hps
         if unsupported:
             raise ValueError(f"Unsupported hyperparameter(s): {', '.join(unsupported)}")
@@ -718,6 +806,10 @@ class CustomModel(ABC):
             self.reservoir_layer.set_leakage_rate(kwargs['leakage_rate'])
         if 'activation' in kwargs:
             self.reservoir_layer.set_activation(kwargs['activation'])
+        if "input_scaling" in kwargs:
+            self.set_input_scaling(kwargs['input_scaling'])
+        if "output_scaling" in kwargs:
+            self.set_output_scaling(kwargs['output_scaling'])
         # Add more as needed
 
     def get_hp(self, *args):
@@ -729,6 +821,8 @@ class CustomModel(ABC):
             'spec_rad': self.reservoir_layer.get_spec_rad(),
             'leakage_rate': self.reservoir_layer.get_leakage_rate(),
             'activation': self.reservoir_layer.get_activation(),
+            "input_scaling": self.input_scaling,
+            "output_scaling": self.output_scaling,
             # Add more as needed
         }
         if args:
