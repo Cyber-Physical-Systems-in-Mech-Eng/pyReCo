@@ -35,7 +35,7 @@ def test_input_normalization_and_model_performance():
 
         mean = x_norm.mean(axis=(0, 1))
         std = x_norm.std(axis=(0, 1))
-        assert np.allclose(mean, 0, atol=0.1), f"Mean not ~0: {mean}"
+        assert np.allclose(mean, 0, atol=0.01), f"Mean not ~0: {mean}"
         assert np.allclose(std, 1, atol=0.1), f"Std not ~1: {std}"
         assert np.allclose(x_train, x_denorm, atol=1e-6), "Denormalized input doesn't match original"
         print("✅ Input normalization and de-normalization successful")
