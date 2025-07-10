@@ -795,7 +795,7 @@ class CustomModel(ABC):
         Set one or more reservoir hyperparameters.
         Supported kwargs: spec_rad, leakage_rate, activation
         """
-        supported_hps = {"spec_rad", "leakage_rate", "activation", "input_scaling", "output_scaling"}
+        supported_hps = {"spec_rad", "leakage_rate", "activation", "input_scaling", "output_scaling", "alpha"}
         unsupported = set(kwargs) - supported_hps
         if unsupported:
             raise ValueError(f"Unsupported hyperparameter(s): {', '.join(unsupported)}")
@@ -810,6 +810,8 @@ class CustomModel(ABC):
             self.set_input_scaling(kwargs['input_scaling'])
         if "output_scaling" in kwargs:
             self.set_output_scaling(kwargs['output_scaling'])
+        if "alpha" in kwargs:
+            self.optimizer.set_alpha(kwargs['alpha'])
         # Add more as needed
 
     def get_hp(self, *args):
@@ -823,6 +825,7 @@ class CustomModel(ABC):
             'activation': self.reservoir_layer.get_activation(),
             "input_scaling": self.input_scaling,
             "output_scaling": self.output_scaling,
+            "alpha": self.optimizer.get_alpha()
             # Add more as needed
         }
         if args:
