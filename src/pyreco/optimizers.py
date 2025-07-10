@@ -31,6 +31,14 @@ class RidgeSK(Optimizer):
         W_out = clf.coef_.T
         return W_out
 
+    def set_alpha(self, value: float):
+        if value < 0:
+            raise ValueError("Alpha must be non-negative.")
+        self.alpha = value
+
+    def get_alpha(self) -> float:
+        return self.alpha
+
 
 def assign_optimizer(optimizer: str or Optimizer) -> Optimizer:
     """
