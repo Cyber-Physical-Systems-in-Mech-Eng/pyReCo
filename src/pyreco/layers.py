@@ -42,7 +42,7 @@ class Layer(ABC):
 class InputLayer(Layer):
     # Shape of the read-in weights is: N x n_states, where N is the number of nodes in the reservoir, and n_states is
     # the state dimension of the input (irrespective if a time series or a vector was put in)
-    # the actual read-in layer matrix will be created by mode.compile()!
+    # the actual read-in layer matrix will be created by model.compile()!
 
     def __init__(self, input_shape):
         # input shape is (n_timesteps, n_states)
@@ -116,6 +116,52 @@ class ReadoutLayer(Layer):
         self.fraction_out = len(self.readout_nodes) / self.weights.shape[0]
         pass
 
+
+class FeedbackLayer(Layer):
+    # is same as InputLayer, but for the feedback connections
+    # Shape of the read-in weights is: N x n_states, where N is the number of nodes in the reservoir, and n_states is
+    # the state dimension of the input (irrespective if a time series or a vector was put in)
+    # the actual read-in layer matrix will be created by mode.compile()!
+
+    def __init__(self, feedback_shape):
+        # input shape is (n_timesteps, n_states)
+        super().__init__()
+        self.shape = feedback_shape
+        self.n_time = feedback_shape[0]
+        self.n_states = feedback_shape[1]
+        self.name = "feedback_layer"
+
+        # some properties of the feedback layer
+        self.fraction_nonzero_entries: (
+            float  # fraction of nonzero entries in the feedback layer
+        )
+
+    def remove_nodes(self, nodes: list):
+        # removes a node from the input layer (i.e. if a reservoir node needs to be dropped)
+
+        if not isinstance(nodes, list):
+            raise TypeError("Nodes must be provided as a list of indices.")
+        if np.max(nodes) > self.weights.shape[0]:
+            raise ValueError(
+                "Node index exceeds the number of nodes in the input layer."
+            )
+        if np.min(nodes) < 0:
+            raise ValueError("Node index must be positive.")
+        if not all(isinstance(x, int) for x in nodes):
+            raise ValueError("All entries in the node list must be integers.")
+
+        # remove nodes from [n_reservoir_nodes, n_states] matrix
+        self.weights = np.delete(self.weights, nodes, axis=0)
+
+        # update the properties of the input layer
+        self.update_layer_properties()
+
+    def update_layer_properties(self):
+
+        # updates the properties of the input layer
+        self.fraction_nonzero_entries = (
+            np.count_nonzero(self.weights) / self.weights.size
+        )
 
 class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
 
