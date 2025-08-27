@@ -916,7 +916,6 @@ class CustomModel(ABC):
             ### store the predictions for the current time step
             y_pred.append(y_pred_t[:,0,:])
 
-
             #############################################
 
             # compute dot(A, r(t)) for all batches
@@ -944,7 +943,7 @@ class CustomModel(ABC):
         # states[:, 1:].reshape(-1, num_nodes)
         y_pred = np.array(y_pred)[1:,:, :]
         print("Final y_pred shape: ", y_pred.shape)
-        return states, y_pred
+        return states, y_pred.transpose(1,0,2), self.input_layer.weights, self.feedback_layer.weights, self.readout_layer.weights
 
     def fit_evolve(self, X: np.ndarray, y: np.ndarray):
         # build an evolving reservoir computer: performance-dependent node addition and removal
