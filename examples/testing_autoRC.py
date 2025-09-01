@@ -22,7 +22,7 @@ A_train, A_test, B_train, B_test = sequence_to_sequence(
     name="sine_pred",
     n_states=1,
     n_batch=20,
-    n_time=201
+    n_time=501
 )
 
 ###generate y_train and y_test as previous time step of the input series
@@ -35,16 +35,16 @@ y_test = A_test#[:, :-1, :]
 print(f"Generated training data shapes: {X_train.shape}, {y_train.shape}")
 print(f"Generated test data shapes: {X_test.shape}, {y_test.shape}")
 
-# ##plot x and y
-# plt.figure()
-# for i in range(X_train.shape[0]):
-#     plt.subplot(X_train.shape[0], 1, i + 1)
-#     plt.plot(X_train[i, :, 0], color="k", alpha=0.3)
-#     plt.plot(y_train[i, :, 0], color="b", alpha=0.3)
-#     plt.xlabel("Time")
-#     plt.ylabel("Amplitude")
-# plt.tight_layout()
-# plt.show()
+##plot x and y
+plt.figure()
+for i in range(X_train.shape[0]):
+    plt.subplot(X_train.shape[0], 1, i + 1)
+    plt.plot(X_train[i, :, 0], color="k", alpha=0.3)
+    plt.plot(y_train[i, :, 0], color="b", alpha=0.3)
+    plt.xlabel("Time")
+    plt.ylabel("Amplitude")
+plt.tight_layout()
+plt.show()
 
 # print(f"X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
 # print(f"X_test shape: {X_test.shape}, y_test shape: {y_test.shape}")
@@ -101,7 +101,7 @@ for i in range(X_test.shape[0]):
     plt.subplot(X_test.shape[0], 1, i + 1)
     plt.plot(X_test[i, :, 0], color="gray", alpha=1, label="input sequence")
     plt.plot(y_test[i, :, 0], color="blue", lw=0.75, label="true target")
-    plt.plot(y_pred[:, i, 0], color="red", lw=0.75, label="predicted")
+    plt.plot(y_pred[i, :, 0], color="red", lw=0.75, label="predicted")
     plt.xlabel("time")
     plt.ylabel("amplitude")
     plt.legend()
