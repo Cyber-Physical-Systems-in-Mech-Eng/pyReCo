@@ -816,13 +816,16 @@ class CustomModel(ABC):
         return states
     
 
-    def AutoRC_predict(self, x: np.ndarray, fb_scale: float, T_run: int) -> np.ndarray:
+    def AutoRC_predict(self, x: np.ndarray, fb_scale: float, T_run: int, feedback_indices: np.ndarray = None) -> np.ndarray:
         """
         Contains the prediction function for the AutoRC model along with the feedback mechanism.
         It returns the predictions and reservoir states.
         
         Args:
             x (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
+            feedback_indices (np.ndarray): Indices from the inputs to be used for feedback
+            because we want to select those feedback/input weights for the feedback. If not given by the user,
+            the model will use all available feedback weights.
 
         Returns:
             np.ndarray: Reservoir states of shape [(n_batch * n_timesteps), N], 
@@ -868,7 +871,7 @@ class CustomModel(ABC):
         input_contrib = np.einsum(
             "ij,btj->bti", W_in, x
         )  # shape [n_batch, n_time, n_nodes]
-        # print("input_contrib shape: ", input_contrib.shape)
+        print("input_contrib shape: ", input_contrib.shape)
 
 
         ### predictions to be used for feedback
@@ -878,11 +881,17 @@ class CustomModel(ABC):
         y_pred = []#np.zeros((n_batch, n_time, n_states))
         # print("Initialized y_pred shape: ", y_pred.shape)
         
+        ###If feedback indices are not given by the user, the model will use all available feedback weights.
+        if feedback_indices is None:
+            feedback_indices = np.arange(self.feedback_layer.weights.shape[1])
+
         feedback_contrib = 0# p.einsum("bik,jk->bij", self.feedback_layer.weights, y_pred[:, 0, :])  # shape [n_batch, n_time, n_nodes]
         # print("feedback_contrib shape: ", feedback_contrib.shape)
-
-        
+        print('Input layer weights shape: ', self.input_layer.weights.shape)
+        print('Feedback layer weights shape: ', self.feedback_layer.weights.shape)
+        print('Readout layer weights shape: ', self.readout_layer.weights.shape)
         # 2. now step through time to compute reservoir states
+        
         for t in range(0, T_run):
 
             ###condition for input contribution
@@ -894,6 +903,7 @@ class CustomModel(ABC):
             
             #############################################          
             y_pred_t = np.einsum("bik,jk->bij", states[:, t: t+1, self.readout_layer.readout_nodes], self.readout_layer.weights.T)
+            
             # print("y_pred_t shape: ", y_pred_t.shape)
             # Undo output scaling (if any)
             # y_pred_t = y_pred_t / self.output_scaling
@@ -908,14 +918,13 @@ class CustomModel(ABC):
             #     y_pred_t = y_pred_t * self.output_std + self.output_mean
 
             ####feedback contribution
-            if t >= input_contrib.shape[1]:
-                feedback_contrib = np.einsum("ij,bj->bi", y_pred_t[:, 0, :], self.feedback_layer.weights).T
+            if t >= 500:#input_contrib.shape[1]:
+                feedback_contrib = np.einsum("ij,bj->bi", y_pred_t[:, 0, :], self.feedback_layer.weights[:, feedback_indices]).T
             else:
                 feedback_contrib = 0
             # print("feedback_contrib shape am ende: ", feedback_contrib.shape)
             ### store the predictions for the current time step
             y_pred.append(y_pred_t[:,0,:])
-
             #############################################
 
             # compute dot(A, r(t)) for all batches
@@ -943,7 +952,7 @@ class CustomModel(ABC):
         # states[:, 1:].reshape(-1, num_nodes)
         y_pred = np.array(y_pred)[1:,:, :]
         print("Final y_pred shape: ", y_pred.shape)
-        return states, y_pred.transpose(1,0,2), self.input_layer.weights, self.feedback_layer.weights, self.readout_layer.weights
+        return states, y_pred.transpose(1,0,2)
 
     def fit_evolve(self, X: np.ndarray, y: np.ndarray):
         # build an evolving reservoir computer: performance-dependent node addition and removal
