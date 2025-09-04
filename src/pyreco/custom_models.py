@@ -10,6 +10,7 @@ from pyreco.layers import (
     InputLayer,
     ReservoirLayer,
     ReadoutLayer,
+    FeedbackLayer,
 )
 from pyreco.optimizers import Optimizer, assign_optimizer
 from pyreco.metrics import assign_metric
@@ -61,6 +62,7 @@ class CustomModel(ABC):
         self.input_layer: InputLayer
         self.reservoir_layer: ReservoirLayer
         self.readout_layer: ReadoutLayer
+        self.feedback_layer: FeedbackLayer  # optional feedback layer
 
         # Initialize hyperparameters
         self.metrics = []
@@ -75,6 +77,20 @@ class CustomModel(ABC):
         self.num_time_out: int
         self.num_states_in: int
         self.num_states_out: int
+
+        # Normalization flags
+        self.normalize_inputs: bool = True
+        self.normalize_outputs: bool = True
+
+        # Scaling parameters (apply after normalization)
+        self.input_scaling: float or np.ndarray = 1.0  # scalar or (d,) vector
+        self.output_scaling: float = 1.0  # usually scalar
+
+        # Stored normalization parameters (learned during training)
+        self.input_mean: np.ndarray = None  # shape: (d,)
+        self.input_std: np.ndarray = None  # shape: (d,)
+        self.output_mean: np.ndarray = None  # shape: (k,)
+        self.output_std: np.ndarray = None  # shape: (k,)
 
     def add(self, layer: Layer):
         """
@@ -98,6 +114,8 @@ class CustomModel(ABC):
             self.reservoir_layer = layer
         elif isinstance(layer, ReadoutLayer):
             self.readout_layer = layer
+        elif isinstance(layer, FeedbackLayer):
+            self.feedback_layer = layer
         else:
             raise ValueError("Unsupported layer type.")
 
@@ -162,6 +180,72 @@ class CustomModel(ABC):
         self.reservoir_layer._is_compiled = True
         self.readout_layer._is_compiled = True
 
+    def AutoRC_compile(
+        self,
+        optimizer: str = "ridge",
+        metrics: Union[list, str] = None,
+        discard_transients: int = 0,
+    ):
+        """
+        Configure the model for training.
+
+        Args:
+        optimizer (str): Name of the optimizer.
+        metrics (list): List of metric names.
+        discard_transients (int): Number of initial transient timesteps to discard.
+        """
+
+        # sanity checks for inputs
+        if not isinstance(discard_transients, int):
+            raise TypeError("discard_transients must be a positive integer!")
+        elif discard_transients < 0:
+            raise ValueError("discard_transients must be >=0")
+
+        if metrics is None:
+            metrics = ["mse"]
+
+        # check consistency of layers, data shapes etc.
+        # TODO: do we have input, reservoir and readout layer?
+        # TODO: are all shapes correct on input and output side?
+        # TODO: let the user specify the reservoir initialization method
+
+        # set the metrics (like in TensorFlow)
+        self._set_metrics(metrics)
+
+        # set the optimizer that will find the readout weights
+        self._set_optimizer(optimizer)
+
+        # set number of transients to discard (warmup phase)
+        self.discard_transients = int(discard_transients)
+
+        # copy some layer properties to the model level for easier access
+        self.num_states_in = self.input_layer.n_states
+        self.num_states_out = self.readout_layer.n_states
+        self.num_nodes = self.reservoir_layer.nodes
+        print(f"feedback layer: {self.feedback_layer}")
+        if self.feedback_layer is not None:
+            self.num_states_fb = self.feedback_layer.n_states   
+        # self.num_states_fb = self.feedback_layer.n_states # else 0
+
+        # Sample the input connections: create W_in read-in weight matrix
+        self._connect_input_to_reservoir()  # check for dependency injection here!
+
+        ###connect feedback layer to reservoir
+        self._connect_feedback_to_reservoir()
+
+        # Set initial states of the reservoir
+        # TODO: let the user specify the reservoir initialization method
+        self._initialize_network(method="random_normal")
+
+        # Select readout nodes according to the fraction specified by the user in the readout layer. By default, randomly sample nodes. User can also provide a list of nodes to use for readout.
+        self._set_readout_nodes()
+
+        # flag all layers as compiled (required for later manipulation from outside)
+        self.input_layer._is_compiled = True
+        self.reservoir_layer._is_compiled = True
+        self.readout_layer._is_compiled = True
+        self.feedback_layer._is_compiled = True if self.feedback_layer is not None else False
+
     def fit(self, x: np.ndarray,
             y: np.ndarray,
             n_init: int = 1,
@@ -198,6 +282,29 @@ class CustomModel(ABC):
         n_batch, n_time_in = x.shape[0], x.shape[1]
         n_time_out, n_states_out = y.shape[-2], y.shape[-1]
         n_nodes = self.reservoir_layer.nodes
+
+        # Input normalization (z-score per channel)
+
+        if self.normalize_inputs:
+            self.input_mean = x.mean(axis=(0, 1))  # mean over batches and time
+            self.input_std = x.std(axis=(0, 1))
+            self.input_std[self.input_std == 0] = 1.0  # avoid divide-by-zero
+            x = (x - self.input_mean) / self.input_std
+
+
+        # Output normalization (z-score per channel)
+
+        if self.normalize_outputs:
+            self.output_mean = y.mean(axis=(0, 1))  # mean over batches and time
+            self.output_std = y.std(axis=(0, 1))
+            self.output_std[self.output_std == 0] = 1.0
+            y = (y - self.output_mean) / self.output_std
+
+        # Apply input scaling
+        x = x * self.input_scaling  # scalar or (features,)
+
+        # Apply output scaling (optional, rare)
+        y = y * self.output_scaling
 
         # discard transients (warmup phase). This is done by removing the first n_transients timesteps from the reservoir states.
         # Hence, the targets can have a maximum of (t_in - t_discard) steps, before we have to cut also from the targets
@@ -303,6 +410,12 @@ class CustomModel(ABC):
         # Compute reservoir states. Returns reservoir states of shape
         # [n_batch, n_timesteps+1, n_nodes]
         # (n_timesteps+1 because we also store the initial state)
+        # Normalize input (if enabled)
+        if self.normalize_inputs:
+            if self.input_mean is None or self.input_std is None:
+                raise RuntimeError("Input normalization parameters not set. Fit the model first.")
+            x = (x - self.input_mean) / self.input_std
+
         reservoir_states = self.compute_reservoir_state(x)
 
         # discard the given transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
@@ -316,8 +429,19 @@ class CustomModel(ABC):
         y_pred = np.einsum(
             "bik,jk->bij", reservoir_states, self.readout_layer.weights.T
         )
+        # Undo output scaling (if any)
+        y_pred = y_pred / self.output_scaling
+
+        # -------------------------------
+        # Denormalize output
+        # -------------------------------
+        if self.normalize_outputs:
+            if self.output_mean is None or self.output_std is None:
+                raise RuntimeError("Outpaut normalization parameters not set. Fit the model first.")
+            y_pred = y_pred * self.output_std + self.output_mean
 
         return y_pred
+    
 
     def evaluate(
         self, x: np.ndarray, y: np.ndarray, metrics: Union[str, list, None] = None
@@ -513,6 +637,7 @@ class CustomModel(ABC):
         # set the readout nodes in the readout layer
         self.readout_layer.readout_nodes = nodes  # sorted(nodes)
 
+
     def _set_optimizer(self, optimizer: Union[str, Optimizer]):
         """
         Sets the optimizer that will find the readout weights.
@@ -596,6 +721,38 @@ class CustomModel(ABC):
         # set the input layer weight matrix
         self._set_readin_weights(weights=(full_input_weights * node_mask))
 
+    def _connect_feedback_to_reservoir(self):
+        """
+        Wire feedback layer with reservoir layer. Creates a random matrix of shape
+        [nodes x n_states_fb], i.e. number of reservoir nodes x state dimension of feedback.
+        If no full connection is desired, a fraction of nodes will be selected according to the fraction_input parameter of the reservoir layer.
+
+        """
+
+        # generate random feedback connection matrix [nodes, n_states_fb]
+        # net_generator = NetworkInitializer(method="random_normal")
+        # full_feedback_weights = net_generator.gen_initial_states(
+        #     shape=(self.num_nodes, self.num_states_feedback)
+        # )
+
+        # # To DO: select feedback-receiving node indices according to the fraction specified by the user
+        # node_selector = NodeSelector(
+        #     total_nodes=self.num_nodes,
+        #     strategy="random_uniform_wo_repl",
+        # )
+
+        # select the fraction of nodes that are feedback-receiving nodes [nodes, n_states_fb]
+        # feedback_receiving_nodes = node_selector.select_nodes(
+        #     fraction=self.reservoir_layer.fraction_input
+        # )
+
+        # self.reservoir_layer.input_receiving_nodes = input_receiving_nodes
+        # node_mask = np.ones_like(full_input_weights)
+        # node_mask[input_receiving_nodes] = 0
+
+        # set the input layer weight matrix
+        self.feedback_layer.weights = self.input_layer.weights
+
     def compute_reservoir_state(self, x: np.ndarray) -> np.ndarray:
         """
         Vectorized computation of reservoir states with batch processing.
@@ -624,7 +781,7 @@ class CustomModel(ABC):
         alpha = self.reservoir_layer.leakage_rate  # leakage rate
         A = self.reservoir_layer.weights  # reservoir weight matrix (adjacency matrix)
         W_in = self.input_layer.weights  # read-in weight matrix
-
+        
         # We will compute the reservoir states for all time steps in the first sample,
         # then reset the reservoir state to the initial values, and proceed with the
         # next sample. This makes sure to have no data leakage between samples.
@@ -641,6 +798,7 @@ class CustomModel(ABC):
             "ij,btj->bti", W_in, x
         )  # shape [n_batch, n_time, n_nodes]
 
+
         # 2. now step through time to compute reservoir states
         for t in range(n_time):
 
@@ -656,6 +814,145 @@ class CustomModel(ABC):
         # [(n_batch * n_timesteps), num_nodes]
         # states[:, 1:].reshape(-1, num_nodes)
         return states
+    
+
+    def AutoRC_predict(self, x: np.ndarray, fb_scale: float, T_run: int, feedback_indices: np.ndarray = None) -> np.ndarray:
+        """
+        Contains the prediction function for the AutoRC model along with the feedback mechanism.
+        It returns the predictions and reservoir states.
+        
+        Args:
+            x (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
+            feedback_indices (np.ndarray): Indices from the inputs to be used for feedback
+            because we want to select those feedback/input weights for the feedback. If not given by the user,
+            the model will use all available feedback weights.
+
+        Returns:
+            np.ndarray: Reservoir states of shape [(n_batch * n_timesteps), N], 
+                        Predictions of shape [n_batch, n_timesteps, n_states_out]
+        """
+
+        # sanity checks for inputs
+        if not isinstance(x, np.ndarray):
+            raise TypeError("Input data must be a numpy array.")
+        if x.ndim != 3:
+            raise ValueError(
+                "Input data must have 3 dimensions (n_batch, n_timesteps, n_states)."
+            )
+
+        # Extract shapes and parameters
+        n_batch, n_time, n_states = x.shape[0], x.shape[1], x.shape[2]
+
+        # get local variables for easier access
+        num_nodes = self.reservoir_layer.nodes
+        activation = self.reservoir_layer.activation_fun
+        alpha = self.reservoir_layer.leakage_rate  # leakage rate
+        A = self.reservoir_layer.weights  # reservoir weight matrix (adjacency matrix)
+        W_in = self.input_layer.weights  # read-in weight matrix
+        W_fb = self.feedback_layer.weights
+
+        # print("Input shape: ", x.shape)
+        # print("W_in shape: ", W_in.shape)
+        # print("W_fb shape: ", W_fb.shape)
+        # print("is W_in == W_fb? ", np.array_equal(W_in, W_fb))
+        # print("W_out shape: ", self.readout_layer.weights.shape)
+        # We will compute the reservoir states for all time steps in the first sample,
+        # then reset the reservoir state to the initial values, and proceed with the
+        # next sample. This makes sure to have no data leakage between samples.
+
+        # Pre-allocate reservoir state matrix and initialize with initial states
+        states = np.zeros((n_batch, T_run + 1, num_nodes))
+        states[:, 0] = self.reservoir_layer.initial_res_states
+        # print("states shape: ", states.shape)
+        # vectorized computation of reservoir states over time steps
+
+        # 1. compute dot(W_in, x) for all time steps across all batches
+        # (can be done before the loop as it does not depend on the reservoir states)
+        input_contrib = np.einsum(
+            "ij,btj->bti", W_in, x
+        )  # shape [n_batch, n_time, n_nodes]
+        print("input_contrib shape: ", input_contrib.shape)
+
+
+        ### predictions to be used for feedback
+        # predicted_states = ####self.AutoRC_predict(x)
+        
+        ###Initialize feedback contribution same as input x
+        y_pred = []#np.zeros((n_batch, n_time, n_states))
+        # print("Initialized y_pred shape: ", y_pred.shape)
+        
+        ###If feedback indices are not given by the user, the model will use all available feedback weights.
+        if feedback_indices is None:
+            feedback_indices = np.arange(self.feedback_layer.weights.shape[1])
+
+        feedback_contrib = 0# p.einsum("bik,jk->bij", self.feedback_layer.weights, y_pred[:, 0, :])  # shape [n_batch, n_time, n_nodes]
+        # print("feedback_contrib shape: ", feedback_contrib.shape)
+        print('Input layer weights shape: ', self.input_layer.weights.shape)
+        print('Feedback layer weights shape: ', self.feedback_layer.weights.shape)
+        print('Readout layer weights shape: ', self.readout_layer.weights.shape)
+        # 2. now step through time to compute reservoir states
+        
+        for t in range(0, T_run):
+
+            ###condition for input contribution
+            if t<input_contrib.shape[1]:
+                input_contrib_t = input_contrib[:, t]
+            else:
+                input_contrib_t = 0
+                
+            
+            #############################################          
+            y_pred_t = np.einsum("bik,jk->bij", states[:, t: t+1, self.readout_layer.readout_nodes], self.readout_layer.weights.T)
+            
+            # print("y_pred_t shape: ", y_pred_t.shape)
+            # Undo output scaling (if any)
+            # y_pred_t = y_pred_t / self.output_scaling
+            
+            # print(t, "y_pred_t after scaling: ", y_pred_t[:, 0, :])
+            # # -------------------------------
+            # # Denormalize output
+            # # -------------------------------
+            # if self.normalize_outputs:
+            #     if self.output_mean is None or self.output_std is None:
+            #         raise RuntimeError("Output normalization parameters not set. Fit the model first.")
+            #     y_pred_t = y_pred_t * self.output_std + self.output_mean
+
+            ####feedback contribution
+            if t >= 500:#input_contrib.shape[1]:
+                feedback_contrib = np.einsum("ij,bj->bi", y_pred_t[:, 0, :], self.feedback_layer.weights[:, feedback_indices]).T
+            else:
+                feedback_contrib = 0
+            # print("feedback_contrib shape am ende: ", feedback_contrib.shape)
+            ### store the predictions for the current time step
+            y_pred.append(y_pred_t[:,0,:])
+            #############################################
+
+            # compute dot(A, r(t)) for all batches
+            reservoir_contrib = np.einsum("ij,bj->bi", A, states[:, t])
+
+            # now compute r(t+1) = (1-alpha) * r(t) + alpha * g(r(t) * A + x * W_in)
+            states[:, t + 1] = (1 - alpha) * states[:, t] + alpha * activation(
+                reservoir_contrib + input_contrib_t + fb_scale * feedback_contrib
+            )
+
+            ####make predictions for feedback already here
+            # Masking non-readout nodes: if the user specified to not use all nodes for output, we can get rid of the non-readout node states
+            # and using current t+1 res. state for prediction
+            
+            # states_t = states[:, t+1 : t+2, self.readout_layer.readout_nodes]
+
+            # print("time step t: ", t)
+            # print("Input contribution at t: ", input_contrib[:, t].shape)
+            # print("states_t shape after masking: ", states_t.shape)
+            # make predictions y = R * W_out, W_out has a shape of [n_out, N]
+            
+
+        # flatten reservoir states along batch dimension:
+        # [(n_batch * n_timesteps), num_nodes]
+        # states[:, 1:].reshape(-1, num_nodes)
+        y_pred = np.array(y_pred)[1:,:, :]
+        print("Final y_pred shape: ", y_pred.shape)
+        return states, y_pred.transpose(1,0,2)
 
     def fit_evolve(self, X: np.ndarray, y: np.ndarray):
         # build an evolving reservoir computer: performance-dependent node addition and removal
@@ -702,12 +999,47 @@ class CustomModel(ABC):
         # print the model to some figure file
         raise NotImplementedError("Method not implemented yet.")
 
+    def set_normalization(
+            self,
+            normalize_inputs: bool = None,
+            normalize_outputs: bool = None,
+    ):
+        """
+        Set normalization flags independently.
+
+        Args:
+            normalize_inputs (bool or None): Enable/disable input normalization. If None, leave unchanged.
+            normalize_outputs (bool or None): Enable/disable output normalization. If None, leave unchanged.
+        """
+        if normalize_inputs is not None:
+            self.normalize_inputs = normalize_inputs
+        if normalize_outputs is not None:
+            self.normalize_outputs = normalize_outputs
+
+    def set_input_scaling(self, input_scaling: float or np.ndarray):
+        """
+        Set input scaling factor.
+
+        Args:
+            input_scaling (float or np.ndarray): Scalar or per-channel vector.
+        """
+        self.input_scaling = input_scaling
+
+    def set_output_scaling(self, output_scaling: float):
+        """
+        Set output scaling factor.
+
+        Args:
+            output_scaling (float): Scalar value for output scaling.
+        """
+        self.output_scaling = output_scaling
+
     def set_hp(self, **kwargs):
         """
         Set one or more reservoir hyperparameters.
         Supported kwargs: spec_rad, leakage_rate, activation
         """
-        supported_hps = {"spec_rad", "leakage_rate", "activation"}
+        supported_hps = {"spec_rad", "leakage_rate", "activation", "input_scaling", "output_scaling", "alpha"}
         unsupported = set(kwargs) - supported_hps
         if unsupported:
             raise ValueError(f"Unsupported hyperparameter(s): {', '.join(unsupported)}")
@@ -718,6 +1050,12 @@ class CustomModel(ABC):
             self.reservoir_layer.set_leakage_rate(kwargs['leakage_rate'])
         if 'activation' in kwargs:
             self.reservoir_layer.set_activation(kwargs['activation'])
+        if "input_scaling" in kwargs:
+            self.set_input_scaling(kwargs['input_scaling'])
+        if "output_scaling" in kwargs:
+            self.set_output_scaling(kwargs['output_scaling'])
+        if "alpha" in kwargs:
+            self.optimizer.set_alpha(kwargs['alpha'])
         # Add more as needed
 
     def get_hp(self, *args):
@@ -729,6 +1067,9 @@ class CustomModel(ABC):
             'spec_rad': self.reservoir_layer.get_spec_rad(),
             'leakage_rate': self.reservoir_layer.get_leakage_rate(),
             'activation': self.reservoir_layer.get_activation(),
+            "input_scaling": self.input_scaling,
+            "output_scaling": self.output_scaling,
+            "alpha": self.optimizer.get_alpha()
             # Add more as needed
         }
         if args:
@@ -752,8 +1093,13 @@ class AutoRC(CustomModel):
     Autonomous version of the reservoir computer.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, FeedbackLayer=None):
+        # at the moment we do not have any arguments to pass
+        super().__init__()
+        self.feedback_layer = FeedbackLayer
+        # if self.feedback_layer is None:
+        #     raise ValueError("FeedbackLayer must be provided for AutoRC.")
+                
 
     def predict_ar(self, X: np.ndarray, n_steps: int = 10):
         """
