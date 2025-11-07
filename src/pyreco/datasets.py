@@ -86,13 +86,13 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     --------
     >>> # Load Lorenz system data
     >>> x_train, y_train, x_test, y_test = load('lorentz69', n_samples=5000, seed=42)
-    >>> print(x_train.shape)  # (approx 3430, 100, 3)
-    >>> print(y_train.shape)  # (approx 3430, 1, 3)
+    >>> print(x_train.shape)  # (3400, 100, 3)
+    >>> print(y_train.shape)  # (3400, 1, 3)
 
     >>> # Load Mackey-Glass data
     >>> x_train, y_train, x_test, y_test = load('mackey_glass', n_samples=5000, seed=42)
-    >>> print(x_train.shape)  # (approx 3430, 100, 1)
-    >>> print(y_train.shape)  # (approx 3430, 1, 1)
+    >>> print(x_train.shape)  # (3400, 100, 1)
+    >>> print(y_train.shape)  # (3400, 1, 1)
 
     Notes
     -----
