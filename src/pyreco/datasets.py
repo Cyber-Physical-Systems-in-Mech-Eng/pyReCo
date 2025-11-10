@@ -3,10 +3,141 @@ Standard chaotic system datasets for reservoir computing.
 
 This module provides time series data from chaotic dynamical systems,
 formatted for direct use with PyReCo reservoir computers.
+
+All data generators are implemented using direct numerical integration
+of the governing equations, with no external dependencies beyond NumPy.
 """
 
 import numpy as np
-from reservoirpy import datasets
+from collections import deque
+from sklearn.preprocessing import StandardScaler
+
+
+def _generate_lorenz(n_timesteps, sigma=10.0, rho=28.0, beta=8.0/3.0, h=0.01, x0=None):
+    """
+    Generate Lorenz 63 attractor time series using RK4 integration.
+
+    Lorenz system equations:
+        dx/dt = σ(y - x)
+        dy/dt = x(ρ - z) - y
+        dz/dt = xy - βz
+
+    Parameters
+    ----------
+    n_timesteps : int
+        Number of time steps to generate
+    sigma : float, default=10.0
+        Prandtl number
+    rho : float, default=28.0
+        Rayleigh number
+    beta : float, default=8/3
+        Geometric factor
+    h : float, default=0.01
+        Integration time step
+    x0 : array-like of shape (3,), optional
+        Initial condition [x, y, z]. If None, defaults to [1.0, 1.0, 1.0]
+
+    Returns
+    -------
+    trajectory : ndarray of shape (n_timesteps, 3)
+        Lorenz attractor trajectory
+    """
+    if x0 is None:
+        x0 = np.array([1.0, 1.0, 1.0], dtype=np.float64)
+    else:
+        x0 = np.asarray(x0, dtype=np.float64)
+
+    # Pre-allocate output array
+    trajectory = np.empty((n_timesteps, 3), dtype=np.float64)
+    trajectory[0] = x0
+
+    # Define Lorenz system
+    def lorenz_deriv(state):
+        x, y, z = state
+        dx = sigma * (y - x)
+        dy = x * (rho - z) - y
+        dz = x * y - beta * z
+        return np.array([dx, dy, dz], dtype=np.float64)
+
+    # RK4 integration
+    state = x0.copy()
+    for i in range(1, n_timesteps):
+        k1 = lorenz_deriv(state)
+        k2 = lorenz_deriv(state + h * k1 / 2)
+        k3 = lorenz_deriv(state + h * k2 / 2)
+        k4 = lorenz_deriv(state + h * k3)
+
+        state = state + (h / 6) * (k1 + 2*k2 + 2*k3 + k4)
+        trajectory[i] = state
+
+    return trajectory
+
+
+def _generate_mackey_glass(n_timesteps, tau=17, a=0.2, b=0.1, n=10, x0=1.2, h=1.0, seed=None):
+    """
+    Generate Mackey-Glass time series using delay differential equation integration.
+
+    Mackey-Glass equation:
+        dx/dt = a*x(t-τ)/(1 + x(t-τ)^n) - b*x(t)
+
+    Parameters
+    ----------
+    n_timesteps : int
+        Number of time steps to generate
+    tau : int, default=17
+        Time delay
+    a : float, default=0.2
+        Production rate
+    b : float, default=0.1
+        Degradation rate
+    n : float, default=10
+        Hill coefficient (nonlinearity)
+    x0 : float, default=1.2
+        Initial condition
+    h : float, default=1.0
+        Integration time step
+    seed : int, optional
+        Random seed for initialization noise. If None, uses deterministic initialization
+
+    Returns
+    -------
+    timeseries : ndarray of shape (n_timesteps, 1)
+        Mackey-Glass time series
+    """
+    if seed is not None:
+        rng = np.random.RandomState(seed)
+    else:
+        rng = None
+
+    # Initialize history buffer
+    history_len = int(tau / h) + 1
+    if rng is not None:
+        # Add small random perturbations to initial history
+        history = deque([x0 + rng.normal(0, 0.001) for _ in range(history_len)], maxlen=history_len)
+    else:
+        history = deque([x0] * history_len, maxlen=history_len)
+
+    # Pre-allocate output
+    timeseries = np.empty((n_timesteps,), dtype=np.float64)
+
+    # Define Mackey-Glass derivative
+    def mg_deriv(x_current, x_delayed):
+        return a * x_delayed / (1 + x_delayed**n) - b * x_current
+
+    # Euler integration (suitable for DDEs with moderate stiffness)
+    for i in range(n_timesteps):
+        x_current = history[-1]
+        x_delayed = history[0]
+
+        timeseries[i] = x_current
+
+        # Euler step
+        dx = mg_deriv(x_current, x_delayed)
+        x_next = x_current + h * dx
+
+        history.append(x_next)
+
+    return timeseries.reshape(-1, 1)
 
 
 def _sliding_window(data, n_in, n_out=1):
@@ -43,7 +174,7 @@ def _sliding_window(data, n_in, n_out=1):
     return X, y
 
 
-def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, seed=None, **kwargs):
+def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, seed=None, val_fraction=None, standardize=False, **kwargs):
     """
     Load chaotic time series dataset with train/test split.
 
@@ -66,6 +197,22 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         Number of time steps in each output window (prediction horizon)
     seed : int, optional
         Random seed for reproducibility (used for Mackey-Glass)
+    val_fraction : float, optional
+        Fraction of training data to use for validation (between 0 and 1).
+        If None (default), no validation split is created.
+        If set, the function will:
+        - Split validation set BEFORE sliding window (prevents data leakage)
+        - Automatically enable standardization (standardize=True)
+        - Fit StandardScaler only on the final training set
+        - Return 7 items: x_train, y_train, x_val, y_val, x_test, y_test, scaler
+    standardize : bool, default=False
+        Whether to standardize the data using StandardScaler.
+        If True (and val_fraction=None), returns 5 items including the scaler.
+        If val_fraction is set, standardization is automatically enabled.
+        Standardization is recommended for reservoir computing as it:
+        - Normalizes features to similar scales
+        - Improves Ridge regression performance
+        - Accelerates neural network training
     **kwargs : dict
         Additional parameters passed to the generator function:
         - For Lorenz: sigma, rho, beta, h (time step), x0 (initial condition)
@@ -73,14 +220,43 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
 
     Returns
     -------
-    x_train : ndarray of shape (n_train_samples, n_in, n_features)
-        Training input windows
-    y_train : ndarray of shape (n_train_samples, n_out, n_features)
-        Training output windows (targets)
-    x_test : ndarray of shape (n_test_samples, n_in, n_features)
-        Test input windows
-    y_test : ndarray of shape (n_test_samples, n_out, n_features)
-        Test output windows (targets)
+    When standardize=False and val_fraction=None (default, backward compatible):
+        x_train : ndarray of shape (n_train_samples, n_in, n_features)
+            Training input windows
+        y_train : ndarray of shape (n_train_samples, n_out, n_features)
+            Training output windows (targets)
+        x_test : ndarray of shape (n_test_samples, n_in, n_features)
+            Test input windows
+        y_test : ndarray of shape (n_test_samples, n_out, n_features)
+            Test output windows (targets)
+
+    When standardize=True and val_fraction=None:
+        x_train : ndarray of shape (n_train_samples, n_in, n_features)
+            Training input windows (standardized)
+        y_train : ndarray of shape (n_train_samples, n_out, n_features)
+            Training output windows (standardized)
+        x_test : ndarray of shape (n_test_samples, n_in, n_features)
+            Test input windows (standardized)
+        y_test : ndarray of shape (n_test_samples, n_out, n_features)
+            Test output windows (standardized)
+        scaler : StandardScaler
+            Fitted scaler object (fitted only on training data)
+
+    When val_fraction is set (standardize automatically enabled):
+        x_train : ndarray of shape (n_train_final_samples, n_in, n_features)
+            Training input windows (standardized)
+        y_train : ndarray of shape (n_train_final_samples, n_out, n_features)
+            Training output windows (standardized)
+        x_val : ndarray of shape (n_val_samples, n_in, n_features)
+            Validation input windows (standardized)
+        y_val : ndarray of shape (n_val_samples, n_out, n_features)
+            Validation output windows (standardized)
+        x_test : ndarray of shape (n_test_samples, n_in, n_features)
+            Test input windows (standardized)
+        y_test : ndarray of shape (n_test_samples, n_out, n_features)
+            Test output windows (standardized)
+        scaler : StandardScaler
+            Fitted scaler object (fitted only on training data)
 
     Examples
     --------
@@ -100,12 +276,20 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     - Output: Future n_out time steps (immediately following the input window)
     - Data is split chronologically (earlier data for training, later for testing)
     - Reproducible when seed is set (for Mackey-Glass)
-    - Uses reservoirpy.datasets for data generation
+    - Data generation uses custom numerical integrators:
+      * Lorenz: RK4 (Runge-Kutta 4th order) integration
+      * Mackey-Glass: Euler integration for delay differential equation
+    - No external dependencies beyond NumPy
+    - When val_fraction is used:
+      * Validation split happens BEFORE sliding window to prevent data leakage
+      * StandardScaler is fitted ONLY on final training data (not on validation)
+      * This ensures validation set statistics don't leak into training preprocessing
+      * All datasets (train/val/test) are standardized using the same scaler
     """
     # Normalize dataset name
     dataset_name = dataset_name.lower().replace('-', '_').replace(' ', '_')
 
-    # Generate raw time series using reservoirpy.datasets
+    # Generate raw time series using custom integrators
     if dataset_name in ['lorentz69', 'lorenz', 'lorenz63']:
         # Extract Lorenz-specific parameters with defaults
         sigma = kwargs.get('sigma', 10.0)
@@ -114,7 +298,7 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         h = kwargs.get('h', 0.01)
         x0 = kwargs.get('x0', [1.0, 1.0, 1.0])
 
-        raw_data = datasets.lorenz(
+        raw_data = _generate_lorenz(
             n_timesteps=n_samples,
             sigma=sigma,
             rho=rho,
@@ -122,7 +306,6 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
             h=h,
             x0=x0
         )
-        raw_data = np.asarray(raw_data, dtype=np.float64)
 
     elif dataset_name in ['mackey_glass', 'mackeyglass', 'mg']:
         # Extract Mackey-Glass-specific parameters with defaults
@@ -133,7 +316,7 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         h = kwargs.get('h', 1.0)
         x0 = kwargs.get('x0', 1.2)
 
-        raw_data = datasets.mackey_glass(
+        raw_data = _generate_mackey_glass(
             n_timesteps=n_samples,
             tau=tau,
             a=a,
@@ -143,10 +326,6 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
             x0=x0,
             seed=seed
         )
-        raw_data = np.asarray(raw_data, dtype=np.float64)
-        # Ensure 2D shape (n_timesteps, 1)
-        if raw_data.ndim == 1:
-            raw_data = raw_data.reshape(-1, 1)
 
     else:
         raise ValueError(
@@ -164,8 +343,54 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     train_data = raw_data[:n_train_timesteps]
     test_data = raw_data[n_train_timesteps:]
 
-    # Create sliding windows separately for train and test
-    x_train, y_train = _sliding_window(train_data, n_in=n_in, n_out=n_out)
-    x_test, y_test = _sliding_window(test_data, n_in=n_in, n_out=n_out)
+    # Automatically enable standardization when val_fraction is set
+    if val_fraction is not None:
+        standardize = True
 
-    return x_train, y_train, x_test, y_test
+    # Mode 1: No standardization, no validation (backward compatible)
+    if not standardize and val_fraction is None:
+        x_train, y_train = _sliding_window(train_data, n_in=n_in, n_out=n_out)
+        x_test, y_test = _sliding_window(test_data, n_in=n_in, n_out=n_out)
+        return x_train, y_train, x_test, y_test
+
+    # Mode 2: Standardization without validation split
+    elif standardize and val_fraction is None:
+        # Fit scaler on training data
+        scaler = StandardScaler()
+        scaler.fit(train_data)
+
+        # Transform both datasets
+        train_scaled = scaler.transform(train_data)
+        test_scaled = scaler.transform(test_data)
+
+        # Create sliding windows
+        x_train, y_train = _sliding_window(train_scaled, n_in=n_in, n_out=n_out)
+        x_test, y_test = _sliding_window(test_scaled, n_in=n_in, n_out=n_out)
+
+        return x_train, y_train, x_test, y_test, scaler
+
+    # Mode 3: With validation set and standardization (strict no-leakage)
+    else:
+        if not (0.0 < val_fraction < 1.0):
+            raise ValueError(f"val_fraction must be between 0 and 1, got {val_fraction}")
+
+        # Split validation from training BEFORE sliding window
+        n_train_final_timesteps = int(len(train_data) * (1 - val_fraction))
+        train_final_data = train_data[:n_train_final_timesteps]
+        val_data = train_data[n_train_final_timesteps:]
+
+        # Fit scaler ONLY on final training data (no leakage)
+        scaler = StandardScaler()
+        scaler.fit(train_final_data)
+
+        # Transform all three datasets
+        train_final_scaled = scaler.transform(train_final_data)
+        val_scaled = scaler.transform(val_data)
+        test_scaled = scaler.transform(test_data)
+
+        # Create sliding windows on scaled data
+        x_train, y_train = _sliding_window(train_final_scaled, n_in=n_in, n_out=n_out)
+        x_val, y_val = _sliding_window(val_scaled, n_in=n_in, n_out=n_out)
+        x_test, y_test = _sliding_window(test_scaled, n_in=n_in, n_out=n_out)
+
+        return x_train, y_train, x_val, y_val, x_test, y_test, scaler
