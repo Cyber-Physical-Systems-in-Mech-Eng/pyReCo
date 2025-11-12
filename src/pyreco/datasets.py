@@ -4,18 +4,20 @@ Standard chaotic system datasets for reservoir computing.
 This module provides time series data from chaotic dynamical systems,
 formatted for direct use with PyReCo reservoir computers.
 
-All data generators are implemented using direct numerical integration
-of the governing equations, with no external dependencies beyond NumPy.
+All data generators use numerical integration of the governing equations.
+Lorenz system uses scipy.integrate.solve_ivp for stable ODE integration.
+Mackey-Glass uses custom Euler integration for delay differential equations.
 """
 
 import numpy as np
 from collections import deque
 from sklearn.preprocessing import StandardScaler
+from scipy.integrate import solve_ivp
 
 
 def _generate_lorenz(n_timesteps, sigma=10.0, rho=28.0, beta=8.0/3.0, h=0.01, x0=None):
     """
-    Generate Lorenz 63 attractor time series using RK4 integration.
+    Generate Lorenz 63 attractor time series using scipy.integrate.solve_ivp.
 
     Lorenz system equations:
         dx/dt = σ(y - x)
@@ -47,30 +49,27 @@ def _generate_lorenz(n_timesteps, sigma=10.0, rho=28.0, beta=8.0/3.0, h=0.01, x0
     else:
         x0 = np.asarray(x0, dtype=np.float64)
 
-    # Pre-allocate output array
-    trajectory = np.empty((n_timesteps, 3), dtype=np.float64)
-    trajectory[0] = x0
-
-    # Define Lorenz system
-    def lorenz_deriv(state):
+    # Define Lorenz system for solve_ivp (requires t, y signature)
+    def lorenz_deriv(t, state):
         x, y, z = state
         dx = sigma * (y - x)
         dy = x * (rho - z) - y
         dz = x * y - beta * z
-        return np.array([dx, dy, dz], dtype=np.float64)
+        return [dx, dy, dz]
 
-    # RK4 integration
-    state = x0.copy()
-    for i in range(1, n_timesteps):
-        k1 = lorenz_deriv(state)
-        k2 = lorenz_deriv(state + h * k1 / 2)
-        k3 = lorenz_deriv(state + h * k2 / 2)
-        k4 = lorenz_deriv(state + h * k3)
+    # Define time points for solution
+    t_span = (0, (n_timesteps - 1) * h)
+    t_eval = np.linspace(0, (n_timesteps - 1) * h, n_timesteps)
 
-        state = state + (h / 6) * (k1 + 2*k2 + 2*k3 + k4)
-        trajectory[i] = state
+    # Solve ODE using scipy.integrate.solve_ivp with default parameters
+    sol = solve_ivp(lorenz_deriv, t_span, x0, t_eval=t_eval)
 
-    return trajectory
+    # Check if integration was successful
+    if not sol.success:
+        raise RuntimeError(f"solve_ivp failed: {sol.message}")
+
+    # Return trajectory as (n_timesteps, 3) array
+    return sol.y.T
 
 
 def _generate_mackey_glass(n_timesteps, tau=17, a=0.2, b=0.1, n=10, x0=1.2, h=1.0, seed=None):
@@ -109,8 +108,17 @@ def _generate_mackey_glass(n_timesteps, tau=17, a=0.2, b=0.1, n=10, x0=1.2, h=1.
     else:
         rng = None
 
+    # Validate that tau/h is an integer to ensure correct delay alignment
+    delay_steps = tau / h
+    if abs(delay_steps - round(delay_steps)) > 1e-9:
+        raise ValueError(
+            f"tau/h must be an integer to correctly align the time delay. "
+            f"Got tau={tau}, h={h}, tau/h={delay_steps:.6f}. "
+            f"Please adjust tau or h so that tau/h is an integer."
+        )
+
     # Initialize history buffer
-    history_len = int(tau / h) + 1
+    history_len = int(round(delay_steps)) + 1
     if rng is not None:
         # Add small random perturbations to initial history
         history = deque([x0 + rng.normal(0, 0.001) for _ in range(history_len)], maxlen=history_len)
@@ -138,6 +146,35 @@ def _generate_mackey_glass(n_timesteps, tau=17, a=0.2, b=0.1, n=10, x0=1.2, h=1.
         history.append(x_next)
 
     return timeseries.reshape(-1, 1)
+
+
+def _check_sufficient_data(data, n_in, n_out, data_name):
+    """
+    Check if dataset has enough timesteps for sliding window.
+
+    Parameters
+    ----------
+    data : ndarray
+        Time series data
+    n_in : int
+        Input window size
+    n_out : int
+        Output window size
+    data_name : str
+        Name of dataset for error message
+
+    Raises
+    ------
+    ValueError
+        If data has insufficient timesteps
+    """
+    min_required = n_in + n_out
+    if len(data) < min_required:
+        raise ValueError(
+            f"{data_name} has only {len(data)} timesteps but needs "
+            f"at least {min_required} (n_in={n_in} + n_out={n_out}). "
+            f"Increase n_samples or decrease train_fraction/val_fraction."
+        )
 
 
 def _sliding_window(data, n_in, n_out=1):
@@ -276,10 +313,9 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     - Output: Future n_out time steps (immediately following the input window)
     - Data is split chronologically (earlier data for training, later for testing)
     - Reproducible when seed is set (for Mackey-Glass)
-    - Data generation uses custom numerical integrators:
-      * Lorenz: RK4 (Runge-Kutta 4th order) integration
+    - Data generation uses numerical integration:
+      * Lorenz: scipy.integrate.solve_ivp for stable ODE integration
       * Mackey-Glass: Euler integration for delay differential equation
-    - No external dependencies beyond NumPy
     - When val_fraction is used:
       * Validation split happens BEFORE sliding window to prevent data leakage
       * StandardScaler is fitted ONLY on final training data (not on validation)
@@ -349,12 +385,20 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
 
     # Mode 1: No standardization, no validation (backward compatible)
     if not standardize and val_fraction is None:
+        # Check data sufficiency before sliding window
+        _check_sufficient_data(train_data, n_in, n_out, "Training data")
+        _check_sufficient_data(test_data, n_in, n_out, "Test data")
+
         x_train, y_train = _sliding_window(train_data, n_in=n_in, n_out=n_out)
         x_test, y_test = _sliding_window(test_data, n_in=n_in, n_out=n_out)
         return x_train, y_train, x_test, y_test
 
     # Mode 2: Standardization without validation split
     elif standardize and val_fraction is None:
+        # Check data sufficiency before processing
+        _check_sufficient_data(train_data, n_in, n_out, "Training data")
+        _check_sufficient_data(test_data, n_in, n_out, "Test data")
+
         # Fit scaler on training data
         scaler = StandardScaler()
         scaler.fit(train_data)
@@ -378,6 +422,11 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         n_train_final_timesteps = int(len(train_data) * (1 - val_fraction))
         train_final_data = train_data[:n_train_final_timesteps]
         val_data = train_data[n_train_final_timesteps:]
+
+        # Check data sufficiency for all three splits
+        _check_sufficient_data(train_final_data, n_in, n_out, "Final training data")
+        _check_sufficient_data(val_data, n_in, n_out, "Validation data")
+        _check_sufficient_data(test_data, n_in, n_out, "Test data")
 
         # Fit scaler ONLY on final training data (no leakage)
         scaler = StandardScaler()
