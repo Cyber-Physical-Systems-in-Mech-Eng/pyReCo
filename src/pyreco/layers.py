@@ -51,6 +51,7 @@ class InputLayer(Layer):
         self.n_time = input_shape[0]
         self.n_states = input_shape[1]
         self.name = "input_layer"
+        self.type = "input"
 
         # some properties of the readin layer
         self.fraction_nonzero_entries: (
@@ -93,7 +94,7 @@ class ReadoutLayer(Layer):
         self.output_shape: tuple = output_shape
         self.n_time = output_shape[0]
         self.n_states = output_shape[1]
-
+        self.type = "output"
         self.fraction_out: float = (
             fraction_out  # fraction of connections to the reservoir
         )
@@ -182,6 +183,7 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         self.activation = activation
         self.leakage_rate = leakage_rate
         self.name = "reservoir_layer"
+        self.type = "reservoir"
         self.fraction_input = fraction_input
         self.weights = None  # the adjacency matrix / reservoir network
         self.input_receiving_nodes = None
