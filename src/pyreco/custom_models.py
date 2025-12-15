@@ -4,6 +4,7 @@ from typing import Union
 import copy
 import multiprocessing
 from functools import partial
+from pyreco.plotting import visualize_reservoir_network_circle
 
 from pyreco.layers import (
     Layer,
@@ -248,13 +249,13 @@ class CustomModel(ABC):
 
     def fit(self, x: np.ndarray,
             y: np.ndarray,
+            visualize=False,
             n_init: int = 1,
             store_states: bool = False
             ) -> dict:
         """
         RC training with batch processing.
         """
-
         # sanity checks for inputs
         if not isinstance(x, np.ndarray) or not isinstance(y, np.ndarray):
             raise TypeError("Input and target data must be numpy arrays.")
@@ -385,6 +386,74 @@ class CustomModel(ABC):
             history["res_states"] = n_res_states
 
         return history
+
+    def model_visualize(self, save=False, file_name=None, file_type=None, Node_colors=None,
+                        Edge_Weights=None):
+        """
+        Visualizes the reservoir network.
+        Allows saving in PNG/PDF/JPG?SVG/JPEG formats with a custom filename.
+        Allows user-defined node/edge colors.
+        """
+
+        # --- DEFULT EDIGE SIZE ---
+        if Edge_Weights is None:
+            Edge_Weights = 0.7
+
+        # --- DEFAULT COLORS ---
+        default_colors = {
+            'CWinp': 'black',               # input → reservoir edges
+            'CWres_inp': 'lightcoral',      # reservoir: input only
+            'CWres_out': 'lightgreen',      # reservoir: output only
+            'CWres_both': 'orange',         # reservoir: both in & out
+            'CWres_internal': 'lightblue',  # reservoir internal edges
+            'CWout': 'black',               # reservoir → output edges
+            'Winp': 'blue',                 # input node
+            'Wout': 'red',                  # output node
+            'CWres': 'grey'                 # reservoir internal connection
+        }
+
+        # Merge user colors
+        if Node_colors is None:
+            Node_colors = default_colors
+        else:
+            for key in default_colors:
+                if key not in Node_colors or Node_colors[key] is None:
+                    Node_colors[key] = default_colors[key]
+
+        # Normalize file type
+        if file_type is not None:
+            file_type = file_type.lower().strip()
+
+        save_path = None
+        if save:
+            # If no filename is provided → default
+            if not file_name and file_name != "":
+                file_name = "reservoir_network"
+            
+            # If no file type → default JPEG
+            if not file_type and file_type != "":
+                file_type = "jpeg"
+
+            # Validate file type
+            if file_type not in ['png', 'jpg', 'jpeg', 'pdf', 'svg']:
+                raise RuntimeError("Error: Unsupported file type. Use png, jpg, jpeg, svg, or pdf.")
+
+            save_path = f"{file_name}.{file_type}"
+
+        # Call visualizer
+        try:
+            visualize_reservoir_network_circle(
+                    G_Net=self.reservoir_layer.weights,
+                    W_inp=self.input_layer.weights,
+                    W_out=self.readout_layer.weights,
+                    n_inputs=self.input_layer.n_states,
+                    n_outputs=self.readout_layer.n_states,
+                    save_path=save_path,
+                    Node_colors=Node_colors,
+                    Edge_Weights=Edge_Weights
+                )
+        except Exception as e:
+            print("Visualization failed:", e)
 
     def predict(self, x: np.ndarray) -> np.ndarray:
         """
