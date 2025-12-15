@@ -22,7 +22,7 @@ X_train, X_test, y_train, y_test = sequence_to_scalar(
     name="sine_prediction",
     n_states=1,
     n_batch=200,
-    n_time_in=20,
+    n_time_in=1,
 )
 
 # set the dimensions (need to be [n_batch, n_time, n_states])
@@ -33,10 +33,10 @@ model_rc = RC()
 model_rc.add(InputLayer(input_shape=input_shape))
 model_rc.add(
     RandomReservoirLayer(
-        nodes=200, density=0.1, activation="tanh", leakage_rate=0.1, fraction_input=0.5
+        nodes=50, density=0.1, activation="tanh", leakage_rate=0.1, fraction_input=0.4
     ),
 )
-model_rc.add(ReadoutLayer(output_shape, fraction_out=0.99))
+model_rc.add(ReadoutLayer(output_shape, fraction_out=0.65))
 
 # Compile the model
 optim = RidgeSK(alpha=0.5)
@@ -46,7 +46,22 @@ model_rc.compile(
 )
 
 # Train the model
-model_rc.fit(X_train, y_train)
+model_rc.fit(X_train, y_train, visualize=True)
+
+model_rc.model_visualize(save=True, file_name="reservoir_graph", file_type="svg", 
+                         Node_colors={
+                            'CWinp': 'black',
+                            'CWres_inp': 'black',
+                            'CWres_out': 'black',
+                            'CWres_both': 'black',
+                            'CWres_internal': 'black',
+                            'CWout': 'black',
+                            'Winp': 'blue',
+                            'Wout': 'red',
+                            'CWres': 'grey'
+                         }, Edge_Weights=1)
+
+# model_rc.model_visualize()
 
 # Make predictions for new data
 y_pred = model_rc.predict(X_test)
