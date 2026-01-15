@@ -131,6 +131,7 @@ class FeedbackLayer(Layer):
         self.n_time = feedback_shape[0]
         self.n_states = feedback_shape[1]
         self.name = "feedback_layer"
+        self.type = "feedback"
 
         # some properties of the feedback layer
         self.fraction_nonzero_entries: (

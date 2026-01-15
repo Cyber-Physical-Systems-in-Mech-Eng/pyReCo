@@ -48,18 +48,7 @@ model_rc.compile(
 # Train the model
 model_rc.fit(X_train, y_train, visualize=True)
 
-model_rc.model_visualize(save=True, file_name="reservoir_graph", file_type="svg", 
-                         Node_colors={
-                            'CWinp': 'black',
-                            'CWres_inp': 'black',
-                            'CWres_out': 'black',
-                            'CWres_both': 'black',
-                            'CWres_internal': 'black',
-                            'CWout': 'black',
-                            'Winp': 'blue',
-                            'Wout': 'red',
-                            'CWres': 'grey'
-                         }, Edge_Weights=1)
+model_rc.model_visualize()
 
 # model_rc.model_visualize()
 

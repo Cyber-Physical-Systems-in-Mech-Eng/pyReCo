@@ -59,9 +59,9 @@ model_rc.add(InputLayer(input_shape=input_shape))
 model_rc.add(FeedbackLayer(feedback_shape=output_shape))
 model_rc.add(
     RandomReservoirLayer(
-        nodes=100, density=0.1, spec_rad=1.0, activation="tanh", leakage_rate=0.2, fraction_input=0.75),
+        nodes=10, density=0.1, spec_rad=1.0, activation="tanh", leakage_rate=0.2, fraction_input=0.75),
 )
-model_rc.add(ReadoutLayer(output_shape, fraction_out=0.90))
+model_rc.add(ReadoutLayer(output_shape, fraction_out=0.1))
 
 # Compile the model
 optim = RidgeSK(alpha=1.0)
@@ -92,6 +92,8 @@ print(f"Test model loss: {loss_rc}")
 # plot predictions vs. ground truth
 # r2_scatter(y_true=y_test, y_pred=y_pred)
 
+
+model_rc.model_visualize()
 
 # plot predictions
 plt.figure()
