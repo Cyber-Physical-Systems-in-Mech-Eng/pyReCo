@@ -65,7 +65,7 @@ def r2_scatter(y_true: np.ndarray, y_pred: np.ndarray, state_idx: int|tuple= Non
 
 def visualize_reservoir_network_circle(G_Net, W_inp, W_out, n_inputs, n_outputs, 
                                        seed=None, save_path=None, Node_colors=None,
-                                       Edge_Weights=None):
+                                       Edge_Weights=None, has_feedback=False):
     
     """
     Draws a circular layout diagram for ESN/RC architecture.
@@ -264,6 +264,39 @@ def visualize_reservoir_network_circle(G_Net, W_inp, W_out, n_inputs, n_outputs,
         width=Edge_Weights
     )
 
+    # --------------------------------------------------
+    # Add Feedback Loop Arrow (if has_feedback is True)
+    # --------------------------------------------------
+    if has_feedback and n_outputs > 0 and n_inputs > 0:        
+        # Get positions of top nodes
+        output_top_y = max([pos[node][1] for node in output_nodes])
+        input_top_y = max([pos[node][1] for node in input_nodes])
+
+        # Coordinates for the arrow path
+        start_x, start_y = 3, output_top_y + 0.3
+        mid_top_y = 2.6
+
+        # Draw the arrow as 3 connected segments with ONE arrowhead at the end
+
+        # 1. Vertical line up from output
+        plt.plot([start_x, start_x], [start_y, mid_top_y],
+                 color='purple', linewidth=2)
+
+        # 2. Horizontal line across the top
+        plt.plot([start_x, -3], [mid_top_y, mid_top_y],
+                 color='purple', linewidth=2)
+
+        # 3. Vertical line down to input WITH ARROWHEAD
+        plt.arrow(-3, mid_top_y, 
+                  0, (input_top_y + 0.3) - mid_top_y,
+                  head_width=0.15, head_length=0.2,
+                  fc='purple', ec='purple', linewidth=2,
+                  length_includes_head=True)
+
+        # Add feedback label
+        plt.text(0, mid_top_y + 0.1, "Feedback Loop", 
+                 fontsize=10, ha='center', color='purple', weight='bold')
+
     # Layer labels
     plt.text(-2.5, -1.5, "Input Layer", fontsize=14, ha='center', color='red')
     plt.text(0, 2.1, "Reservoir Layer", fontsize=14, ha='center', color='blue')
@@ -281,7 +314,8 @@ def visualize_reservoir_network_circle(G_Net, W_inp, W_out, n_inputs, n_outputs,
     ]
     plt.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1, 1), fontsize=10)
 
-    plt.title("Python Reservoir Computing Architecture - PyReCo Architecture")
+    plt.title("Python Reservoir Computing Architecture - PyReCo Architecture" + 
+              (" with Feedback" if has_feedback else ""))
     plt.axis('off')
     plt.tight_layout()
     # Save figure if filename is provided

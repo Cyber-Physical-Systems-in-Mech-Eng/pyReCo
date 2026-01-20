@@ -440,6 +440,20 @@ class CustomModel(ABC):
 
             save_path = f"{file_name}.{file_type}"
 
+        has_feedback = False
+        layer_attrs = ['input_layer', 'reservoir_layer', 'readout_layer', 'feedback_layer']
+        for attr_name in layer_attrs:
+            if hasattr(self, attr_name):
+                layer = getattr(self, attr_name)
+                if layer is not None:
+                    # Check by class name or specific attributes
+                    if hasattr(layer, '__class__') and 'Feedback' in layer.__class__.__name__:
+                        if hasattr(layer, 'weights'):
+                            has_feedback = True
+                        elif hasattr(layer, 'feedback_weights'):
+                            has_feedback = True
+                        break
+
         # Call visualizer
         try:
             visualize_reservoir_network_circle(
@@ -449,6 +463,7 @@ class CustomModel(ABC):
                     n_inputs=self.input_layer.n_states,
                     n_outputs=self.readout_layer.n_states,
                     save_path=save_path,
+                    has_feedback=has_feedback,
                     Node_colors=Node_colors,
                     Edge_Weights=Edge_Weights
                 )
