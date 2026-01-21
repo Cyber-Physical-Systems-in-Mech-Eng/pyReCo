@@ -9,6 +9,7 @@ from pyreco.layers import RandomReservoirLayer
 from pyreco.plotting import r2_scatter
 from pyreco.utils_data import sequence_to_scalar
 from pyreco.optimizers import RidgeSK
+import numpy as np
 
 """
 Classic RC built on random networks. 
@@ -46,7 +47,7 @@ model_rc.compile(
 )
 
 # Train the model
-model_rc.fit(X_train, y_train, visualize=True)
+model_rc.fit(X_train, y_train)
 
 model_rc.model_visualize()
 

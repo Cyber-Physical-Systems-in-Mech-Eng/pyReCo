@@ -17,6 +17,13 @@ from pyreco.optimizers import Optimizer, assign_optimizer
 from pyreco.metrics import assign_metric
 from pyreco.node_selector import NodeSelector
 from pyreco.initializer import NetworkInitializer
+from pyreco.reservoir_wrapper import (validate_autorc_predict, 
+                                      validate_compile_params, 
+                                      validate_fit_params, 
+                                      validate_predict_params, 
+                                      validate_visualize_params,
+                                      validate_evaluate_params,
+                                      validate_autorc_compile_params)
 from pyreco.utils_networks import rename_nodes_after_removal
 
 
@@ -122,7 +129,7 @@ class CustomModel(ABC):
 
     # TODO: the following method should be implemented in the CustomModel class
     #   def _set_readin_nodes(self, nodes: Union[list, np.ndarray] = None):
-
+    @validate_compile_params
     def compile(
         self,
         optimizer: str = "ridge",
@@ -181,6 +188,7 @@ class CustomModel(ABC):
         self.reservoir_layer._is_compiled = True
         self.readout_layer._is_compiled = True
 
+    @validate_autorc_compile_params
     def AutoRC_compile(
         self,
         optimizer: str = "ridge",
@@ -247,9 +255,9 @@ class CustomModel(ABC):
         self.readout_layer._is_compiled = True
         self.feedback_layer._is_compiled = True if self.feedback_layer is not None else False
 
+    @validate_fit_params
     def fit(self, x: np.ndarray,
             y: np.ndarray,
-            visualize=False,
             n_init: int = 1,
             store_states: bool = False
             ) -> dict:
@@ -386,90 +394,98 @@ class CustomModel(ABC):
             history["res_states"] = n_res_states
 
         return history
-
-    def model_visualize(self, save=False, file_name=None, file_type=None, Node_colors=None,
-                        Edge_Weights=None):
+    
+    @validate_visualize_params
+    def model_visualize(
+        self,
+        save=False,
+        file_name=None,
+        file_type=None,
+        Node_colors=None,
+        Edge_Weights=None,
+    ):
         """
         Visualizes the reservoir network.
-        Allows saving in PNG/PDF/JPG?SVG/JPEG formats with a custom filename.
+        Allows saving in PNG/PDF/JPG/JPEG/SVG formats with a custom filename.
         Allows user-defined node/edge colors.
         """
 
-        # --- DEFULT EDIGE SIZE ---
+        # Edge weights default (validation ensures this is set by decorator)
         if Edge_Weights is None:
-            Edge_Weights = 0.7
+            Edge_Weights = self._visualize_edge_weights
 
-        # --- DEFAULT COLORS ---
-        default_colors = {
-            'CWinp': 'black',               # input → reservoir edges
-            'CWres_inp': 'lightcoral',      # reservoir: input only
-            'CWres_out': 'lightgreen',      # reservoir: output only
-            'CWres_both': 'orange',         # reservoir: both in & out
-            'CWres_internal': 'lightblue',  # reservoir internal edges
-            'CWout': 'black',               # reservoir → output edges
-            'Winp': 'blue',                 # input node
-            'Wout': 'red',                  # output node
-            'CWres': 'grey'                 # reservoir internal connection
-        }
-
-        # Merge user colors
+        # Colors - use validated colors from decorator
         if Node_colors is None:
-            Node_colors = default_colors
-        else:
-            for key in default_colors:
-                if key not in Node_colors or Node_colors[key] is None:
-                    Node_colors[key] = default_colors[key]
+            Node_colors = self._visualize_node_colors
 
-        # Normalize file type
+        # File type normalization (already validated by decorator)
         if file_type is not None:
             file_type = file_type.lower().strip()
 
+        # Build save path if needed
         save_path = None
         if save:
-            # If no filename is provided → default
-            if not file_name and file_name != "":
-                file_name = "reservoir_network"
-            
-            # If no file type → default JPEG
-            if not file_type and file_type != "":
-                file_type = "jpeg"
-
-            # Validate file type
-            if file_type not in ['png', 'jpg', 'jpeg', 'pdf', 'svg']:
-                raise RuntimeError("Error: Unsupported file type. Use png, jpg, jpeg, svg, or pdf.")
-
+            file_name = file_name or self._visualize_file_name or "reservoir_network"
+            file_type = file_type or self._visualize_file_type or "jpeg"
             save_path = f"{file_name}.{file_type}"
 
+        # Check for feedback layer
         has_feedback = False
-        layer_attrs = ['input_layer', 'reservoir_layer', 'readout_layer', 'feedback_layer']
+        layer_attrs = [
+            "input_layer",
+            "reservoir_layer",
+            "readout_layer",
+            "feedback_layer",
+        ]
         for attr_name in layer_attrs:
             if hasattr(self, attr_name):
                 layer = getattr(self, attr_name)
                 if layer is not None:
                     # Check by class name or specific attributes
-                    if hasattr(layer, '__class__') and 'Feedback' in layer.__class__.__name__:
-                        if hasattr(layer, 'weights'):
+                    if (
+                        hasattr(layer, "__class__")
+                        and "Feedback" in layer.__class__.__name__
+                    ):
+                        if hasattr(layer, "weights") or hasattr(
+                            layer, "feedback_weights"
+                        ):
                             has_feedback = True
-                        elif hasattr(layer, 'feedback_weights'):
-                            has_feedback = True
-                        break
+                            break
 
         # Call visualizer
         try:
-            visualize_reservoir_network_circle(
-                    G_Net=self.reservoir_layer.weights,
-                    W_inp=self.input_layer.weights,
-                    W_out=self.readout_layer.weights,
-                    n_inputs=self.input_layer.n_states,
-                    n_outputs=self.readout_layer.n_states,
-                    save_path=save_path,
-                    has_feedback=has_feedback,
-                    Node_colors=Node_colors,
-                    Edge_Weights=Edge_Weights
-                )
-        except Exception as e:
-            print("Visualization failed:", e)
+            # Check if required layers exist
+            if not hasattr(self, "reservoir_layer") or not hasattr(
+                self.reservoir_layer, "weights"
+            ):
+                raise ValueError("Reservoir layer with weights not found")
+            if not hasattr(self, "input_layer") or not hasattr(
+                self.input_layer, "weights"
+            ):
+                raise ValueError("Input layer with weights not found")
+            if not hasattr(self, "readout_layer") or not hasattr(
+                self.readout_layer, "weights"
+            ):
+                raise ValueError("Readout layer with weights not found")
 
+            visualize_reservoir_network_circle(
+                G_Net=self.reservoir_layer.weights,
+                W_inp=self.input_layer.weights,
+                W_out=self.readout_layer.weights,
+                n_inputs=self.input_layer.n_states,
+                n_outputs=self.readout_layer.n_states,
+                save_path=save_path,
+                has_feedback=has_feedback,
+                Node_colors=Node_colors,
+                Edge_Weights=Edge_Weights,
+            )
+
+        except Exception as e:
+            print(f"Visualization failed: {e}")
+            # Re-raise or handle as needed
+            raise RuntimeError(f"Visualization error: {e}")
+        
+    @validate_predict_params
     def predict(self, x: np.ndarray) -> np.ndarray:
         """
         Make predictions for given input.
@@ -524,9 +540,9 @@ class CustomModel(ABC):
                 raise RuntimeError("Outpaut normalization parameters not set. Fit the model first.")
             y_pred = y_pred * self.output_std + self.output_mean
 
-        return y_pred
-    
+        return y_pred  
 
+    @validate_evaluate_params
     def evaluate(
         self, x: np.ndarray, y: np.ndarray, metrics: Union[str, list, None] = None
     ) -> tuple:
@@ -899,7 +915,7 @@ class CustomModel(ABC):
         # states[:, 1:].reshape(-1, num_nodes)
         return states
     
-
+    @validate_autorc_predict
     def AutoRC_predict(self, x: np.ndarray, fb_scale: float, T_run: int, feedback_indices: np.ndarray = None) -> np.ndarray:
         """
         Contains the prediction function for the AutoRC model along with the feedback mechanism.

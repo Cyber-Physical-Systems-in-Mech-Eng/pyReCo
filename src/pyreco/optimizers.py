@@ -3,6 +3,7 @@ import random
 from abc import ABC, abstractmethod
 
 from sklearn.linear_model import Ridge
+from pyreco.reservoir_wrapper import validate_ridge_params
 
 
 class Optimizer(ABC):
@@ -21,7 +22,7 @@ class Optimizer(ABC):
 class RidgeSK(Optimizer):
     # solves a linear regression model using sklearn's Ridge method,
     # see https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html
-
+    @validate_ridge_params
     def __init__(self, name: str = "", alpha=1.0):
         super().__init__(name)
         self.alpha = 1.0

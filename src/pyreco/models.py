@@ -11,6 +11,8 @@ import numpy as np
 from typing import Union
 from abc import ABC, abstractmethod
 
+from pyreco.reservoir_wrapper import validate_reservoir_params
+
 from .custom_models import RC, CustomModel
 from .layers import InputLayer, ReadoutLayer, RandomReservoirLayer
 from .metrics import mse, mae
@@ -80,6 +82,7 @@ A classical Reservoir Computer (basic vanilla version)
 class ReservoirComputer(Model):
     # implements a very classic random reservoir
 
+    @validate_reservoir_params
     def __init__(
         self,
         num_nodes: int = 100,
@@ -97,6 +100,7 @@ class ReservoirComputer(Model):
         optimizer: Union[str, Optimizer] = "ridge",
         init_res_sampling="random_normal",  # todo: implement a class for generating initial reservoir states
     ):
+        
         # initialize parent class
         super().__init__(
             num_nodes=num_nodes, activation=activation, leakage_rate=leakage_rate

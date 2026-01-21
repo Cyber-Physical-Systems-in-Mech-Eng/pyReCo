@@ -9,7 +9,26 @@ outputs y: [n_batch, n_timesteps, n_states]
 
 import numpy as np
 
+from pyreco.reservoir_wrapper import validate_sequence_params
+from pyreco.squence_registory import register_sequence
+
 # TODO: add Lorenz and other test cases (with potential limits to the number of states etc.)
+
+
+
+@register_sequence("sine_pred")
+def sine_pred_sequence(**kwargs):
+    return sine_pred(**kwargs)
+
+
+@register_sequence("sine_to_cosine")
+def sine_to_cosine_sequence(**kwargs):
+    return sine_to_cosine(**kwargs)
+
+
+@register_sequence("sin_to_cos2")
+def sincos2_sequence(**kwargs):
+    return sincos2(**kwargs)
 
 
 def gen_sine(n=10, omega=np.pi):
@@ -228,6 +247,7 @@ CASE 3: Sequence to sequence
 """
 
 
+@validate_sequence_params
 def sequence_to_sequence(name, n_batch: int = 50, n_states: int = 2, n_time: int = 3):
 
     # make sure to have at least 1 testing sample

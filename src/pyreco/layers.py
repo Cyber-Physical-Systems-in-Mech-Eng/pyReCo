@@ -14,6 +14,11 @@ from abc import ABC, abstractmethod
 import numpy as np
 import networkx as nx
 
+from pyreco.reservoir_wrapper import (
+    validate_feedback_params,
+    validate_input_params,
+    validate_output_params,
+    validate_random_reservoir_params)
 from pyreco.utils_networks import (
     gen_ER_graph,
     compute_density,
@@ -44,6 +49,7 @@ class InputLayer(Layer):
     # the state dimension of the input (irrespective if a time series or a vector was put in)
     # the actual read-in layer matrix will be created by model.compile()!
 
+    @validate_input_params
     def __init__(self, input_shape):
         # input shape is (n_timesteps, n_states)
         super().__init__()
@@ -87,7 +93,7 @@ class InputLayer(Layer):
 
 
 class ReadoutLayer(Layer):
-
+    @validate_output_params
     def __init__(self, output_shape, fraction_out=1.0):
         # expects output_shape = (n_timesteps, n_states)
         super().__init__()
@@ -123,7 +129,7 @@ class FeedbackLayer(Layer):
     # Shape of the read-in weights is: N x n_states, where N is the number of nodes in the reservoir, and n_states is
     # the state dimension of the input (irrespective if a time series or a vector was put in)
     # the actual read-in layer matrix will be created by mode.compile()!
-
+    @validate_feedback_params
     def __init__(self, feedback_shape):
         # input shape is (n_timesteps, n_states)
         super().__init__()
@@ -321,6 +327,7 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
 
 
 class RandomReservoirLayer(ReservoirLayer):
+    @validate_random_reservoir_params
     def __init__(
         self,
         nodes,

@@ -59,7 +59,7 @@ model_rc.add(InputLayer(input_shape=input_shape))
 model_rc.add(FeedbackLayer(feedback_shape=output_shape))
 model_rc.add(
     RandomReservoirLayer(
-        nodes=10, density=0.1, spec_rad=1.0, activation="tanh", leakage_rate=0.2, fraction_input=0.75),
+        nodes=100, density=0.8, spec_rad=1.0, activation="tanh", leakage_rate=0.2, fraction_input=0.6),
 )
 model_rc.add(ReadoutLayer(output_shape, fraction_out=0.1))
 
@@ -70,7 +70,7 @@ model_rc.AutoRC_compile(
     metrics=["mean_squared_error"],
     discard_transients=10
 )
-
+  
 # Train the model
 model_rc.fit(X_train, y_train)
 
@@ -81,7 +81,7 @@ y_pred = model_rc.predict(X_test)
 # autoRC predictions
 # X_test = X_train[:-2, :, :]  # use all but last time step for prediction
 # y_test = y_train[:-2, :, :]  # use all but last time step for prediction
-res_states, y_pred = model_rc.AutoRC_predict(X_test, fb_scale=1.0, T_run=3000)
+res_states, y_pred = model_rc.AutoRC_predict(X_test, fb_scale=1.0, T_run=1000)
 
 print(f"shape of predictions on test set: {y_pred.shape}")
 

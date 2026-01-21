@@ -80,11 +80,61 @@ def get_num_nodes(network: np.ndarray) -> int:
 
 
 def compute_spec_rad(network: np.ndarray) -> float:
+    if network is None:
+        return 0.0
+
+    # Check if network is valid
     if not isinstance(network, np.ndarray):
-        raise TypeError("adjacency matrix must be numpy.ndarray")
-    if network.shape[0] != network.shape[1]:
-        raise ValueError("adjacency matrix must be square")
-    return np.max(np.abs(np.linalg.eigvals(network)))
+        raise TypeError(f"Network must be numpy array, got {type(network)}")
+
+    if network.size == 0:
+        return 0.0
+
+    # Check for NaN or infinite values
+    if np.any(np.isnan(network)):
+        warnings.warn("Network contains NaN values. Setting spectral radius to 0.")
+        return 0.0
+
+    if np.any(np.isinf(network)):
+        warnings.warn("Network contains infinite values. Setting spectral radius to 0.")
+        return 0.0
+
+    # Ensure it's a square matrix
+    if network.ndim != 2 or network.shape[0] != network.shape[1]:
+        # If not square, compute largest singular value instead
+        try:
+            return np.linalg.norm(network, 2)  # 2-norm = largest singular value
+        except:
+            return 0.0
+
+    try:
+        # Compute eigenvalues safely
+        eigenvalues = np.linalg.eigvals(network)
+
+        # Check for NaN in eigenvalues
+        if np.any(np.isnan(eigenvalues)):
+            warnings.warn("Eigenvalues contain NaN. Using matrix norm instead.")
+            return np.linalg.norm(network, 2)
+
+        # Compute spectral radius
+        spec_rad = np.max(np.abs(eigenvalues))
+
+        # Handle very small spectral radius
+        if spec_rad < 1e-10:
+            spec_rad = 0.0
+
+        return spec_rad
+
+    except np.linalg.LinAlgError as e:
+        warnings.warn(f"Failed to compute eigenvalues: {e}. Using matrix norm instead.")
+        try:
+            return np.linalg.norm(network, 2)
+        except:
+            return 0.0
+    except Exception as e:
+        warnings.warn(f"Unexpected error computing spectral radius: {e}")
+        return 0.0
+
 
 def set_spec_rad(network: np.ndarray, spec_radius: float) -> np.ndarray:
     if not isinstance(network, np.ndarray):
@@ -261,7 +311,7 @@ def extract_av_out_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> flo
 
 
 def extract_clustering_coefficient(
-    graph: Union[np.ndarray, nx.Graph, nx.DiGraph]
+    graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
 ) -> float:
     graph = convert_to_nx_graph(graph)
     return nx.average_clustering(graph)
