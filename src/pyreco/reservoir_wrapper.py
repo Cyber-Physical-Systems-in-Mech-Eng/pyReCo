@@ -254,10 +254,6 @@ def validate_compile_params(func):
         self.epochs = kwargs.get("epochs", 100)
         self.verbose = kwargs.get("verbose", 1)
 
-        # Initialize optimizer if string was provided
-        if isinstance(optimizer, str):
-            self._initialize_optimizer()
-
         print(f"Model compiled with {self.optimizer_name} optimizer")
 
         # Call original compile method
