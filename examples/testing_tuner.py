@@ -1,19 +1,8 @@
 """
-test_tuner_rc_sine.py
 
 Showcase / tutorial script for using `pyreco.tuner.Tuner` with a Reservoir Computing (RC) model.
 
-What this script demonstrates
------------------------------
-1) How to build a simple RC model with the CustomModel API (InputLayer -> RandomReservoirLayer -> ReadoutLayer)
-2) How to run a BASELINE training/evaluation (no tuning)
-3) How to define a `search_space` for the Tuner (float / int / categorical / log-float)
-4) How to choose different Optuna samplers (tpe / random / grid)
-5) How to run tuning and compare performance BEFORE vs AFTER
-6) How to visualize predictions (sequence-to-sequence) on a longer time horizon
 
-Run:
-    python test_tuner_rc_sine.py
 """
 
 import copy
