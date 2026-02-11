@@ -127,20 +127,20 @@ class EdgeSelector:
             self.fraction = fraction
 
         # Finally pick the node according to the strategy
-        if self.strategy == "random_uniform_wo_repl":
+        if self.strategy == "random_uniform_wo_repl":  #TODO maybe store actual methods elsewhere?
             # random uniform WITHOUT replacement
 
             self.selected_edges = random.sample(
-                range(0, self.num_total_edgess), self.num_select_edges
+                self.edge_indices, self.num_select_edges
             )
 
-            if isinstance(self.graph_shape, int):
+            if isinstance(self.graph_shape, int): #TODO understand why graph shape is checked
                 # input was list, output will be list
                 return self.selected_edges
 
             elif isinstance(self.graph_shape, tuple) or isinstance(
                 self.graph_shape, list
-            ):
+            ):  #TODO understand why graph shape is checked
                 selected_graph = np.zeros(self.graph_shape).flatten()
                 selected_graph[self.selected_edges] = 1
                 self.selected_edges = np.reshape(selected_graph, self.graph_shape)
