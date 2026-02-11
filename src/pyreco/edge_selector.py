@@ -30,7 +30,7 @@ class EdgeSelector:
         Parameters:
         - graph (nx.Graph, optional): A NetworkX graph object. Graph must be provided #TODO graph is weight matrix right?
         #TODO adjacency matrix could also be passed
-        - strategy (str, optional): The strategy used for node selection. Currently implements "random_uniform_wo_repl".
+        - strategy (str, optional): The strategy used for edge selection. Currently implements "random_uniform_wo_repl".
 
         Raises:
         - TypeError: If graph is not a NetworkX graph.
@@ -126,7 +126,7 @@ class EdgeSelector:
             self.num_select_edges = round(self.num_total_edges * fraction)
             self.fraction = fraction
 
-        # Finally pick the node according to the strategy
+        # Finally pick the edges according to the strategy
         if self.strategy == "random_uniform_wo_repl":  #TODO maybe store actual methods elsewhere?
             # random uniform WITHOUT replacement
 
@@ -159,7 +159,8 @@ if __name__ == "__main__":
 
     # Create a sample graph
     G = nx.erdos_renyi_graph(10, 0.5)
-
+    # Graphs edges
+    print(f"Possible edges: {G.edges()}")
     # Select random edges
     selector = EdgeSelector(strategy="random_uniform_wo_repl", graph=G)
     random_edges = selector.select_edges(num=4)
