@@ -22,57 +22,47 @@ class EdgeSelector:
     def __init__(
         self,
         strategy: str = "random_uniform_wo_repl",
-        total_edges: int = None,
         graph: nx.Graph | np.ndarray = None,
     ):
         """
         Initializes the EdgeSelector object.
 
         Parameters:
-        - total_edges (int, optional): The total number of edges in the graph. Must be a positive integer.
-        - graph (nx.Graph, optional): A NetworkX graph object. Either total_edges or graph must be provided, not both.
-        #TODO See if passing of total_edges even makes sense and adjust in rest of code accordingly
+        - graph (nx.Graph, optional): A NetworkX graph object. Graph must be provided #TODO graph is weight matrix right?
+        #TODO adjacency matrix could also be passed
         - strategy (str, optional): The strategy used for node selection. Currently implements "random_uniform_wo_repl".
 
         Raises:
-        - ValueError: If both total_edges and graph are provided, or if neither is provided.
-        - TypeError: If total_edges is not an integer or if graph is not a NetworkX graph.
-        - ValueError: If total_edges is not a positive integer.
+        - TypeError: If graph is not a NetworkX graph.
 
         ToDo: let the method also accept adjacency matrices (np.ndarray)
         """
 
         # Sanity checks
-        if total_edges is not None and graph is not None:
-            raise ValueError("Specify either total_edges or graph, not both")
-
-        if total_edges is not None:
-            if not isinstance(total_edges, int):
-                raise TypeError("total_edges must be a positive integer")
-            elif total_edges <= 0:
-                raise ValueError("total_edges must be a positive integer")
-            graph_shape = total_edges
-        elif graph is not None:
+        if graph is not None:
             if not isinstance(graph, nx.Graph) and not isinstance(graph, np.ndarray):
                 raise TypeError("graph must be a networkx graph or np.ndarray")
-            # TODO work put this adjustment
-            if isinstance(graph, nx.Graph):
-                total_edges = graph.number_of_edges()
-                total_nodes = graph.number_of_nodes()
-                graph_shape = total_nodes
-            elif isinstance(graph, np.ndarray):
-                total_edges = np.count_nonzero(graph) #TODO check if I need to half for undirected graph
-                graph_shape = graph.shape
         else:
-            raise ValueError("Either total_edges or graph must be provided")
+            raise ValueError("Graph must be provided")
 
         if strategy != "random_uniform_wo_repl":
             raise NotImplementedError(
                 "Only random w/o replacement ('random_uniform_wo_repl') strategy is implemented"
             )
 
+        # Prunable edges in graph
+        if isinstance(graph, nx.Graph):
+            edge_indices = list(graph.edges()) #TODO rethink when awake if node connections are equivalent to indices but I think so
+            graph_shape = graph.number_of_nodes()  # total nodes
+        elif isinstance(graph, np.ndarray):
+            rows, cols = np.where(graph != 0)  # where entries are not zero
+            edge_indices = list(zip(rows, cols))
+            graph_shape = graph.shape
+
         # Assign values to attributes
-        self.num_total_edges: int = total_edges
+        self.graph = graph
+        self.edge_indices = edge_indices
+        self.num_total_edges: int = len(self.edge_indices)
         self.graph_shape = graph_shape
         self.num_select_edges: int = 0
         self.fraction: float = 0.0
