@@ -1,6 +1,7 @@
 import numpy as np
 from abc import ABC
 from typing import Union
+import networkx as nx
 import copy
 import multiprocessing
 from functools import partial
@@ -659,9 +660,35 @@ class CustomModel(ABC):
 
         # TODO: any more attributes to change here?
 
+    def remove_reservoir_edges(self, edges: list):
+        """
+        Removes specific edges from the reservoir weights.
+
+        Parameters:
+        - edges (list): List of tuples [(u, v), ...] representing edges to remove.
+        """
+        if not isinstance(edges, list):
+            raise TypeError("Edges must be provided as a list of tuples (u, v).")
+
+        # If weights are a NetworkX Graph
+        if isinstance(self.reservoir_layer.weights, nx.Graph):
+            self.reservoir_layer.weights.remove_edges_from(edges)
+
+        # If weights are a NumPy Array (Adjacency Matrix)
+        elif isinstance(self.reservoir_layer.weights, np.ndarray):
+            #print(edges)
+            for u, v in edges:
+                self.reservoir_layer.weights[u, v] = 0
+                #TODO If undirected, also remove the symmetric edge
+                # self.weights[v, u] = 0
+        #TODO check if input receving node can still access rest of the reservoir
+        #TODO maybe make protection rules for pruner regarding input receveiving nodes, bias to output, etc.?
+        else:
+            raise TypeError("Reservoir weights must be NetworkX or NumPy array.")
+
     """
     The setter methods are used to set the parameters of the model.
-    """
+    """    
 
     def _set_readin_weights(self, weights: Union[list, np.ndarray]):
         """
