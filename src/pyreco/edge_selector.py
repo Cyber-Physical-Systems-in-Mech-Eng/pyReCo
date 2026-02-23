@@ -61,6 +61,7 @@ class EdgeSelector:
 
         # Assign values to attributes
         self.graph = graph
+        #print(self.graph)
         self.edge_indices = edge_indices
         self.num_total_edges: int = len(self.edge_indices)
         self.graph_shape = graph_shape
@@ -141,9 +142,9 @@ class EdgeSelector:
             elif isinstance(self.graph_shape, tuple) or isinstance(
                 self.graph_shape, list
             ):  #TODO understand why graph shape is checked
-                selected_graph = np.zeros(self.graph_shape).flatten()
-                selected_graph[self.selected_edges] = 1
-                self.selected_edges = np.reshape(selected_graph, self.graph_shape)
+                #selected_graph = np.zeros(self.graph_shape).flatten()
+                #selected_graph[self.selected_edges] = 1
+                #self.selected_edges = np.reshape(selected_graph, self.graph_shape)
 
                 return self.selected_edges
 
