@@ -30,8 +30,6 @@ class EdgeSelector:
         List of all edge indices in the graph.
     num_total_edges : int
         The total number of edges in the graph.
-    graph_shape : int or tuple
-        Number of nodes for nx.Graph, or array shape for np.ndarray.
     num_select_edges : int
         The number of edges to select. Set after calling select_edges.
     fraction : float
@@ -67,14 +65,13 @@ class EdgeSelector:
         self._validate_strategy(strategy)
 
         # Get the edges and shape of the graph
-        edge_indices, graph_shape = self._extract_edges(graph, directed)   # TODO rethink if graph_shape is really needed
+        edge_indices = self._extract_edges(graph, directed)
 
         # Assign values to attributes
         self.graph = graph
         self.directed = directed
         self.edge_indices = edge_indices
         self.num_total_edges: int = len(self.edge_indices)
-        self.graph_shape = graph_shape
         self.num_select_edges: int = None
         self.fraction: float = None
         self.strategy = getattr(self, self.STRATEGIES[strategy])
@@ -117,7 +114,7 @@ class EdgeSelector:
         self._validate_selection_args(fraction, num)
 
         # Assign values to class attributes
-        # calculate number of edges to select or fraction #TODO rethink if fraction really needs to be an attribute when only num_total_edges is used
+        # calculate number of edges to select or fraction
         self.num_select_edges = num if num is not None else round(self.num_total_edges * fraction)
         self.fraction = fraction if fraction is not None else num / self.num_total_edges
 
@@ -257,22 +254,18 @@ class EdgeSelector:
         -------
         edge_indices : list of tuple
             List of (source, target) tuples representing all edges.
-        graph_shape : int or tuple
-            Number of nodes for nx.Graph, or array shape for np.ndarray.
         '''
         # Get the edges in the graph and the shape of the graph
         # Prunable edges in graph
         if isinstance(graph, nx.Graph):
             edge_indices = list(graph.edges())
-            graph_shape = graph.number_of_nodes()  # total nodes
-            return edge_indices, graph_shape
+            return edge_indices
         elif isinstance(graph, np.ndarray):
             rows, cols = np.where(graph != 0)  # where entries are not zero
             edge_indices = list(zip(rows, cols))
             if not directed:
                 edge_indices = [(r, c) for r, c in edge_indices if r < c]
-            graph_shape = graph.shape    # TODO rethink if graph shape is really needed
-            return edge_indices, graph_shape
+            return edge_indices
 
 
 if __name__ == "__main__":
