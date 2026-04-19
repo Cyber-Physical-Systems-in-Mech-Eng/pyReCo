@@ -5,26 +5,60 @@ from typing import Union
 
 
 class EdgeSelector:
-    """
+    '''
     A class to select edges from a graph based on specific criteria.
 
-    This class provides functionality to select a subset of edges from a total number of edges
-    using different strategies. Currently, only the "random without replacement" strategy is implemented.
+    Provides functionality to select a subset of edges from a graph
+    using different sampling strategies.
 
-    Attributes:
-    - num_total_edges (int): The total number of edges in the graph.
-    - num_select_edges (int): The number of edges to select.
-    - fraction (float): The fraction of edges to select.
-    - strategy (str): The strategy used for edge selection.
-    - selected_edges (list): The list of selected edges.
-    """
+    Parameters
+    ----------
+    graph : nx.Graph or np.ndarray
+        A NetworkX graph or adjacency matrix to select edges from.
+    strategy : str, optional
+        The strategy used for edge selection.
+        Default is "random_uniform_wo_repl".
+
+    Attributes
+    ----------
+    graph : nx.Graph or np.ndarray ## TODO check the undirected/direct graph thing again. This affects this code. I believe networkx handles it internally, but if we're accepting adjacency matrices we need to rethink
+        The input graph.
+    edge_indices : list of tuple
+        List of all edge indices in the graph.
+    num_total_edges : int
+        The total number of edges in the graph.
+    graph_shape : int or tuple
+        Number of nodes for nx.Graph, or array shape for np.ndarray.
+    num_select_edges : int
+        The number of edges to select. Set after calling select_edges.
+    fraction : float
+        The fraction of edges to select. Set after calling select_edges.
+    strategy : callable
+        The bound method corresponding to the selected strategy.
+    selected_edges : list
+        The list of selected edges. Set after calling select_edges.
+
+    Raises
+    ------
+    TypeError
+        If graph is not a nx.Graph or np.ndarray.
+    ValueError
+        If graph is None.
+    NotImplementedError
+        If the requested strategy is not implemented.
+    '''
+
+    # Selection strategies implemented
+    STRATEGIES = {
+        "random_uniform_wo_repl": "_random_uniform_wo_repl",
+    }
 
     def __init__(
         self,
-        strategy: str = "random_uniform_wo_repl",
         graph: nx.Graph | np.ndarray = None,
+        strategy: str = "random_uniform_wo_repl",
     ):
-        """
+        '''
         Initializes the EdgeSelector object.
 
         Parameters:
@@ -36,28 +70,14 @@ class EdgeSelector:
         - TypeError: If graph is not a NetworkX graph.
 
         ToDo: let the method also accept adjacency matrices (np.ndarray)
-        """
+        '''
 
-        # Sanity checks
-        if graph is not None:
-            if not isinstance(graph, nx.Graph) and not isinstance(graph, np.ndarray):
-                raise TypeError("graph must be a networkx graph or np.ndarray")
-        else:
-            raise ValueError("Graph must be provided")
+        # Sanity checks for passed graph and selection strategy
+        self._validate_graph(graph)
+        self._validate_strategy(strategy)
 
-        if strategy != "random_uniform_wo_repl":
-            raise NotImplementedError(
-                "Only random w/o replacement ('random_uniform_wo_repl') strategy is implemented"
-            )
-
-        # Prunable edges in graph
-        if isinstance(graph, nx.Graph):
-            edge_indices = list(graph.edges()) #TODO rethink when awake if node connections are equivalent to indices but I think so
-            graph_shape = graph.number_of_nodes()  # total nodes
-        elif isinstance(graph, np.ndarray):
-            rows, cols = np.where(graph != 0)  # where entries are not zero
-            edge_indices = list(zip(rows, cols))
-            graph_shape = graph.shape
+        # Get the edges and shape of the graph
+        edge_indices, graph_shape = self._extract_edges(graph)   # TODO rethink if graph_shape is really needed
 
         # Assign values to attributes
         self.graph = graph
@@ -65,9 +85,9 @@ class EdgeSelector:
         self.edge_indices = edge_indices
         self.num_total_edges: int = len(self.edge_indices)
         self.graph_shape = graph_shape
-        self.num_select_edges: int = 0
-        self.fraction: float = 0.0
-        self.strategy: str = strategy
+        self.num_select_edges: int = None      # TODO rethink if None is better and more coherent with select_edges method
+        self.fraction: float = None          # TODO rethink if None is better and more coherent with select_edges method
+        self.strategy = getattr(self, self.STRATEGIES[strategy])
         self.selected_edges: list = []
 
     def select_edges(
@@ -75,88 +95,187 @@ class EdgeSelector:
         fraction: float = None,
         num: int = None,
     ):
-        """
-        Selects a specified number of edges from the graph either by fraction or by exact number.
+        '''
+        Select a subset of edges from the graph.
 
-        Parameters:
-        - fraction (float, optional): The fraction of the total edges to select. Must be between 0 and 1.
-        - num (int, optional): The exact number of edges to select. Must be a positive integer.
+        Parameters
+        ----------
+        fraction : float, optional
+            Fraction of total edges to select. Must be in (0, 1].
+            Mutually exclusive with num.
+        num : int, optional
+            Exact number of edges to select. Must be a positive integer
+            no greater than the total number of edges.
+            Mutually exclusive with fraction.
 
-        Raises:
-        - ValueError: If neither or both of fraction and num are provided.
-        - TypeError: If num is not an integer.
+        Returns
+        -------
+        list of tuple
+            List of selected edge indices as (source, target) tuples.
 
-        Returns:
-        - list: A list of selected edges identifiers.
-        """
+        Raises
+        ------
+        ValueError
+            If neither or both of fraction and num are provided.
+        TypeError
+            If num is not an integer, or fraction is not a float.
+        ValueError
+            If num is not in [1, num_total_edges], or fraction not in (0, 1].
+        '''
 
-        # potentially implemement more advanced selectors that inherit form the base class for degree-based selection or others.
-
-        # Sanity checks
-
-        if fraction is not None and not isinstance(fraction, float):
-            raise TypeError("fraction must be a float in the range (0, 1]")
-
-        if (num is not None) and (not isinstance(num, int)):
-            raise TypeError("num must be an integer")
-
-        if (num is not None) and ((num > self.num_total_edges) or (num <= 0)):
-            raise ValueError(
-                "number of edges to select must be maximum number of total edges, and larger than 0"
-            )
-
-        if (fraction is None) and (num is None):
-            raise ValueError(
-                "Either <fraction> of edges to select or <num> number of edges must be provided"
-            )
-
-        if (fraction is not None) and (num is not None):
-            raise ValueError(
-                "Either <fraction> of edges to select or <num> number of edges must be provided, not both"
-            )
-
-        if (num is None) and (fraction is not None):
-            if fraction > 1.0 or fraction <= 0.0:
-                raise ValueError("fraction must be larger than 0 and smaller than 1")
+        # Sanity checks for passed fraction and num of edges
+        self._validate_selection_args(fraction, num)
 
         # Assign values to class attributes
-        if (fraction is None) and (num > 0):
-            self.num_select_edges = num
-            self.fraction = num / self.num_total_edges
-        elif (fraction is not None) and (num is None):
-            self.num_select_edges = round(self.num_total_edges * fraction)
-            self.fraction = fraction
+        # calculate number of edges to select or fraction #TODO rethink if fraction really needs to be an attribute when only num_total_edges is used
+        self.num_select_edges = num if num is not None else round(self.num_total_edges * fraction)
+        self.fraction = fraction if fraction is not None else num / self.num_total_edges
 
-        # Finally pick the edges according to the strategy
-        if self.strategy == "random_uniform_wo_repl":  #TODO maybe store actual methods elsewhere?
-            # random uniform WITHOUT replacement
+        self.selected_edges = self.strategy()
 
-            self.selected_edges = random.sample(
-                self.edge_indices, self.num_select_edges
-            )
+        return self.selected_edges
 
-            if isinstance(self.graph_shape, int): #TODO understand why graph shape is checked
-                # input was list, output will be list
-                return self.selected_edges
+    def _random_uniform_wo_repl(self):
+        '''
+        Select edges by uniform random sampling without replacement.
 
-            elif isinstance(self.graph_shape, tuple) or isinstance(
-                self.graph_shape, list
-            ):  #TODO understand why graph shape is checked
-                #selected_graph = np.zeros(self.graph_shape).flatten()
-                #selected_graph[self.selected_edges] = 1
-                #self.selected_edges = np.reshape(selected_graph, self.graph_shape)
+        Samples num_select_edges edges uniformly at random from
+        edge_indices without replacement.
 
-                return self.selected_edges
+        Returns
+        -------
+        list of tuple
+            Randomly sampled edge indices as (source, target) tuples.
+        '''
 
-            else:
-                raise ValueError("The graph shape/type is not supported")
+        return random.sample(self.edge_indices, self.num_select_edges)
+
+    def _validate_graph(self, graph):
+        '''
+        Validate the graph passed to the class.
+
+        Parameters
+        ----------
+        graph : any
+            The graph object to validate.
+
+        Raises
+        ------
+        TypeError
+            If graph is not a nx.Graph or np.ndarray.
+        ValueError
+            If graph is None.
+        '''
+        if graph is not None:
+            if not isinstance(graph, nx.Graph) and not isinstance(graph, np.ndarray):
+                raise TypeError("graph must be a networkx graph or np.ndarray")
         else:
+            raise ValueError("Graph must be provided")
+
+    def _validate_strategy(self, strategy):
+        '''
+        Validate the strategy passed to the class.
+
+        Parameters
+        ----------
+        strategy : str
+            The strategy name to validate.
+
+        Raises
+        ------
+        NotImplementedError
+            If strategy is not a key in STRATEGIES.
+        '''
+        if strategy not in self.STRATEGIES:
             raise NotImplementedError(
-                "Only random w/o replacement ('random_uniform_wo_repl') strategy is implemented"
+                f"Unknown strategy '{strategy}'. Available strategies: {list(self.STRATEGIES)}"
             )
+
+    def _validate_selection_args(self, fraction, num):
+        '''
+        Validate the arguments passed to select_edges.
+
+        Parameters
+        ----------
+        fraction : float or None
+            Fraction of edges to select.
+        num : int or None
+            Exact number of edges to select.
+
+        Raises
+        ------
+        ValueError
+            If neither or both of fraction and num are provided.
+            If num is not in [1, num_total_edges].
+            If fraction is not in (0, 1].
+        TypeError
+            If num is not an integer.
+            If fraction is not a float.
+        '''
+
+        # check that either fraction or num is provided
+        if fraction is None and num is None:
+            raise ValueError('Provide either fraction or num, not neither')
+
+        if fraction is not None and num is not None:
+            raise ValueError('Provide either fraction or num, not both')
+
+        # check that selected num is an integer and not larger than total amount of edges in graph
+        if num is not None:
+            if not isinstance(num, int):
+                raise TypeError('num must be an integer')
+            if not (0 < num <= self.num_total_edges):
+                raise ValueError(f'num must be between 1 and {self.num_total_edges}')
+
+        # check that selected fraction is a float and larger than zero but not larger than 1
+        if fraction is not None:
+            if not isinstance(fraction, float):
+                raise TypeError('fraction must be a float')
+            if not (0.0 < fraction <= 1.0):
+                raise ValueError('fraction must be in (0, 1]')
+
+    def _extract_edges(self, graph: nx.Graph | np.ndarray) -> list[tuple]:
+        '''
+        Extract edge indices and shape information from a graph.
+
+        Parameters
+        ----------
+        graph : nx.Graph or np.ndarray
+            The graph to extract edges from.
+
+        Returns
+        -------
+        edge_indices : list of tuple
+            List of (source, target) tuples representing all edges.
+        graph_shape : int or tuple
+            Number of nodes for nx.Graph, or array shape for np.ndarray.
+        '''
+        # Get the edges in the graph and the shape of the graph
+        # Prunable edges in graph     
+        if isinstance(graph, nx.Graph):
+            edge_indices = list(graph.edges())    # TODO rethink when awake if node connections are equivalent to indices but I think so
+            graph_shape = graph.number_of_nodes()  # total nodes
+            return edge_indices, graph_shape
+        elif isinstance(graph, np.ndarray):
+            rows, cols = np.where(graph != 0)  # where entries are not zero
+            edge_indices = list(zip(rows, cols))
+            graph_shape = graph.shape    # TODO rethink if graph shape is really needed
+            return edge_indices, graph_shape
 
 
 if __name__ == "__main__":
+
+    # Create a sample graph
+    G = nx.erdos_renyi_graph(10, 0.5)
+    print(G.edges())        # all edges
+    print(G.number_of_edges())  # total edge count
+    print(G.number_of_nodes())  # total node count
+    # Graphs edges
+    print(f"Possible edges: {G.edges()}")
+    # Select random edges
+    selector = EdgeSelector(strategy="random_uniform_wo_repl", graph=G)
+    random_edges = selector.select_edges(num=4)
+    print(f"Randomly selected edges: {random_edges}")
 
     # Create a sample graph
     G = nx.erdos_renyi_graph(10, 0.5)
@@ -164,5 +283,5 @@ if __name__ == "__main__":
     print(f"Possible edges: {G.edges()}")
     # Select random edges
     selector = EdgeSelector(strategy="random_uniform_wo_repl", graph=G)
-    random_edges = selector.select_edges(num=4)
+    random_edges = selector.select_edges(fraction=0.5)
     print(f"Randomly selected edges: {random_edges}")
