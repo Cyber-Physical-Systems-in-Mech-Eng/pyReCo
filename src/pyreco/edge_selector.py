@@ -1,7 +1,7 @@
 import random
 import networkx as nx
 import numpy as np
-from typing import Union
+import warnings
 
 
 class EdgeSelector:
@@ -21,8 +21,11 @@ class EdgeSelector:
 
     Attributes
     ----------
-    graph : nx.Graph or np.ndarray ## TODO check the undirected/direct graph thing again. This affects this code. I believe networkx handles it internally, but if we're accepting adjacency matrices we need to rethink
+    graph : nx.Graph or np.ndarray
         The input graph.
+    directed : bool, optional
+        Whether the graph is directed. Only used for np.ndarray inputs.
+        Default is True.
     edge_indices : list of tuple
         List of all edge indices in the graph.
     num_total_edges : int
@@ -57,36 +60,23 @@ class EdgeSelector:
         self,
         graph: nx.Graph | np.ndarray = None,
         strategy: str = "random_uniform_wo_repl",
+        directed: bool = False,
     ):
-        '''
-        Initializes the EdgeSelector object.
-
-        Parameters:
-        - graph (nx.Graph, optional): A NetworkX graph object. Graph must be provided #TODO graph is weight matrix right?
-        #TODO adjacency matrix could also be passed
-        - strategy (str, optional): The strategy used for edge selection. Currently implements "random_uniform_wo_repl".
-
-        Raises:
-        - TypeError: If graph is not a NetworkX graph.
-
-        ToDo: let the method also accept adjacency matrices (np.ndarray)
-        '''
-
         # Sanity checks for passed graph and selection strategy
-        self._validate_graph(graph)
+        self._validate_graph(graph, directed)
         self._validate_strategy(strategy)
 
         # Get the edges and shape of the graph
-        edge_indices, graph_shape = self._extract_edges(graph)   # TODO rethink if graph_shape is really needed
+        edge_indices, graph_shape = self._extract_edges(graph, directed)   # TODO rethink if graph_shape is really needed
 
         # Assign values to attributes
         self.graph = graph
-        #print(self.graph)
+        self.directed = directed
         self.edge_indices = edge_indices
         self.num_total_edges: int = len(self.edge_indices)
         self.graph_shape = graph_shape
-        self.num_select_edges: int = None      # TODO rethink if None is better and more coherent with select_edges method
-        self.fraction: float = None          # TODO rethink if None is better and more coherent with select_edges method
+        self.num_select_edges: int = None
+        self.fraction: float = None
         self.strategy = getattr(self, self.STRATEGIES[strategy])
         self.selected_edges: list = []
 
@@ -150,7 +140,7 @@ class EdgeSelector:
 
         return random.sample(self.edge_indices, self.num_select_edges)
 
-    def _validate_graph(self, graph):
+    def _validate_graph(self, graph, directed):
         '''
         Validate the graph passed to the class.
 
@@ -158,6 +148,9 @@ class EdgeSelector:
         ----------
         graph : any
             The graph object to validate.
+        directed : bool
+            Whether the graph is directed. Used to verify consistency with
+            nx.Graph/nx.DiGraph types, and to warn about symmetric np.ndarray inputs.
 
         Raises
         ------
@@ -165,10 +158,27 @@ class EdgeSelector:
             If graph is not a nx.Graph or np.ndarray.
         ValueError
             If graph is None.
+            If directed=True but an undirected nx.Graph is passed.
+            If directed=False but a directed nx.DiGraph is passed.
+
+        Warns
+        -----
+        UserWarning
+        If a directed np.ndarray appears symmetric, which may indicate
+        the graph type was incorrectly specified.
         '''
         if graph is not None:
             if not isinstance(graph, nx.Graph) and not isinstance(graph, np.ndarray):
                 raise TypeError("graph must be a networkx graph or np.ndarray")
+
+            if isinstance(graph, nx.Graph):
+                if directed and not isinstance(graph, nx.DiGraph):
+                    raise ValueError("directed=True but graph is undirected nx.Graph, use nx.DiGraph instead")
+                if not directed and isinstance(graph, nx.DiGraph):
+                    raise ValueError("directed=False but graph is directed nx.DiGraph, use nx.Graph instead")
+
+            if directed and isinstance(graph, np.ndarray) and np.array_equal(graph, graph.T):
+                warnings.warn("directed graph appears symmetric, verify this is intended")
         else:
             raise ValueError("Graph must be provided")
 
@@ -234,7 +244,7 @@ class EdgeSelector:
             if not (0.0 < fraction <= 1.0):
                 raise ValueError('fraction must be in (0, 1]')
 
-    def _extract_edges(self, graph: nx.Graph | np.ndarray) -> list[tuple]:
+    def _extract_edges(self, graph: nx.Graph | np.ndarray, directed) -> list[tuple]:
         '''
         Extract edge indices and shape information from a graph.
 
@@ -251,14 +261,16 @@ class EdgeSelector:
             Number of nodes for nx.Graph, or array shape for np.ndarray.
         '''
         # Get the edges in the graph and the shape of the graph
-        # Prunable edges in graph     
+        # Prunable edges in graph
         if isinstance(graph, nx.Graph):
-            edge_indices = list(graph.edges())    # TODO rethink when awake if node connections are equivalent to indices but I think so
+            edge_indices = list(graph.edges())
             graph_shape = graph.number_of_nodes()  # total nodes
             return edge_indices, graph_shape
         elif isinstance(graph, np.ndarray):
             rows, cols = np.where(graph != 0)  # where entries are not zero
             edge_indices = list(zip(rows, cols))
+            if not directed:
+                edge_indices = [(r, c) for r, c in edge_indices if r < c]
             graph_shape = graph.shape    # TODO rethink if graph shape is really needed
             return edge_indices, graph_shape
 
