@@ -33,9 +33,10 @@ class EdgePruner:
         #edge_selection_strat: str = None,
         candidate_fraction: float = 0.1,
         pruning_criterion: str = 'performance',
-        #stopping_criterion: str = None,
+        stopping_criterion: list = ['patience'],
         stop_at_minimum: bool = True,
         min_num_nodes: int = 3,
+        min_num_edges: int = 3,
         patience: int = 0,
         criterion: str = "mse",
         metrics: Union[list, str] = ["mse"],
@@ -107,6 +108,7 @@ class EdgePruner:
         
         # TODO Maybe make function just validating all intialization params
         #self._validate_pruning_criterion(pruning_criterion)
+        #self._validate_stopping_criterion(stopping_criterion)
         #self.scoring_strategy = pruning_criterion
 
         # Assigning the parameters to instance variables
@@ -114,6 +116,7 @@ class EdgePruner:
         self.criterion = criterion
         self.stop_at_minimum = stop_at_minimum
         self.min_num_nodes = min_num_nodes
+        self.min_num_edges = min_num_edges
         self.patience = patience
         self.candidate_fraction = candidate_fraction
         self.metrics = metrics
@@ -122,6 +125,7 @@ class EdgePruner:
         self.node_analyzer = node_analyzer
         #### TODO this is only for testingf
         self.pruning_criterion = pruning_criterion
+        self.stopping_criterion = stopping_criterion
 
         # TODO not implemented yet
         self.remove_isolated_nodes = remove_isolated_nodes
@@ -176,16 +180,13 @@ class EdgePruner:
         # initialize the pruning iterator
         self._iter_count = 0
 
-        # Store all relevant information during pruning inside self.history
-        # self._update_pruning_history(model=model)
-        self.add_val_to_history(["loss"], self._curr_loss)
-        self.add_val_to_history(["metrics"], self._curr_metrics)
-        self.add_val_to_history(["num_nodes"], self._curr_num_nodes)
-        self.add_val_to_history(["iteration"], self._iter_count)
-
         _graph = model.reservoir_layer.weights
         _graph_props = self.graph_analyzer.extract_properties(graph=_graph)
-        self.add_dict_to_history(["graph_props"], _graph_props)
+
+        # Initialize history with important data
+        self._intialize_history(_graph_props)
+
+        # self.add_dict_to_history(["graph_props"], _graph_props)
 
         # Save the starting reservoir
         self.history["starting_reservoir"] = {
@@ -211,30 +212,29 @@ class EdgePruner:
             _candidate_scores, _candidate_models, _cand_graph_props_after = \
                 self._apply_pruning_strategy(model, _curr_candidates, x_train, y_train, x_test, y_test)
 
-            # Select candidate with best score and get according model
+            # Out of all candidates select candidate with best score (the one to prune)
+            idx_prune, pruned_candidate = self._get_best_candidate(_curr_candidates, _candidate_scores)
+            self._curr_idx_prune = idx_prune
+            # self._get_best_candidate_model_properties(_candidate_scores, _candidate_models)
 
-            #after trying out all candidate nodes, we need to select the node to prune,
-            #i.e. the one that has the smallest loss among all candidate nodes
-            idx_prune = np.argmin(_candidate_scores)
-            #idx_prune = self._performance_pruning(model, _curr_candidates, x_train, y_train, x_test, y_test)
-            self._curr_idx_prune = idx_prune 
-            pruned_candidate =  _curr_candidates[idx_prune]# just for history logging
-
-            # update the termination relevant quantities,
-            # assuming that we will prune that node
-            self._curr_loss = _candidate_scores[idx_prune]
-            self._curr_num_nodes = _candidate_models[idx_prune].reservoir_layer.nodes
+            # Get model properties of selected candidate and update the termination relevant quantities
+            curr_loss, curr_num_nodes = self._get_best_candidate_model_properties(idx_prune, _candidate_scores, _candidate_models)
+            self._curr_loss = curr_loss
+            self._curr_num_nodes = curr_num_nodes
+            #TODO self._curr_num_edges = ....
             self._curr_loss_history.append(self._curr_loss)
 
-            # check if we should actually prune the node, or if that would violate the termination criteria (no optimal design by now to do it here though)
-            if not self._keep_pruning():
-
-                # exit the pruning loop
+            # Check stopping criterion on to be pruned candidate model properties
+            # If termination criteria would be violated by pruning candidate we stop pruning
+            # TODO (no optimal design by now to do it here though)
+            #if not self._keep_pruning():
+            if self._check_stopping_criterion():
+                # Exit pruning loop if stopping criterion condition is met
                 break
 
-            print(f"pruning candidate {pruned_candidate}, resulting in loss {self._curr_loss:.6f}")
+            print(f'Pruning candidate {pruned_candidate}, resulting in loss {self._curr_loss:.6f}')
             print(
-                f"loss improvement by {((self._curr_loss_history[-2]-self._curr_loss)/self._curr_loss_history[-2]):+.3%}\n"
+                f'loss improvement by {((self._curr_loss_history[-2]-self._curr_loss)/self._curr_loss_history[-2]):+.3%}\n'
             )
 
             # prune the node that gives us the least performance drop. as we have already
@@ -251,27 +251,8 @@ class EdgePruner:
                 x=x_test, y=y_test, metrics=self.metrics
             )
 
-            # self._update_pruning_history
-
-            self.add_val_to_history(["loss"], self._curr_loss)
-            self.add_val_to_history(["metrics"], self._curr_metrics)
-            self.add_val_to_history(["num_nodes"], self._curr_num_nodes)
-            self.add_val_to_history(["idx_prune"], self._curr_idx_prune)
-            self.add_val_to_history(["iteration"], self._iter_count)
-
-            self.add_dict_to_history(
-                ["graph_props"], _cand_graph_props_after[idx_prune]
-            )
-
-            # Data I want to save pruning details and weight snapshot ---
-            # Save winner candidate and full candidate list for analysis
-            self.add_val_to_history(["pruning_analysis", "winner"], _curr_candidates[idx_prune])
-            self.add_val_to_history(["pruning_analysis", "candidates"], _curr_candidates)
-            self.add_val_to_history(["pruning_analysis", "candidate_scores"], _candidate_scores)
-            # Save snapshot of reservoir weights/connections 
-            _w_curr = model.reservoir_layer.weights
-            snapshot = sp.csr_matrix(_w_curr) if isinstance(_w_curr, np.ndarray) else nx.to_scipy_sparse_array(_w_curr)
-            self.add_val_to_history(["weight_snapshots"], snapshot)
+            # Store important data after pruning in history
+            self._update_history_after_prune_iter(model, idx_prune, _curr_candidates, _candidate_scores, _cand_graph_props_after)
 
             # update counter
             self._iter_count += 1
@@ -281,22 +262,32 @@ class EdgePruner:
         if self.return_best_model:
             idx_best = np.argmin(self._curr_loss_history[:-1])
             model = copy.deepcopy(_pruned_models[idx_best])
-            print(f"returning model {idx_best} as the best, i.e. with lowest loss")
+            print(f"Returning model {idx_best} as the best (with lowest loss)")
 
         # we should fit the final model, and evaluate it
         model.fit(x=x_train, y=y_train)
         final_loss = model.evaluate(x=x_test, y=y_test, metrics=self.criterion)[0]
         final_metrics = model.evaluate(x=x_test, y=y_test, metrics=self.metrics)
         print(
-            f"\ninitial loss{self._curr_loss_history[0]:.6f}, loss after pruning: {final_loss:.6f}"
+            f"\nInitial loss{self._curr_loss_history[0]:.6f}, loss after pruning: {final_loss:.6f}"
         )
-        print(f"final model has {model.reservoir_layer.nodes} nodes")
-        print(f"final model loss {self.criterion}: {final_loss:.6f}")
-        print(f"final model metrics ({self.metrics}): {final_metrics}")
+        print(f"Final model has {model.reservoir_layer.nodes} nodes")
+        print(f"Final model loss {self.criterion}: {final_loss:.6f}")
+        print(f"Final model metrics ({self.metrics}): {final_metrics}")
         return model, self.history
     
 
     ######### PRUNING STEPS FUNCTIONS #########
+
+    def _intialize_history(self, graph_props):
+        # Store all relevant information during pruning inside self.history
+        # self._update_pruning_history(model=model)
+        self.add_val_to_history(["loss"], self._curr_loss)
+        self.add_val_to_history(["metrics"], self._curr_metrics)
+        self.add_val_to_history(["num_nodes"], self._curr_num_nodes)
+        self.add_val_to_history(["iteration"], self._iter_count)
+
+        self.add_dict_to_history(["graph_props"], graph_props)
 
     def _get_candidates(self, graph):
         ## print(type(graph).__name__)print(np.array_equal(graph, graph.T))print(graph)print(_graph)print(_graph.shape)
@@ -320,27 +311,49 @@ class EdgePruner:
         method = getattr(self, self.PRUNING_CRITERION[self.pruning_criterion])
         return method(model, candidates, x_train, y_train, x_test, y_test)
 
-    def _get_best_candidate(self):
-        pass
+    def _get_best_candidate(self, candidates, candidate_scores):
+        idx_prune = np.argmin(candidate_scores)
+        pruned_candidate = candidates[idx_prune]  # just for history logging
+
+        return idx_prune, pruned_candidate
+
+    def _get_best_candidate_model_properties(self, candidate_idx, candidate_scores, candidate_models):
+        curr_loss = candidate_scores[candidate_idx]
+        curr_num_nodes = candidate_models[candidate_idx].reservoir_layer.nodes
+
+        return curr_loss, curr_num_nodes
 
     def _check_stopping_criterion(self):
-        pass
+        for criterion in self.stopping_criterion:
+            method = getattr(self, self.STOPPING_CRITERION[criterion])
+            if not method():
+                # Criterion is met
+                return True
+        # Criterion is not met
+        return False
 
-    def _keep_pruning(self):
-        # Termination criteria for the pruning process
+    def _update_history_after_prune_iter(self, model, idx_prune, candidates, candidate_scores, graph_props_after):
+        """Store all relevant state after each pruning iteration."""
+        self.add_val_to_history(["loss"], self._curr_loss)
+        self.add_val_to_history(["metrics"], self._curr_metrics)
+        self.add_val_to_history(["num_nodes"], self._curr_num_nodes)
+        self.add_val_to_history(["idx_prune"], self._curr_idx_prune)
+        self.add_val_to_history(["iteration"], self._iter_count)
 
-        # Keep pruning as long as all of the following conditions are met:
-        # 1. The current score is below the target score
-        # 2. The current number of nodes is above the minimum number of nodes
-        # 3. The current loss is smaller than the previous loss
+        self.add_dict_to_history(
+            ["graph_props"], graph_props_after[idx_prune]
+        )
 
-        if (
-            self._min_num_nodes_stopping()
-            and self._patience_stopping()
-        ):
-            return True
-        else:
-            return False
+        # Data I want to save pruning details and weight snapshot ---
+        # Save winner candidate and full candidate list for analysis
+        self.add_val_to_history(["pruning_analysis", "winner"], candidates[idx_prune])
+        self.add_val_to_history(["pruning_analysis", "candidates"], candidates)
+        self.add_val_to_history(["pruning_analysis", "candidate_scores"], candidate_scores)
+
+        # Save snapshot of reservoir weights/connections 
+        _w_curr = model.reservoir_layer.weights
+        snapshot = sp.csr_matrix(_w_curr) if isinstance(_w_curr, np.ndarray) else nx.to_scipy_sparse_array(_w_curr)
+        self.add_val_to_history(["weight_snapshots"], snapshot)
 
     ######### MODEL TRAINING FUNCTIONS #########
     def _retrain_model(self, model, x_train, y_train):
@@ -459,7 +472,7 @@ class EdgePruner:
         return _candidate_scores, _candidate_models, _cand_graph_props_after
 
     def _shortest_path_pruning(self, model):
-        # possible other pruning strat 
+        # possible other pruning strategies (neglecting for now)
         pass
         
     ######### STOPPING CRITERIONS FUNCTIONS #########
@@ -497,7 +510,14 @@ class EdgePruner:
             return True
 
     def _min_num_edges_stopping(self):
-        # min_num_edges == model.weights
+        # TODO think about how to best keep track of current number of edges
+        
+        if self._curr_num_edges > self.min_num_edges:
+            print(f'Number of edges {self._curr_num_edges} is larger than minimum number of edges {self.min_num_edges}. Continuing pruning')
+            return True
+        else:
+            print(f'Number of edges {self._curr_num_edges} is smaller/equal minimum number of edges {self.min_num_edges}. Terminating pruning')
+        return False
         pass
 
     def _min_num_nodes_stopping(self):
@@ -505,12 +525,12 @@ class EdgePruner:
         # returns True if number of nodes is above minimum, i.e. we should continue pruning
         if self._curr_num_nodes > self.min_num_nodes:
             print(
-                f"Number of nodes {self._curr_num_nodes} is larger than minimum number of nodes {self.min_num_nodes}. Continuing pruning"
+                f'Number of nodes {self._curr_num_nodes} is larger than minimum number of nodes {self.min_num_nodes}. Continuing pruning'
             )
             return True
         else:
             print(
-                f"Number of nodes {self._curr_num_nodes} is smaller/equal minimum number of nodes {self.min_num_nodes}. Terminating pruning"
+                f'Number of nodes {self._curr_num_nodes} is smaller/equal minimum number of nodes {self.min_num_nodes}. Terminating pruning'
             )
             return False
         # min_num_nodes == model.nodes
@@ -573,7 +593,7 @@ class EdgePruner:
     def _validate_stopping_criterion(self, stopping_criterion):
 
         if stopping_criterion not in self.STOPPING_CRITERION_CRITERION:
-            raise ValueError(f'scoring_strategy must be one of {self.STOPPING_CRITERION_CRITERION}')
+            raise ValueError(f'scoring_strategy must be one of {self.STOPPING_CRITERION}')
 
     def _validate_model(self, model):
 
@@ -761,6 +781,111 @@ if __name__ == "__main__":
     model_pruned, history = pruner.prune(
         model=model, data_train=(X_train, y_train), data_val=(X_test, y_test)
     )
+
+    # ── GIF Visualization of Reservoir Pruning ────────────────────────────────────
+    import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
+    import networkx as nx
+    import imageio
+    import numpy as np
+    import os
+
+    frames_dir = "frames"
+    os.makedirs(frames_dir, exist_ok=True)
+
+    # Reconstruct full graph from starting weights to get stable layout
+    G_full = nx.from_scipy_sparse_array(
+        history["starting_reservoir"]["initial_weights"],
+        create_using=nx.DiGraph()
+    )
+
+    # Compute positions ONCE — reused for every frame so nodes never move
+    pos = nx.kamada_kawai_layout(G_full)
+
+    # Node roles from history
+    input_nodes   = set(history["starting_reservoir"]["input_nodes"])
+    readout_nodes = set(history["starting_reservoir"]["readout_nodes"])
+
+    def get_node_color(n):
+        is_in  = n in input_nodes
+        is_out = n in readout_nodes
+        if is_in and is_out: return "#9b59b6"  # purple  — shortcut
+        if is_in:            return "#2ecc71"  # green   — input only
+        if is_out:           return "#e74c3c"  # red     — readout only
+        return "#3498db"                       # blue    — hidden
+
+    node_colors = [get_node_color(n) for n in G_full.nodes()]
+    node_sizes  = [80 if get_node_color(n) != "#3498db" else 40 for n in G_full.nodes()]
+
+    # Prepend initial weights as frame 0 (before any pruning)
+    all_snapshots = (
+        [history["starting_reservoir"]["initial_weights"]]
+        + history["weight_snapshots"]
+    )
+
+    pruned_edges = history.get("pruning_analysis", {}).get("winner", [])
+    losses       = history.get("loss", [])
+
+    legend_handles = [
+        mpatches.Patch(color="#2ecc71", label="Input"),
+        mpatches.Patch(color="#e74c3c", label="Readout"),
+        mpatches.Patch(color="#9b59b6", label="Shortcut (in+out)"),
+        mpatches.Patch(color="#3498db", label="Hidden"),
+    ]
+
+    for step, snapshot in enumerate(all_snapshots):
+        G_curr = nx.from_scipy_sparse_array(snapshot, create_using=nx.DiGraph())
+
+        fig, ax = plt.subplots(figsize=(7, 6), dpi=100)
+        ax.set_facecolor("white")
+
+        # All nodes at fixed positions (isolated nodes still visible)
+        nx.draw_networkx_nodes(G_full, pos,
+                            node_color=node_colors,
+                            node_size=node_sizes,
+                            ax=ax)
+
+        # Only surviving edges
+        nx.draw_networkx_edges(G_curr, pos,
+                            alpha=0.25, width=0.6,
+                            edge_color="#888780",
+                            arrows=True, arrowsize=6,
+                            ax=ax)
+
+        # Flash the just-removed edge in red
+        if step > 0 and (step - 1) < len(pruned_edges):
+            removed = pruned_edges[step - 1]
+            if G_full.has_edge(*removed):
+                nx.draw_networkx_edges(G_full, pos,
+                                    edgelist=[removed],
+                                    edge_color="#e74c3c",
+                                    width=2.5, alpha=0.9,
+                                    arrows=True, arrowsize=12,
+                                    ax=ax)
+
+        ax.legend(handles=legend_handles, loc="upper right",
+                fontsize=8, framealpha=0.7, edgecolor="none")
+
+        loss_str = f"  |  loss {losses[step]:.5f}" if step < len(losses) else ""
+        ax.set_title(f"Step {step}  —  {G_curr.number_of_edges()} edges remaining{loss_str}",
+                    fontsize=10)
+        ax.axis("off")
+        plt.tight_layout()
+        fig.savefig(f"{frames_dir}/frame_{step:04d}.png", dpi=100, bbox_inches="tight")
+        plt.close(fig)
+
+    # Stitch frames into GIF
+    frame_files = sorted(
+        f"{frames_dir}/{f}" for f in os.listdir(frames_dir) if f.endswith(".png")
+    )
+    images = [imageio.imread(f) for f in frame_files]
+
+    durations        = [0.12] * len(images)
+    durations[0]     = 1.5   # hold on intact reservoir
+    durations[-1]    = 2.5   # hold on final pruned state
+
+    imageio.mimsave("reservoir_pruning.gif", images, duration=durations, loop=0)
+    print(f"Saved reservoir_pruning.gif ({len(images)} frames)")
 
     import matplotlib.pyplot as plt
 
