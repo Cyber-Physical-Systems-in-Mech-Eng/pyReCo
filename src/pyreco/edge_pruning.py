@@ -20,23 +20,25 @@ class EdgePruner:
 
     PRUNING_CRITERION = {
         'performance': '_performance_pruning',
+        #'structural_pruning': 'structural_pruning' TODO implement this
     }
 
     STOPPING_CRITERION = {
         'patience': '_patience_stopping',
         'min_nodes': '_min_num_nodes_stopping',
+        'min_edges': '_min_num_edges_stopping'
     }
 
     def __init__(
         self,
-        #edge_selection_strat: str = None,
+        edge_selection_strat: str = 'random_uniform_wo_repl',
         candidate_fraction: float = 0.1,
         pruning_criterion: str = 'performance',
         stopping_criterion: list = ['patience'],
-        stop_at_minimum: bool = True,
         min_num_nodes: int = 3,
+        min_num_edges: int = 2,
         patience: int = 0,
-        criterion: str = "mse",
+        performance_criterion: str = "mse",
         metrics: Union[list, str] = ["mse"],
         node_props_extractor=None,
         graph_props_extractor=None,
@@ -44,7 +46,7 @@ class EdgePruner:
         graph_analyzer: GraphAnalyzer = None,
         node_analyzer: NodeAnalyzer = None,
         remove_isolated_nodes: bool = False,
-        #directed: bool = True,
+        directed: bool = True,
         #parallel: bool = False,
 
     ):
@@ -53,12 +55,7 @@ class EdgePruner:
 
         Parameters:
 
-        - stop_at_minimum (bool): Whether to stop at the local minimum of the test set
-        score. When set to False, pruning continues until the minimal number of nodes
-        in <min_num_nodes>.
-
         - min_num_nodes (int): Stop pruning when arriving at this number of nodes.
-        Conflicts if stop_at_minimum is set to True but also a min_num_nodes is given.
 
         - patience (int): We allow a patience, i.e. keep pruning after we reached a
         (local) minimum of the test set score. Depends on the size of the original
@@ -80,10 +77,10 @@ class EdgePruner:
             candidate_fraction,
             pruning_criterion,
             stopping_criterion,
-            stop_at_minimum,
             min_num_nodes,
+            #min_num_edges,  TODO implement this as a stopping criterion
             patience,
-            criterion,
+            performance_criterion,
             metrics,
             node_props_extractor,
             graph_props_extractor,
@@ -98,29 +95,36 @@ class EdgePruner:
             node_analyzer = NodeAnalyzer()
 
         # Assigning the parameters to instance variables
-        self.criterion = criterion
-        self.stop_at_minimum = stop_at_minimum
+        # Parameters for pruning criterion
+        self.criterion = performance_criterion
+        self.pruning_criterion = pruning_criterion
+        # Parameters for stopping criterion
+        self.stopping_criterion = stopping_criterion
         self.min_num_nodes = min_num_nodes
+        self.min_num_edges = min_num_edges
         self.patience = patience
+        # Parameters for candidate selection
         self.candidate_fraction = candidate_fraction
+        self.edge_selection_strat = edge_selection_strat
+        self.directed = directed
+        # Parameters for tracking metrics
         self.metrics = metrics
-        self.return_best_model = return_best_model
         self.graph_analyzer = graph_analyzer
         self.node_analyzer = node_analyzer
-        #### TODO this is only for testingf
-        self.pruning_criterion = pruning_criterion
-        self.stopping_criterion = stopping_criterion
 
+        self.return_best_model = return_best_model
         # TODO not implemented yet
         self.remove_isolated_nodes = remove_isolated_nodes
 
-        # store the history of the pruning process in a nested dictionary
+        # Initialize history dict to store the history of the pruning process in a nested dictionary
         self.history = {}
 
-        # initialize attributes that will be used during pruning (and changed during the process)
-        # needs to be attributes as the history updates depend on them
+        # Initialize attributes that will be used during pruning (and changed during the process)
+        #   needs to be attributes as the history updates depend on them
+        self._curr_model = None  # TODO check this again
         self._curr_loss = None
         self._curr_num_nodes = None
+        self._curr_num_edges = None
         self._curr_loss_history = []
         self._idx_prune = None
         self._patience_counter = 0
@@ -177,7 +181,7 @@ class EdgePruner:
             "initial_weights": sp.csr_matrix(_graph) if isinstance(_graph, np.ndarray) else nx.to_scipy_sparse_array(_graph),
         }
 
-        while True:  # self._curr_num_nodes>self.min_num_nodes:
+        while True:
 
             print(f'Currently at pruning iteration {self._iter_count} ...')
 
@@ -200,9 +204,14 @@ class EdgePruner:
             # self._get_best_candidate_model_properties(_candidate_scores, _candidate_models)
 
             # Get model properties of selected candidate and update the termination relevant quantities
-            curr_loss, curr_num_nodes = self._get_best_candidate_model_properties(idx_prune, _candidate_scores, _candidate_models)
+            curr_model, curr_loss, curr_num_nodes, curr_num_edges = \
+                self._get_best_candidate_model_properties(idx_prune, _candidate_scores, _candidate_models)
+            # TODO rethink if we should do the setting of these props above already and rename function so we can use it more
+            #  and then also do current amount of edges
+            self._curr_model = curr_model
             self._curr_loss = curr_loss
             self._curr_num_nodes = curr_num_nodes
+            self._curr_num_edges = curr_num_edges
             self._curr_loss_history.append(self._curr_loss)
 
             # TODO: remove isolated nodes using utility function from utils_networks
@@ -278,15 +287,16 @@ class EdgePruner:
         self.add_dict_to_history(["graph_props"], graph_props)
 
     def _get_candidates(self, graph):
-        ## print(type(graph).__name__)print(np.array_equal(graph, graph.T))print(graph)print(_graph)print(_graph.shape)
+
         selector = EdgeSelector(
             graph=graph,
-            strategy='random_uniform_wo_repl',
-            directed=True
+            strategy=self.edge_selection_strat,
+            directed=self.directed
             )
-        # obtain nodes that are proposed for pruning
+
+        # obtain edges for pruning
         _curr_candidates = selector.select_edges(fraction=self.candidate_fraction)
-        #print(_curr_candidates)
+
         print(
             f'Proposing {selector.num_select_edges}/{selector.num_total_edges} edges for pruning ...'
             )
@@ -299,7 +309,12 @@ class EdgePruner:
         method = getattr(self, self.PRUNING_CRITERION[self.pruning_criterion])
         return method(model, candidates, x_train, y_train, x_test, y_test)
 
-    def _update_history_during_prune_iter(self, candidate_scores, candidates, cand_node_props, cand_graph_props_before, cand_graph_props_after):
+    def _update_history_during_prune_iter(self,
+                                          candidate_scores,
+                                          candidates,
+                                          cand_graph_props_before,
+                                          cand_graph_props_after
+                                          ):
         self.add_val_to_history(
             ["candidate_scores"],
             candidate_scores,
@@ -308,11 +323,6 @@ class EdgePruner:
         self.add_val_to_history(
             ["candidates"],
             candidates,
-        )
-
-        self.add_val_to_history(
-            ["candidate_node_props"],
-            dictlist_to_dict(cand_node_props),
         )
 
         self.add_val_to_history(
@@ -334,8 +344,20 @@ class EdgePruner:
     def _get_best_candidate_model_properties(self, candidate_idx, candidate_scores, candidate_models):
         curr_loss = candidate_scores[candidate_idx]
         curr_num_nodes = candidate_models[candidate_idx].reservoir_layer.nodes
+        curr_model = candidate_models[candidate_idx]
+        curr_graph = curr_model.reservoir_layer.weights
+   
+        if isinstance(curr_graph, nx.Graph):
+            edge_indices = list(curr_graph.edges())
+        elif isinstance(curr_graph, np.ndarray):
+            rows, cols = np.where(curr_graph != 0)  # where entries are not zero
+            edge_indices = list(zip(rows, cols))
+            if not self.directed:
+                edge_indices = [(r, c) for r, c in edge_indices if r < c]
 
-        return curr_loss, curr_num_nodes
+        curr_num_edges = len(edge_indices)
+
+        return curr_model, curr_loss, curr_num_nodes, curr_num_edges
 
     def _get_isolated_nodes(self, model):
         """
@@ -375,7 +397,7 @@ class EdgePruner:
                 return True
         # Criterion is not met
         return False
-    
+
     def _update_history_after_prune_iter(self, model, idx_prune, candidates, candidate_scores, graph_props_after):
         """Store all relevant state after each pruning iteration."""
         self.add_val_to_history(["loss"], self._curr_loss)
@@ -406,33 +428,28 @@ class EdgePruner:
     ######### PRUNING CRITERIONS FUNCTIONS #########
     def _performance_pruning(self, model, candidates, x_train, y_train, x_test, y_test):
 
-        # Initialize lists to track different metrics during pruning
-        # Scores and models with candidate removes
-        _candidate_scores = []
-        _candidate_models = []
+        # Initialize lists to track different metrics during pruning iteration
+        _candidate_models = []  # Candidate model
+        _candidate_scores = []  # Score of candidate model
 
-        # TODO Properties of the to-be removed edge
-        _cand_edge_props = []
-
-        # Properties of the to-be removed node
-        _cand_node_props = []
-        _cand_node_input_receiving = ([])  # Whether the node is connected to input layer
-        _cand_node_output_sending = ([])  # Whether the node is connected to output layer
+        # TODO think about what else I might want to store candidate wise
+                # e.g. for node pruning it was node properties but maybe edge properties?
 
         # Properties of the graph
         _cand_graph_props_before = []  # Before pruning
         _cand_graph_props_after = []  # After pruning
 
-        # Iteratate over the candidate edges
-        # Delete one-by-one, measure performance, and also track node/graph-level properties
+        # Iteratate over the candidate edges and delete one-by-one, measure performance,
+        #  and also track node/graph-level properties
         for candidate in candidates:
-            # Copy model to try out candidate removal
+
+            # Copy origingal model for candidate removal
             _model = copy.deepcopy(model)
 
             # Get info on candidate egde and graph before removal (TODO rethink what to score)
             _graph = _model.reservoir_layer.weights
-            _graph_props = self.graph_analyzer.extract_properties(graph=_graph)
-            _cand_graph_props_before.append(_graph_props)
+            _graph_props = self.graph_analyzer.extract_properties(graph=_graph) # TODO before history
+            _cand_graph_props_before.append(_graph_props) # TODO before history
 
             # Remove candidate edge from reservoir
             _model.remove_reservoir_edges(edges=[candidate])
@@ -440,7 +457,8 @@ class EdgePruner:
             # Re-fit (retrain) model to see effect of removal
             _model.fit(x=x_train, y=y_train)
 
-            # Evaluate model with removed candidate edge (pruned model)
+            # Evaluate model with removed candidate edge regarding performance
+            #  criterion (pruned model)
             _score = _model.evaluate(x=x_test, y=y_test, metrics=self.criterion)[0]
 
             # Extract graph properties after pruning
@@ -461,7 +479,7 @@ class EdgePruner:
                 f'Possible deletion of edge {label:<10} loss: {_score:.6f}  ({(self._curr_loss-_score)/self._curr_loss:+.3%})'
             )
 
-            # Store score and model for removed candidate
+            # Store score and model of removed candidate
             _candidate_scores.append(_score)
             _candidate_models.append(_model)
 
@@ -471,13 +489,12 @@ class EdgePruner:
                 _score,
                 _graph,
                 _graph_props,
-                #_node_props,
-            )
+                )
 
-        # store the candidate properties in the history object
+        # Store the candidate properties in the history object
+        # TODO maybe add candidate so dictonary can be further nested by candidates in iteration here
         self._update_history_during_prune_iter(_candidate_scores,
                                                candidates,
-                                               _cand_node_props,
                                                _cand_graph_props_before,
                                                _cand_graph_props_after)
 
@@ -490,41 +507,43 @@ class EdgePruner:
     ############## STOPPING CRITERIONS FUNCTIONS ##############
 
     def _patience_stopping(self):
-        # checks if the loss is at a minimum,
-        # considering also patience.
-        # returns True if loss is not at minimum, i.e. we should continue pruning
+        # Checks if the loss is at a minimum, considering also patience
+        # Returns True if loss is not at minimum and we should continue pruning
         if len(self._curr_loss_history) < 2:
-            # we are just at the start of pruning, cannot
-            # check for a minimum.
+            # Just at the start of pruning, cannot really check for minimum
             return True
 
-        if self.stop_at_minimum:
-            if self._curr_loss_history[-2] > self._curr_loss_history[-1]:
-                print(
-                    f'Loss decreased from {self._curr_loss_history[-2]:.6f} to {self._curr_loss_history[-1]:.6f} \nContinuing pruning ...'
-                )
-                self._patience_counter = 0
-                return True
-            else:  # current loss is larger than previous
-                self._patience_counter += 1
-                if self._patience_counter < self.patience:
-                    print(
-                        f"Loss increased, but {self._patience_counter} < {self.patience} Continuing pruning"
-                    )
-                    return True
-                else:
-                    # TODO: we need to recover the model that had the best score!
-                    print(
-                        f"Loss increased for {self.patience} consecutive iterations. Terminating pruning"
-                    )
-                    return False
-        else:
+        if self._curr_loss_history[-2] > self._curr_loss_history[-1]:
+            # Current loss is smaller than previous, continue pruning
+            print(
+                f'Loss decreased from {self._curr_loss_history[-2]:.6f} to {self._curr_loss_history[-1]:.6f} \nContinuing pruning ...'
+            )
+            self._patience_counter = 0
             return True
+
+        else:
+            # Current loss is larger than previous
+            self._patience_counter += 1
+            if self._patience_counter < self.patience:
+                # Patience counter still below patience, contiue pruning
+                print(
+                    f'Loss increased, but {self._patience_counter} < {self.patience} Continuing pruning'
+                )
+                return True
+            else:
+                # TODO: we need to recover the model that had the best score!
+                # Patience is reached, stop pruning
+                print(
+                    f'Loss increased for {self.patience} consecutive iterations. Terminating pruning'
+                )
+                return False
 
     def _min_num_nodes_stopping(self):
-        # checks if the number of nodes is above the minimum number of nodes
-        # returns True if number of nodes is above minimum, i.e. we should continue pruning
+        # Checks if the number of nodes is above the minimum number of nodes
+        # returns True if number of nodes is above minimum and we should continue pruning
         if self._curr_num_nodes > self.min_num_nodes:
+            # TODO this logic doesn't make much sense, because reaching min_num_nodes should still continue pruning
+            # TODO pruning another edge doesn't mean that a node will be removed
             print(
                 f'Number of nodes {self._curr_num_nodes} is larger than minimum number of nodes {self.min_num_nodes}. Continuing pruning'
             )
@@ -534,7 +553,18 @@ class EdgePruner:
                 f'Number of nodes {self._curr_num_nodes} is smaller/equal minimum number of nodes {self.min_num_nodes}. Terminating pruning'
             )
             return False
-        # min_num_nodes == model.nodes
+
+    def _min_num_edges_stopping(self):
+        # Checks if the number of edges is above the minimum number of edges
+        # returns True if number of nodes is above minimum and we should continue pruning
+        if self._curr_num_edges > self.min_num_edges:
+            print(f'Number of edges {self._curr_num_edges} is larger than minimum number of edges {self.min_num_edges}. Continuing pruning')
+            return True
+        else:
+            print(f'Number of edges {self._curr_num_edges} is smaller/equal minimum number of edges {self.min_num_edges}. Terminating pruning')
+        return False
+
+    ######## history helpers ########
 
     def add_val_to_history(self, keys, value):
         """
@@ -591,7 +621,6 @@ class EdgePruner:
         candidate_fraction,
         pruning_criterion,
         stopping_criterion,
-        stop_at_minimum,
         min_num_nodes,
         patience,
         criterion,
@@ -624,10 +653,6 @@ class EdgePruner:
                 raise NotImplementedError(
                     f"Unknown strategy '{sc}'. Available strategies: {list(self.STOPPING_CRITERION)}"
                 )
-
-        # Validate stop at minimum
-        if not isinstance(stop_at_minimum, bool):
-            raise TypeError('stop_at_minimum must be a boolean')
 
         # Validate min num of nodes
         if not isinstance(min_num_nodes, int):
@@ -827,10 +852,11 @@ if __name__ == "__main__":
 
     # prune the model
     pruner = EdgePruner(
-        #stop_at_minimum=False,
-        stop_at_minimum=True,
         #min_num_nodes=46,
-        patience=2,
+        #stopping_criterion=['patience'],
+        stopping_criterion=['min_edges'],
+        #patience=2,
+        min_num_edges=0,
         candidate_fraction=0.9,
         remove_isolated_nodes=False,
         metrics=["mse"],
@@ -839,4 +865,3 @@ if __name__ == "__main__":
     model_pruned, history = pruner.prune(
         model=model, data_train=(X_train, y_train), data_val=(X_test, y_test)
     )
-
