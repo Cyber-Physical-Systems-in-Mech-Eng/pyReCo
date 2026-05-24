@@ -221,8 +221,8 @@ class EdgePruner:
             # Check for isolated nodes and remove TODO if no effect on performance
             if self.remove_isolated_nodes:
                 isolated_nodes = self._get_isolated_nodes(self._curr_model)
-                self.curr_model = self._remove_isolated_nodes(isolated_nodes, self._curr_model)
-                self._curr_num_nodes = self.curr_model.reservoir_layer.nodes
+                self._curr_model = self._remove_isolated_nodes(isolated_nodes, self._curr_model)
+                self._curr_num_nodes = self._curr_model.reservoir_layer.nodes
 
             # Check stopping criterion on to be pruned candidate model properties
             # If termination criteria would be violated by pruning candidate we stop pruning
@@ -348,7 +348,7 @@ class EdgePruner:
         curr_num_nodes = candidate_models[candidate_idx].reservoir_layer.nodes
         curr_model = candidate_models[candidate_idx]
         curr_graph = curr_model.reservoir_layer.weights
-   
+
         if isinstance(curr_graph, nx.Graph):
             edge_indices = list(curr_graph.edges())
         elif isinstance(curr_graph, np.ndarray):
@@ -392,7 +392,7 @@ class EdgePruner:
         return isolated_nodes
 
     def _remove_isolated_nodes(self, isolated_nodes, model):
-        #Remove isolated nodes that are neither input-receiving nor readout nodes # TODO clear up question
+        # Remove isolated nodes that are neither input-receiving nor readout nodes # TODO clear up question
         fully_isolated_nodes = [
             n['id'] for n in isolated_nodes
             if not n['is_input'] and not n['is_readout']
