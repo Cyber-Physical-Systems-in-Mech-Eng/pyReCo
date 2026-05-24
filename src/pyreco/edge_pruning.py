@@ -78,7 +78,7 @@ class EdgePruner:
             pruning_criterion,
             stopping_criterion,
             min_num_nodes,
-            #min_num_edges,  TODO implement this as a stopping criterion
+            #min_num_edges,  TODO create validation function
             patience,
             performance_criterion,
             metrics,
@@ -116,10 +116,12 @@ class EdgePruner:
         # TODO not implemented yet
         self.remove_isolated_nodes = remove_isolated_nodes
 
-        # Initialize history dict to store the history of the pruning process in a nested dictionary
+        # Initialize history dict to store the history of the pruning process in a
+        #  nested dictionary
         self.history = {}
 
-        # Initialize attributes that will be used during pruning (and changed during the process)
+        # Initialize attributes that will be used during pruning (and changed during
+        #  the process)
         #   needs to be attributes as the history updates depend on them
         self._curr_model = None  # TODO check this again
         self._curr_loss = None
@@ -216,11 +218,11 @@ class EdgePruner:
 
             # TODO: remove isolated nodes using utility function from utils_networks
 
-            # Check for isolated nodes and remove if no effect on performance
-            #if self.remove_isolated_nodes:
-            #    isolated_nodes = self._get_isolated_nodes(model)
-            #    for node in isolated_nodes:
-            #        model = self._try_remove_node(node_info, model, x_train, y_train, x_test, y_test)
+            # Check for isolated nodes and remove TODO if no effect on performance
+            if self.remove_isolated_nodes:
+                isolated_nodes = self._get_isolated_nodes(self._curr_model)
+                self.curr_model = self._remove_isolated_nodes(isolated_nodes, self._curr_model)
+                self._curr_num_nodes = self.curr_model.reservoir_layer.nodes
 
             # Check stopping criterion on to be pruned candidate model properties
             # If termination criteria would be violated by pruning candidate we stop pruning
@@ -374,20 +376,31 @@ class EdgePruner:
             for node in graph.nodes():
                 if graph.degree(node) == 0:
                     isolated_nodes.append({
-                        "id": node,
-                        "is_input": node in input_nodes,
-                        "is_readout": node in readout_nodes,
+                        'id': node,
+                        'is_input': node in input_nodes,
+                        'is_readout': node in readout_nodes,
                     })
         elif isinstance(graph, np.ndarray):
             for node in range(graph.shape[0]):
                 if np.count_nonzero(graph[node, :]) == 0 and np.count_nonzero(graph[:, node]) == 0:
                     isolated_nodes.append({
-                        "id": node,
-                        "is_input": node in input_nodes,
-                        "is_readout": node in readout_nodes,
+                        'id': node,
+                        'is_input': node in input_nodes,
+                        'is_readout': node in readout_nodes,
                     })
 
         return isolated_nodes
+
+    def _remove_isolated_nodes(self, isolated_nodes, model):
+        #Remove isolated nodes that are neither input-receiving nor readout nodes # TODO clear up question
+        fully_isolated_nodes = [
+            n['id'] for n in isolated_nodes
+            if not n['is_input'] and not n['is_readout']
+        ]
+        if fully_isolated_nodes:
+            print(f'Removing {len(fully_isolated_nodes)} isolated non-input/readout nodes: {fully_isolated_nodes}')
+            model.remove_reservoir_nodes(nodes=fully_isolated_nodes)
+        return model
 
     def _check_stopping_criterion(self):
         for criterion in self.stopping_criterion:
@@ -858,7 +871,7 @@ if __name__ == "__main__":
         #patience=2,
         min_num_edges=0,
         candidate_fraction=0.9,
-        remove_isolated_nodes=False,
+        remove_isolated_nodes=True,
         metrics=["mse"],
     )
 
