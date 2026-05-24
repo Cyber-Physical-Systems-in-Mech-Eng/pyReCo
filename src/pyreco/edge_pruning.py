@@ -231,9 +231,12 @@ class EdgePruner:
                 # Exit pruning loop if stopping criterion condition is met
                 break
 
+            if isinstance(pruned_candidate, tuple):
+                # clean print of pruned_candidate
+                pruned_candidate = (int(pruned_candidate[0]), int(pruned_candidate[1]))
             print(f'Pruning candidate {pruned_candidate}, resulting in loss {self._curr_loss:.6f}')
             print(
-                f'loss improvement by {((self._curr_loss_history[-2]-self._curr_loss)/self._curr_loss_history[-2]):+.3%}\n'
+                f'Loss improvement by {((self._curr_loss_history[-2]-self._curr_loss)/self._curr_loss_history[-2]):+.3%}\n'
             )
 
             # prune the node that gives us the least performance drop. as we have already
