@@ -6,6 +6,8 @@ performance while reducing the reservoir size
 import numpy as np
 import networkx as nx
 import scipy.sparse as sp
+from joblib import Parallel, delayed #TODO check if we need to declare somwhere that this now is a needed import
+from tqdm import tqdm #TODO check if we need to declare somwhere that this now is a needed import
 from pyreco.custom_models import RC
 from pyreco.edge_selector import EdgeSelector
 import math
@@ -47,7 +49,7 @@ class EdgePruner:
         node_analyzer: NodeAnalyzer = None,
         remove_isolated_nodes: bool = False,
         directed: bool = True,
-        #parallel: bool = False,
+        parallel: bool = False,
 
     ):
         """
@@ -87,7 +89,9 @@ class EdgePruner:
             return_best_model,
             graph_analyzer,
             node_analyzer,
-            remove_isolated_nodes)
+            remove_isolated_nodes,
+            #parallel,  TODO create validation function
+            )
 
         if graph_analyzer is None:
             graph_analyzer = GraphAnalyzer()
@@ -111,10 +115,10 @@ class EdgePruner:
         self.metrics = metrics
         self.graph_analyzer = graph_analyzer
         self.node_analyzer = node_analyzer
-
+        # Parameter bools for extra functionalities
         self.return_best_model = return_best_model
-        # TODO not implemented yet
         self.remove_isolated_nodes = remove_isolated_nodes
+        self.parallel = parallel 
 
         # Initialize history dict to store the history of the pruning process in a
         #  nested dictionary
@@ -216,9 +220,8 @@ class EdgePruner:
             self._curr_num_edges = curr_num_edges
             self._curr_loss_history.append(self._curr_loss)
 
-            # TODO: remove isolated nodes using utility function from utils_networks
-
             # Check for isolated nodes and remove TODO if no effect on performance
+            # TODO: remove isolated nodes using utility function from utils_networks (follow up on this)
             if self.remove_isolated_nodes:
                 isolated_nodes = self._get_isolated_nodes(self._curr_model)
                 self._curr_model = self._remove_isolated_nodes(isolated_nodes, self._curr_model)
@@ -444,68 +447,38 @@ class EdgePruner:
     ######### PRUNING CRITERIONS FUNCTIONS #########
     def _performance_pruning(self, model, candidates, x_train, y_train, x_test, y_test):
 
-        # Initialize lists to track different metrics during pruning iteration
-        _candidate_models = []  # Candidate model
-        _candidate_scores = []  # Score of candidate model
-
-        # TODO think about what else I might want to store candidate wise
-                # e.g. for node pruning it was node properties but maybe edge properties?
-
-        # Properties of the graph
-        _cand_graph_props_before = []  # Before pruning
-        _cand_graph_props_after = []  # After pruning
-
-        # Iteratate over the candidate edges and delete one-by-one, measure performance,
-        #  and also track node/graph-level properties
-        for candidate in candidates:
-
-            # Copy origingal model for candidate removal
-            _model = copy.deepcopy(model)
-
-            # Get info on candidate egde and graph before removal (TODO rethink what to score)
-            _graph = _model.reservoir_layer.weights
-            _graph_props = self.graph_analyzer.extract_properties(graph=_graph) # TODO before history
-            _cand_graph_props_before.append(_graph_props) # TODO before history
-
-            # Remove candidate edge from reservoir
-            _model.remove_reservoir_edges(edges=[candidate])
-
-            # Re-fit (retrain) model to see effect of removal
-            _model.fit(x=x_train, y=y_train)
-
-            # Evaluate model with removed candidate edge regarding performance
-            #  criterion (pruned model)
-            _score = _model.evaluate(x=x_test, y=y_test, metrics=self.criterion)[0]
-
-            # Extract graph properties after pruning
-            _graph = _model.reservoir_layer.weights
-            _graph_props = self.graph_analyzer.extract_properties(graph=_graph)
-            _cand_graph_props_after.append(_graph_props)
-
-            # Format candidate identifier cleanly
-            if isinstance(candidate, tuple):
-                # Formats np.int64() cleanly
-                label = f"{int(candidate[0])}-{int(candidate[1])}"
-            else:
-                # Handles a single node ID
-                label = int(candidate)
-
-            # Print info on effect of candidate removal
-            print(
-                f'Possible deletion of edge {label:<10} loss: {_score:.6f}  ({(self._curr_loss-_score)/self._curr_loss:+.3%})'
-            )
-
-            # Store score and model of removed candidate
-            _candidate_scores.append(_score)
-            _candidate_models.append(_model)
-
-            # Delete temporary variables created for candidate (just for safety)
-            del (
-                _model,
-                _score,
-                _graph,
-                _graph_props,
-                )
+        if self.parallel:
+            # Parallelizing performance evaluation of candidates
+            # Kicking off parallelization of going through all candidates
+            # tqdm shows process in in bar chart
+            # n_jobs is number of jobs to run in parallel (-1 uses all CPU cores)
+            # backend -  loky is default TODO reevaluate is this is most suitable
+            parallel = Parallel(n_jobs=-1, backend='loky')
+            # tqdm shows process in in bar chart
+            # generator returns results in order that they're given
+            results = parallel(
+                               delayed(self._evaluate_candidate_performance)
+                               (model, c, x_train, y_train, x_test, y_test)
+                               for c in tqdm(candidates, desc="Evaluating candidates")
+                               )
+            _candidate_scores, _candidate_models, _cand_graph_props_before, _cand_graph_props_after = zip(*results)
+            _candidate_scores = list(_candidate_scores)
+            _candidate_models = list(_candidate_models)
+            _cand_graph_props_before = list(_cand_graph_props_before)
+            _cand_graph_props_after = list(_cand_graph_props_after)
+        else:
+            # Go through candidates one by one in a single process
+            # Initialize lists to track different metrics during pruning iteration
+            _candidate_scores, _candidate_models, _cand_graph_props_before, _cand_graph_props_after = [], [], [], []
+            for candidate in candidates:
+                # Get model performance for removing candidate
+                score, cand_model, props_before, props_after = \
+                    self._evaluate_candidate_performance(model, candidate, x_train, y_train, x_test, y_test)
+                # Collect score, model and properties of candiate
+                _candidate_scores.append(score)
+                _candidate_models.append(cand_model)
+                _cand_graph_props_before.append(props_before)
+                _cand_graph_props_after.append(props_after)
 
         # Store the candidate properties in the history object
         # TODO maybe add candidate so dictonary can be further nested by candidates in iteration here
@@ -515,6 +488,43 @@ class EdgePruner:
                                                _cand_graph_props_after)
 
         return _candidate_scores, _candidate_models, _cand_graph_props_after
+
+
+    def _evaluate_candidate_performance(self, model, candidate, x_train, y_train, x_test, y_test):
+        # Single candidate run (had to be broken down to this to enable parallelization)
+        # Copy original model for candidate removal
+        _model = copy.deepcopy(model)
+
+        # Get info on candidate egde and graph before removal
+        # TODO rethink what to store
+        # TODO rethink if before history is necessary
+        _graph = _model.reservoir_layer.weights
+        _graph_props_before = self.graph_analyzer.extract_properties(graph=_graph)
+
+        # Remove candidate edge from reservoir
+        _model.remove_reservoir_edges(edges=[candidate])
+
+        # Re-fit (retrain) pruned model
+        _model.fit(x=x_train, y=y_train)
+
+        # Evaluate pruned model regarding performance criterion
+        _score = _model.evaluate(x=x_test, y=y_test, metrics=self.criterion)[0]
+
+        # Extract graph properties after pruning
+        # TODO rethink what to store, info regarding edge unneccesary as its removed
+        # TODO think about how to nest dict here
+        _graph = _model.reservoir_layer.weights
+        _graph_props_after = self.graph_analyzer.extract_properties(graph=_graph)
+
+        if not self.parallel:
+            # Print candidate and score info if not parallelized
+            # Format candidate tuple cleanly
+            # TODO maybe make parameter whether this should be shown or not
+            label = f"{int(candidate[0])}-{int(candidate[1])}" if isinstance(candidate, tuple) else int(candidate)
+            print(f'Possible deletion of edge {label:<10} loss: {_score:.6f}  ({(self._curr_loss - _score) / self._curr_loss:+.3%})')
+
+        # Return canidate score, model and properties
+        return _score, _model, _graph_props_before, _graph_props_after
 
     def _shortest_path_pruning(self, model):
         # possible other pruning strategies (neglecting for now)
@@ -876,6 +886,7 @@ if __name__ == "__main__":
         candidate_fraction=0.9,
         remove_isolated_nodes=True,
         metrics=["mse"],
+        parallel=True
     )
 
     model_pruned, history = pruner.prune(
