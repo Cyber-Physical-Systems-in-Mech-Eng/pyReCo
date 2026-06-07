@@ -3,7 +3,6 @@ import networkx as nx
 import numpy as np
 import warnings
 
-
 class EdgeSelector:
     '''
     A class to select edges from a graph based on specific criteria.
@@ -50,21 +49,23 @@ class EdgeSelector:
     '''
 
     # Selection strategies implemented
+    # TODO think about putting these in classes (ABC?)
     STRATEGIES = {
-        "random_uniform_wo_repl": "_random_uniform_wo_repl",
+        'random_uniform_wo_repl': '_random_uniform_wo_repl',
+
     }
 
     def __init__(
         self,
         graph: nx.Graph | np.ndarray = None,
-        strategy: str = "random_uniform_wo_repl",
-        directed: bool = False,
+        strategy: str = 'random_uniform_wo_repl',
+        directed: bool = False,  # TODO think about making this true. I feel like the usual case for RCs is directed
     ):
         # Sanity checks for passed graph and selection strategy
         self._validate_graph(graph, directed)
         self._validate_strategy(strategy)
 
-        # Get the edges and shape of the graph
+        # Get all edges of the graph
         edge_indices = self._extract_edges(graph, directed)
 
         # Assign values to attributes
@@ -114,7 +115,7 @@ class EdgeSelector:
         self._validate_selection_args(fraction, num)
 
         # Assign values to class attributes
-        # calculate number of edges to select or fraction
+        # Calculate number of edges to select or fraction
         self.num_select_edges = num if num is not None else round(self.num_total_edges * fraction)
         self.fraction = fraction if fraction is not None else num / self.num_total_edges
 
@@ -161,23 +162,29 @@ class EdgeSelector:
         Warns
         -----
         UserWarning
-        If a directed np.ndarray appears symmetric, which may indicate
-        the graph type was incorrectly specified.
+            If directed=True and np.ndarray appears symmetric.
+            If directed=False and np.ndarray appears asymmetric.
         '''
         if graph is not None:
             if not isinstance(graph, nx.Graph) and not isinstance(graph, np.ndarray):
-                raise TypeError("graph must be a networkx graph or np.ndarray")
+                raise TypeError('graph must be a networkx graph or np.ndarray')
 
             if isinstance(graph, nx.Graph):
                 if directed and not isinstance(graph, nx.DiGraph):
-                    raise ValueError("directed=True but graph is undirected nx.Graph, use nx.DiGraph instead")
+                    raise ValueError('directed=True but graph is undirected nx.Graph, use nx.DiGraph instead')
                 if not directed and isinstance(graph, nx.DiGraph):
-                    raise ValueError("directed=False but graph is directed nx.DiGraph, use nx.Graph instead")
+                    raise ValueError('directed=False but graph is directed nx.DiGraph, use nx.Graph instead')
 
+            # directed=True but matrix is symmetric
             if directed and isinstance(graph, np.ndarray) and np.array_equal(graph, graph.T):
-                warnings.warn("directed graph appears symmetric, verify this is intended")
+                warnings.warn('directed graph appears symmetric, verify this is intended')
+
+            # directed=False but matrix is asymmetric
+            if not directed and isinstance(graph, np.ndarray) and not np.array_equal(graph, graph.T):
+                warnings.warn('directed=False but graph appears asymmetric, verify this is intended')
+
         else:
-            raise ValueError("Graph must be provided")
+            raise ValueError('Graph must be provided')
 
     def _validate_strategy(self, strategy):
         '''
@@ -220,21 +227,21 @@ class EdgeSelector:
             If fraction is not a float.
         '''
 
-        # check that either fraction or num is provided
+        # Check that either fraction or num is provided
         if fraction is None and num is None:
             raise ValueError('Provide either fraction or num, not neither')
 
         if fraction is not None and num is not None:
             raise ValueError('Provide either fraction or num, not both')
 
-        # check that selected num is an integer and not larger than total amount of edges in graph
+        # Check that selected num is an integer and not larger than total amount of edges in graph
         if num is not None:
             if not isinstance(num, int):
                 raise TypeError('num must be an integer')
             if not (0 < num <= self.num_total_edges):
                 raise ValueError(f'num must be between 1 and {self.num_total_edges}')
 
-        # check that selected fraction is a float and larger than zero but not larger than 1
+        # Check that selected fraction is a float and larger than zero but not larger than 1
         if fraction is not None:
             if not isinstance(fraction, float):
                 raise TypeError('fraction must be a float')
