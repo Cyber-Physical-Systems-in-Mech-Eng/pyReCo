@@ -15,6 +15,7 @@ from typing import Union
 import copy
 from pyreco.graph_analyzer import GraphAnalyzer
 from pyreco.node_analyzer import NodeAnalyzer
+from pyreco.edge_analyzer import EdgeAnalyzer
 
 
 class EdgePruner:
@@ -42,11 +43,10 @@ class EdgePruner:
         patience: int = 0,
         performance_criterion: str = "mse",
         metrics: Union[list, str] = ["mse"],
-        node_props_extractor=None,
-        graph_props_extractor=None,
         return_best_model: bool = True,
         graph_analyzer: GraphAnalyzer = None,
         node_analyzer: NodeAnalyzer = None,
+        edge_analyzer: EdgeAnalyzer = None,
         remove_isolated_nodes: bool = False,
         directed: bool = True,
         parallel: bool = False,
@@ -80,23 +80,24 @@ class EdgePruner:
             pruning_criterion,
             stopping_criterion,
             min_num_nodes,
-            #min_num_edges,  TODO create validation function
+            min_num_edges,  # TODO create validation function
             patience,
             performance_criterion,
-            metrics,
-            node_props_extractor,
-            graph_props_extractor,
+            metrics,  # TODO create validation function
             return_best_model,
             graph_analyzer,
             node_analyzer,
+            edge_analyzer,
             remove_isolated_nodes,
-            #parallel,  TODO create validation function
+            parallel,
             )
 
         if graph_analyzer is None:
             graph_analyzer = GraphAnalyzer()
         if node_analyzer is None:
             node_analyzer = NodeAnalyzer()
+        if edge_analyzer is None:
+            edge_analyzer = EdgeAnalyzer()
 
         # Assigning the parameters to instance variables
         # Parameters for pruning criterion
@@ -115,10 +116,11 @@ class EdgePruner:
         self.metrics = metrics
         self.graph_analyzer = graph_analyzer
         self.node_analyzer = node_analyzer
+        self.edge_analyzer = edge_analyzer
         # Parameter bools for extra functionalities
         self.return_best_model = return_best_model
         self.remove_isolated_nodes = remove_isolated_nodes
-        self.parallel = parallel 
+        self.parallel = parallel
 
         # Initialize history dict to store the history of the pruning process in a
         #  nested dictionary
@@ -126,7 +128,7 @@ class EdgePruner:
 
         # Initialize attributes that will be used during pruning (and changed during
         #  the process)
-        #   needs to be attributes as the history updates depend on them
+        # Needs to be attributes as the history updates depend on them
         self._curr_model = None  # TODO check this again
         self._curr_loss = None
         self._curr_num_nodes = None
@@ -154,55 +156,63 @@ class EdgePruner:
         x_train, y_train = data_train[0], data_train[1]
 
         # Assigning the parameters to instance variables that can not be set
-        # in the initializer, as they depend on the model and data
+        #   in the initializer, as they depend on the model and data
         self._curr_num_nodes = model.reservoir_layer.nodes
 
-        # initialize the quantities that affect the stop condition
+        _graph = model.reservoir_layer.weights
+        if isinstance(_graph, nx.Graph):
+            edge_indices = list(_graph.edges())
+        elif isinstance(_graph, np.ndarray):
+            rows, cols = np.where(_graph != 0)  # where entries are not zero
+            edge_indices = list(zip(rows, cols))
+            if not self.directed:
+                edge_indices = [(r, c) for r, c in edge_indices if r < c]
+
+        self._curr_num_edges = len(edge_indices)
+
+        # Initialize the quantities that affect the stop condition
         self._curr_loss = model.evaluate(x=x_test, y=y_test, metrics=self.criterion)[0]
         self._curr_loss_history = [self._curr_loss]
 
-        # initialize quantities that we track for the pruning history
-        # these do not affect the pruning process
+        # Initialize quantities that we track for the pruning history
+        # These do not affect the pruning process
         self._curr_metrics = model.evaluate(x=x_test, y=y_test, metrics=self.metrics)
 
-        # storing all pruned models during the pruning iteration
-        # allows to recover models from previous iterations, e.g. when the best model is not the last one in the iteration (positive patience value)
+        # Storing all pruned models during the pruning iteration
+        # Allows to recover models from previous iterations, e.g. when the best model
+        #   is not the last one in the iteration (positive patience value)
         _pruned_models = [copy.deepcopy(model)]
+        _pruned_models_losses = [self._curr_loss]
 
-        # initialize the pruning iterator
+        # Initialize the pruning iterator
         self._iter_count = 0
 
-        _graph = model.reservoir_layer.weights
-        _graph_props = self.graph_analyzer.extract_properties(graph=_graph)
-
-        # Initialize history with important data
-        self._intialize_history(_graph_props)
-
-        # self.add_dict_to_history(["graph_props"], _graph_props)
-
-        # Save the starting reservoir
-        self.history["starting_reservoir"] = {
-            "input_nodes": list(model.reservoir_layer.input_receiving_nodes),
-            "readout_nodes": list(model.readout_layer.readout_nodes),
-            "initial_weights": sp.csr_matrix(_graph) if isinstance(_graph, np.ndarray) else nx.to_scipy_sparse_array(_graph),
-        }
-
         while True:
+
+            # min_edges checked here (pre-pruning) so we avoid evaluating candidates
+            #   when we already know we would violate the constraint
+            if 'min_edges' in self.stopping_criterion:
+                if not self._min_num_edges_stopping():
+                    break
+
+            # Store initial model and properties in history
+            self._history_update_before_pruning(model, _graph)
 
             print(f'Currently at pruning iteration {self._iter_count} ...')
 
             print(
                 f'Current reservoir size: {self._curr_num_nodes} | Current loss: {self._curr_loss:.8f}'
             )
-            # what it was is down below
-            _graph = model.reservoir_layer.weights
 
-            # Get candidates for pruning (TODO: add additional passable arguments, e.g. strategy and fraction or make those attributes)
+            # Get candidates for pruning
             _curr_candidates = self._get_candidates(_graph)
 
             # Apply chosen pruning strategy on candidates to get scores for candidates
             _candidate_scores, _candidate_models, _cand_graph_props_after = \
                 self._apply_pruning_strategy(model, _curr_candidates, x_train, y_train, x_test, y_test)
+
+            # Store candidates and properties evaluated during iteration in history
+            self._history_update_candidate_iteration(_graph, _curr_candidates, _candidate_scores, _cand_graph_props_after)
 
             # Out of all candidates select candidate with best score (the one to prune)
             idx_prune, pruned_candidate = self._get_best_candidate(_curr_candidates, _candidate_scores)
@@ -224,48 +234,61 @@ class EdgePruner:
             # TODO: remove isolated nodes using utility function from utils_networks (follow up on this)
             if self.remove_isolated_nodes:
                 isolated_nodes = self._get_isolated_nodes(self._curr_model)
-                self._curr_model = self._remove_isolated_nodes(isolated_nodes, self._curr_model)
+                self._curr_model, removed_nodes = self._remove_isolated_nodes(isolated_nodes,
+                                                               self._curr_model,
+                                                               x_train,
+                                                               y_train,
+                                                               x_test,
+                                                               y_test)
                 self._curr_num_nodes = self._curr_model.reservoir_layer.nodes
+                # TODO maybe return the loss because we need to update the loss history if node is removed
+                # TODO we actually need to overwrite the previous value
+                #self._curr_loss_history.append(self._curr_loss)
 
             # Check stopping criterion on to be pruned candidate model properties
             # If termination criteria would be violated by pruning candidate we stop pruning
             # TODO (no optimal design by now to do it here though)
             if self._check_stopping_criterion():
                 # Exit pruning loop if stopping criterion condition is met
+                # Remove partial history entry for this iteration before exiting to
+                #   return clean history
+                del self.history[self._iter_count]
                 break
 
             if isinstance(pruned_candidate, tuple):
-                # clean print of pruned_candidate
+                # Clean print of pruned_candidate
                 pruned_candidate = (int(pruned_candidate[0]), int(pruned_candidate[1]))
             print(f'Pruning candidate {pruned_candidate}, resulting in loss {self._curr_loss:.6f}')
             print(
                 f'Loss improvement by {((self._curr_loss_history[-2]-self._curr_loss)/self._curr_loss_history[-2]):+.3%}\n'
             )
 
-            # prune the node that gives us the least performance drop. as we have already
-            # pruned the node and stored the model, we only need to update the model.
-            # Saves at least one training run and all the pruning logic
+            # Prune edge that gives us the least performance drop
+            # As we have already pruned edge and stored the model, we only need to
+            # update the model
             model = _candidate_models[idx_prune]
+            _graph = model.reservoir_layer.weights
 
-            # store the model for later use
+            # Store the model and loss for later use
             _pruned_models.append(copy.deepcopy(model))
+            _pruned_models_losses.append(self._curr_loss)
 
-            # compute things that are required for the history, but not for the
+            # Compute things that are required for history, but not for
             # pruning loop termination criteria
             self._curr_metrics = model.evaluate(
                 x=x_test, y=y_test, metrics=self.metrics
             )
 
             # Store important data after pruning in history
-            self._update_history_after_prune_iter(model, idx_prune, _curr_candidates, _candidate_scores, _cand_graph_props_after)
+            self._history_update_after_pruning(model, _graph, idx_prune, _curr_candidates, removed_nodes)
 
-            # update counter
+            # Update iteration counter
             self._iter_count += 1
 
-        # in case we have a non-zero patience, we need to return the best model
+        # In case we have a non-zero patience, we might want to return the best model
         # instead of the last one (i.e. when a positive patience value was given)
         if self.return_best_model:
-            idx_best = np.argmin(self._curr_loss_history[:-1])
+            idx_best = np.argmin(_pruned_models_losses)
             model = copy.deepcopy(_pruned_models[idx_best])
             print(f"Returning model {idx_best} as the best (with lowest loss)")
 
@@ -282,17 +305,25 @@ class EdgePruner:
         return model, self.history
 
 
-    ######### PRUNING STEPS FUNCTIONS #########
+    ######### PRUNING STEPS FUNCTIONS ##########
 
-    def _intialize_history(self, graph_props):
-        # Store all relevant information during pruning inside self.history
-        # self._update_pruning_history(model=model)
-        self.add_val_to_history(["loss"], self._curr_loss)
-        self.add_val_to_history(["metrics"], self._curr_metrics)
-        self.add_val_to_history(["num_nodes"], self._curr_num_nodes)
-        self.add_val_to_history(["iteration"], self._iter_count)
+    def _history_update_before_pruning(self, model, graph):
 
-        self.add_dict_to_history(["graph_props"], graph_props)
+        # Get graph properties of current model
+        graph_props = self.graph_analyzer.extract_properties(graph=graph)
+        # Store the properties of current model
+        self.history[self._iter_count] = {
+            'starting_model': {
+                'weights': sp.csr_matrix(graph) if isinstance(graph, np.ndarray) else nx.to_scipy_sparse_array(graph),
+                'input_nodes': list(model.reservoir_layer.input_receiving_nodes),
+                'readout_nodes': list(model.readout_layer.readout_nodes),
+                'loss': self._curr_loss,
+                'num_nodes': self._curr_num_nodes,
+                'num_edges': self._curr_num_edges,
+                'metrics': self._curr_metrics,
+                'graph_props': graph_props,
+            }
+        }
 
     def _get_candidates(self, graph):
 
@@ -317,31 +348,21 @@ class EdgePruner:
         method = getattr(self, self.PRUNING_CRITERION[self.pruning_criterion])
         return method(model, candidates, x_train, y_train, x_test, y_test)
 
-    def _update_history_during_prune_iter(self,
-                                          candidate_scores,
-                                          candidates,
-                                          cand_graph_props_before,
-                                          cand_graph_props_after
-                                          ):
-        self.add_val_to_history(
-            ["candidate_scores"],
-            candidate_scores,
-        )
+    def _history_update_candidate_iteration(self, graph, candidates, candidate_scores, cand_graph_props_after):
+        # Get scores, edge properties and potential graph properties of candidates
+        #edge_props = [self.edge_analyzer.extract_properties(graph, c) for c in candidates]
+        cand_edge_props = self.edge_analyzer.extract_properties_batch(graph, candidates)
 
-        self.add_val_to_history(
-            ["candidates"],
-            candidates,
-        )
-
-        self.add_val_to_history(
-            ["candidate_graph_props_before"],
-            dictlist_to_dict(cand_graph_props_before),
-        )
-
-        self.add_val_to_history(
-            ["candidate_graph_props_after"],
-            dictlist_to_dict(cand_graph_props_after),
-        )
+        self.history[self._iter_count]['candidates'] = {
+            (int(c[0]), int(c[1])): {
+                'score': score,
+                'edge_props': edge_props,
+                'graph_props_after': graph_props,
+            }
+            for c, score, edge_props, graph_props in zip(
+                candidates, candidate_scores, cand_edge_props, cand_graph_props_after
+            )
+        }
 
     def _get_best_candidate(self, candidates, candidate_scores):
         idx_prune = np.argmin(candidate_scores)
@@ -397,19 +418,59 @@ class EdgePruner:
 
         return isolated_nodes
 
-    def _remove_isolated_nodes(self, isolated_nodes, model):
-        # Remove isolated nodes that are neither input-receiving nor readout nodes # TODO clear up question
-        fully_isolated_nodes = [
+    def _remove_isolated_nodes(self, isolated_nodes, model, x_train, y_train, x_test, y_test):
+        # Dict to store isolated nodes
+        removed = {}
+        # Remove isolated nodes that are neither input-receiving nor readout nodes
+        fully_isolated_node_ids = [
             n['id'] for n in isolated_nodes
             if not n['is_input'] and not n['is_readout']
         ]
-        if fully_isolated_nodes:
-            print(f'Removing {len(fully_isolated_nodes)} isolated non-input/readout nodes: {fully_isolated_nodes}')
-            model.remove_reservoir_nodes(nodes=fully_isolated_nodes)
-        return model
+        if fully_isolated_node_ids:
+            print(f'Removing {len(fully_isolated_node_ids)} isolated non-input/readout nodes: {fully_isolated_node_ids}')
+            model.remove_reservoir_nodes(nodes=fully_isolated_node_ids)
+            # Store removed node in dict for tracking
+            for node_id in fully_isolated_node_ids:
+                removed[node_id] = {'loss_after': None, 'is_readout': False}
+
+        # Remove isolated readout nodes if removal doesn't affect performance negatively
+        isolated_readout_nodes = [
+            n for n in isolated_nodes
+            if not n['is_input'] and n['is_readout']
+        ]
+
+        # Track original IDs of all removed nodes to adjust indices after renumbering
+        # Each removal shifts down the indices of all higher-numbered nodes by 1
+        removed_original_ids = list(fully_isolated_node_ids)
+        # Check effect on performance performance
+        # TODO check this properly and look at whether we want to store this somewhere
+        for node in isolated_readout_nodes:
+            # Compute how many previously removed nodes had a smaller original ID,
+            #   since each such removal shifted this node's current index down by 1
+            adjusted_id = node['id'] - sum(1 for r in removed_original_ids if r < node['id'])
+            _model = copy.deepcopy(model)
+            _model.remove_reservoir_nodes(nodes=[adjusted_id])
+            _model.fit(x=x_train, y=y_train)
+            _score = _model.evaluate(x=x_test, y=y_test, metrics=self.criterion)[0]
+
+            if _score <= self._curr_loss:
+                print(f"Removing isolated readout node {node['id']}: loss {self._curr_loss:.6f} -> {_score:.6f}")
+                # Note that node has been removed
+                removed_original_ids.append(node['id'])
+                # Store removed node in dict for tracking
+                removed[node['id']] = {'loss_after': _score, 'is_readout': True}
+                model = _model
+                self._curr_loss = _score
+            else:
+                print(f"Keeping isolated readout node {node['id']}: removal would increase loss {self._curr_loss:.6f} -> {_score:.6f}")
+
+        return model, removed
 
     def _check_stopping_criterion(self):
         for criterion in self.stopping_criterion:
+            if criterion == 'min_edges':
+                # Handled at the top of the pruning loop (pre-pruning check)
+                continue
             method = getattr(self, self.STOPPING_CRITERION[criterion])
             if not method():
                 # Criterion is met
@@ -417,28 +478,23 @@ class EdgePruner:
         # Criterion is not met
         return False
 
-    def _update_history_after_prune_iter(self, model, idx_prune, candidates, candidate_scores, graph_props_after):
-        """Store all relevant state after each pruning iteration."""
-        self.add_val_to_history(["loss"], self._curr_loss)
-        self.add_val_to_history(["metrics"], self._curr_metrics)
-        self.add_val_to_history(["num_nodes"], self._curr_num_nodes)
-        self.add_val_to_history(["idx_prune"], self._curr_idx_prune)
-        self.add_val_to_history(["iteration"], self._iter_count)
-
-        self.add_dict_to_history(
-            ["graph_props"], graph_props_after[idx_prune]
-        )
-
-        # Data I want to save pruning details and weight snapshot ---
-        # Save winner candidate and full candidate list for analysis
-        self.add_val_to_history(["pruning_analysis", "winner"], candidates[idx_prune])
-        self.add_val_to_history(["pruning_analysis", "candidates"], candidates)
-        self.add_val_to_history(["pruning_analysis", "candidate_scores"], candidate_scores)
-
-        # Save snapshot of reservoir weights/connections
-        _w_curr = model.reservoir_layer.weights
-        snapshot = sp.csr_matrix(_w_curr) if isinstance(_w_curr, np.ndarray) else nx.to_scipy_sparse_array(_w_curr)
-        self.add_val_to_history(["weight_snapshots"], snapshot)
+    def _history_update_after_pruning(self, model, graph, idx_prune, candidates, removed_nodes):
+        # Get final graph properties and winner
+        graph_props = self.graph_analyzer.extract_properties(graph=graph)
+        winner = candidates[idx_prune]
+        # Store winner, removed nodes and properties of winner model
+        self.history[self._iter_count]['winner'] = (int(winner[0]), int(winner[1]))
+        self.history[self._iter_count]['removed_nodes'] = removed_nodes
+        self.history[self._iter_count]['final_model'] = {
+            'weights': sp.csr_matrix(graph) if isinstance(graph, np.ndarray) else nx.to_scipy_sparse_array(graph),
+            'input_nodes': list(model.reservoir_layer.input_receiving_nodes),
+            'readout_nodes': list(model.readout_layer.readout_nodes),
+            'loss': self._curr_loss,
+            'num_nodes': self._curr_num_nodes,
+            'num_edges': self._curr_num_edges,
+            'metrics': self._curr_metrics,
+            'graph_props': graph_props,
+        }
 
     ######### MODEL TRAINING FUNCTIONS #########
     def _retrain_model(self, model, x_train, y_train):
@@ -461,31 +517,22 @@ class EdgePruner:
                                (model, c, x_train, y_train, x_test, y_test)
                                for c in tqdm(candidates, desc="Evaluating candidates")
                                )
-            _candidate_scores, _candidate_models, _cand_graph_props_before, _cand_graph_props_after = zip(*results)
+            _candidate_scores, _candidate_models, _cand_graph_props_after = zip(*results)
             _candidate_scores = list(_candidate_scores)
             _candidate_models = list(_candidate_models)
-            _cand_graph_props_before = list(_cand_graph_props_before)
             _cand_graph_props_after = list(_cand_graph_props_after)
         else:
             # Go through candidates one by one in a single process
             # Initialize lists to track different metrics during pruning iteration
-            _candidate_scores, _candidate_models, _cand_graph_props_before, _cand_graph_props_after = [], [], [], []
+            _candidate_scores, _candidate_models, _cand_graph_props_after = [], [], []
             for candidate in candidates:
                 # Get model performance for removing candidate
-                score, cand_model, props_before, props_after = \
+                score, cand_model, props_after = \
                     self._evaluate_candidate_performance(model, candidate, x_train, y_train, x_test, y_test)
                 # Collect score, model and properties of candiate
                 _candidate_scores.append(score)
                 _candidate_models.append(cand_model)
-                _cand_graph_props_before.append(props_before)
                 _cand_graph_props_after.append(props_after)
-
-        # Store the candidate properties in the history object
-        # TODO maybe add candidate so dictonary can be further nested by candidates in iteration here
-        self._update_history_during_prune_iter(_candidate_scores,
-                                               candidates,
-                                               _cand_graph_props_before,
-                                               _cand_graph_props_after)
 
         return _candidate_scores, _candidate_models, _cand_graph_props_after
 
@@ -499,7 +546,6 @@ class EdgePruner:
         # TODO rethink what to store
         # TODO rethink if before history is necessary
         _graph = _model.reservoir_layer.weights
-        _graph_props_before = self.graph_analyzer.extract_properties(graph=_graph)
 
         # Remove candidate edge from reservoir
         _model.remove_reservoir_edges(edges=[candidate])
@@ -524,7 +570,7 @@ class EdgePruner:
             print(f'Possible deletion of edge {label:<10} loss: {_score:.6f}  ({(self._curr_loss - _score) / self._curr_loss:+.3%})')
 
         # Return canidate score, model and properties
-        return _score, _model, _graph_props_before, _graph_props_after
+        return _score, _model, _graph_props_after
 
     def _shortest_path_pruning(self, model):
         # possible other pruning strategies (neglecting for now)
@@ -553,93 +599,41 @@ class EdgePruner:
             if self._patience_counter < self.patience:
                 # Patience counter still below patience, contiue pruning
                 print(
-                    f'Loss increased, but {self._patience_counter} < {self.patience} Continuing pruning'
+                    f'Loss increased, but {self._patience_counter} < {self.patience}. \nContinuing pruning ...'
                 )
                 return True
             else:
                 # TODO: we need to recover the model that had the best score!
                 # Patience is reached, stop pruning
                 print(
-                    f'Loss increased for {self.patience} consecutive iterations. Terminating pruning'
+                    f'Loss increased for {self.patience} consecutive iterations. \nTerminating pruning!'
                 )
                 return False
 
     def _min_num_nodes_stopping(self):
         # Checks if the number of nodes is above the minimum number of nodes
         # returns True if number of nodes is above minimum and we should continue pruning
-        if self._curr_num_nodes > self.min_num_nodes:
-            # TODO this logic doesn't make much sense, because reaching min_num_nodes should still continue pruning
-            # TODO pruning another edge doesn't mean that a node will be removed
+        if self._curr_num_nodes >= self.min_num_nodes:
+            # When reaching min_num_nodes we should still continue pruning
+            #   pruning another edge doesn't mean that a node will be removed
             print(
-                f'Number of nodes {self._curr_num_nodes} is larger than minimum number of nodes {self.min_num_nodes}. Continuing pruning'
+                f'Number of nodes {self._curr_num_nodes} is larger than minimum number of nodes {self.min_num_nodes}. \nContinuing pruning ...'
             )
             return True
         else:
             print(
-                f'Number of nodes {self._curr_num_nodes} is smaller/equal minimum number of nodes {self.min_num_nodes}. Terminating pruning'
+                f'Number of nodes {self._curr_num_nodes} is smaller/equal minimum number of nodes {self.min_num_nodes}. \nTerminating pruning!'
             )
             return False
 
     def _min_num_edges_stopping(self):
-        # Checks if the number of edges is above the minimum number of edges
-        # returns True if number of nodes is above minimum and we should continue pruning
-        if self._curr_num_edges > self.min_num_edges:
-            print(f'Number of edges {self._curr_num_edges} is larger than minimum number of edges {self.min_num_edges}. Continuing pruning')
-            return True
-        else:
-            print(f'Number of edges {self._curr_num_edges} is smaller/equal minimum number of edges {self.min_num_edges}. Terminating pruning')
-        return False
-
-    ######## history helpers ########
-
-    def add_val_to_history(self, keys, value):
-        """
-        Add a value to history dictionary based on a list of keys.
-
-        Args:
-            keys (list): A list of keys specifying the path in the nested dictionary.
-            value: The value to add.
-        """
-        if len(keys) == 1:
-            if keys[0] not in self.history:
-                self.history[keys[0]] = []
-            self.history[keys[0]].append(value)
-
-        elif len(keys) == 2:
-            if keys[0] not in self.history:
-                self.history[keys[0]] = {}
-            if keys[1] not in self.history[keys[0]]:
-                self.history[keys[0]][keys[1]] = []
-            self.history[keys[0]][keys[1]].append(value)
-
-        # for key in keys[:-1]:
-        #     if key not in self.history:
-        #         self.history[key] = {}
-        #     self.history = self.history[key]
-        # if keys[-1] not in self.history:
-        #     self.history[keys[-1]] = []
-        # self.history[keys[-1]].append(value)
-
-    def add_dict_to_history(self, keys, value_dict):
-        """
-        Add a dictionary to history dictionary based on a list of keys.
-
-        Args:
-        nested_dict (dict): The nested dictionary.
-        keys (list): A list of keys specifying the path in the nested dictionary.
-        value_dict (dict): The dictionary to add.
-        """
-
-        for key in keys[:-1]:
-            if key not in self.history:
-                self.history[key] = {}
-            self.history = self.history[key]
-        if keys[-1] not in self.history:
-            self.history[keys[-1]] = {}
-        for k, v in value_dict.items():
-            if k not in self.history[keys[-1]]:
-                self.history[keys[-1]][k] = []
-            self.history[keys[-1]][k].append(v)
+        # Pre-pruning check: called at the top of the while loop before candidate evaluation.
+        # Stops if pruning one more edge would violate the minimum.
+        if self._curr_num_edges <= self.min_num_edges:
+            print(f'Number of edges {self._curr_num_edges} is minimum number of edges {self.min_num_edges}. \nTerminating pruning!')
+            return False
+        print(f'Number of edges {self._curr_num_edges} is larger than minimum number of edges {self.min_num_edges}. \nContinuing pruning ...')
+        return True
 
     ######### VALIDATION FUNCTIONS #########
     def _validate_init_params(
@@ -648,15 +642,16 @@ class EdgePruner:
         pruning_criterion,
         stopping_criterion,
         min_num_nodes,
+        min_num_edges, # TODO write validation function
         patience,
         criterion,
-        metrics,
-        node_props_extractor,
-        graph_props_extractor,
+        metrics,  # TODO write validation function
         return_best_model,
         graph_analyzer,
         node_analyzer,
+        edge_analyzer,
         remove_isolated_nodes,
+        parallel,
     ):
         # Validate candidate fraction
         if not isinstance(candidate_fraction, float):
@@ -694,6 +689,10 @@ class EdgePruner:
         if not isinstance(criterion, str):
             raise TypeError('criterion must be a string')
 
+        # Validate parallel
+        if not isinstance(return_best_model, bool):
+            raise TypeError('return_best_model must be a boolean')
+
         # Validate graph analyzer
         if graph_analyzer is not None and not isinstance(graph_analyzer, GraphAnalyzer):
             raise TypeError('graph_analyzer must be an instance of GraphAnalyzer')
@@ -702,9 +701,17 @@ class EdgePruner:
         if node_analyzer is not None and not isinstance(node_analyzer, NodeAnalyzer):
             raise TypeError('node_analyzer must be an instance of NodeAnalyzer')
 
+        # Validate edge analyzer
+        if edge_analyzer is not None and not isinstance(edge_analyzer, EdgeAnalyzer):
+            raise TypeError('edge_analyzer must be an instance of EdgeAnalyzer')
+
         # Validate remove isolated nodes
         if not isinstance(remove_isolated_nodes, bool):
             raise TypeError('remove_isolated_nodes must be a boolean')
+
+        # Validate parallel
+        if not isinstance(parallel, bool):
+            raise TypeError('parallel must be a boolean')
 
     def _validate_pruning_params(self, model, data_train, data_val):
 
@@ -738,99 +745,6 @@ class EdgePruner:
                 "data_val[0] and data_val[1] must have the same length, "
                 "i.e. same number of samples"
             )
-
-
-def dictlist_to_dict(dict_list):
-    """
-    Join dictionaries in a list into a common dictionary.
-
-    Args:
-        dict_list (list): A list of dictionaries to join.
-
-    Returns:
-        dict: A common dictionary containing all key-value pairs from the dictionaries in the list.
-    """
-    common_dict = {}
-    for d in dict_list:
-        for key, value in d.items():
-            if key in common_dict:
-                if isinstance(common_dict[key], list):
-                    common_dict[key].append(value)
-                else:
-                    common_dict[key] = [common_dict[key], value]
-            else:
-                common_dict[key] = value
-    return common_dict
-
-    # def _update_pruning_history(self, model: RC):
-    #     # this will keep track of all quantities that are relevant during the pruning iterations.
-
-    #     # Pruning iteration
-    #     # self.history["iteration"].append(self._curr_iter)
-
-    #     if not self.history:
-    #         # initialize the history object
-    #         self.history["iteration"] = []
-    #         self.history["loss"] = []
-    #         self.history["metrics"] = []
-    #         self.history["num_nodes"] = []
-
-    #         # initialize the dicts for the graph and node properties with empty lists
-    #         graph_keys = self.graph_analyzer.list_properties()
-    #         node_keys = self.node_analyzer.list_properties()
-
-    #         self.history["graph_props"] = {key: [] for key in graph_keys}
-    #         # self.history["candidate_graph_props"] = {key: [] for key in graph_keys}
-
-    #         self.history["del_node_props"] = {key: [] for key in graph_keys}
-    #         # self.history["candidate_node_props"] = {key: [] for key in graph_keys}
-
-    #     else:
-    #         # store the most relevant information
-
-    #         # we will extract properties from the reservoir network of the model
-    #         graph = model.reservoir_layer.weights
-    #         graph_props = self.graph_analyzer.extract_properties(graph)
-
-    #         # # choose the node to extract properties from
-    #         # node = int(self._curr_idx_prune)
-    #         # node_props = self.node_analyzer.extract_properties(graph, node)
-
-    #         # high-level properties
-    #         self.add_val_to_history(
-    #             ["num_nodes"],
-    #             self._curr_num_nodes,
-    #         )
-
-    #         self.add_val_to_history(
-    #             ["loss"],
-    #             self._curr_loss,
-    #         )
-
-    #         self.add_val_to_history(
-    #             ["metrics"],
-    #             self._curr_metrics,
-    #         )
-
-    #         self.add_val_to_history(
-    #             ["iteration"],
-    #             self._iter_count,
-    #         )
-    #         self.add_val_to_history(
-    #             ["graph_props"],
-    #             graph_props,
-    #         )
-
-
-def append_to_dict(dict1, dict2):
-    # appends entries in dict1 to existing dict 2
-
-    for key in list(dict1.keys()):
-        if key in list(dict2.keys()):
-            # print(f"appending {key} to existing dict")
-            dict2[key].append(dict1[key])
-
-    return dict2
 
 
 if __name__ == "__main__":
@@ -886,9 +800,14 @@ if __name__ == "__main__":
         candidate_fraction=0.9,
         remove_isolated_nodes=True,
         metrics=["mse"],
-        parallel=True
+        #parallel=True
     )
 
     model_pruned, history = pruner.prune(
         model=model, data_train=(X_train, y_train), data_val=(X_test, y_test)
     )
+
+    import pickle
+
+    with open('history.pkl', 'wb') as f:
+        pickle.dump(history, f)
