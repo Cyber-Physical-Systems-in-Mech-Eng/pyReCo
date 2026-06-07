@@ -18,6 +18,16 @@ from pyreco.node_analyzer import NodeAnalyzer
 from pyreco.edge_analyzer import EdgeAnalyzer
 
 
+def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y_test, criterion, graph_analyzer):
+    _model = copy.deepcopy(model)
+    _model.remove_reservoir_edges(edges=[candidate])
+    _model.fit(x=x_train, y=y_train)
+    _score = _model.evaluate(x=x_test, y=y_test, metrics=criterion)[0]
+    _graph = _model.reservoir_layer.weights
+    _graph_props_after = graph_analyzer.extract_properties(graph=_graph)
+    return _score, _model, _graph_props_after
+
+
 class EdgePruner:
     # implements a pruning object for pyreco objects.
 
@@ -232,6 +242,7 @@ class EdgePruner:
 
             # Check for isolated nodes and remove TODO if no effect on performance
             # TODO: remove isolated nodes using utility function from utils_networks (follow up on this)
+            removed_nodes = {}
             if self.remove_isolated_nodes:
                 isolated_nodes = self._get_isolated_nodes(self._curr_model)
                 self._curr_model, removed_nodes = self._remove_isolated_nodes(isolated_nodes,
@@ -512,11 +523,19 @@ class EdgePruner:
             parallel = Parallel(n_jobs=-1, backend='loky')
             # tqdm shows process in in bar chart
             # generator returns results in order that they're given
+            #results = parallel(
+            #                   delayed(self._evaluate_candidate_performance)
+            #                   (model, c, x_train, y_train, x_test, y_test)
+            #                   for c in tqdm(candidates, desc="Evaluating candidates")
+            #                   )
+            # Call seperate evaluation function that doesn't pass the whole self object
+            #   (history gets larger with each iteration and therefore slows down when
+            #   it's spawned across multiple CPUs)
             results = parallel(
-                               delayed(self._evaluate_candidate_performance)
-                               (model, c, x_train, y_train, x_test, y_test)
-                               for c in tqdm(candidates, desc="Evaluating candidates")
-                               )
+                delayed(_evaluate_candidate_standalone)
+                (model, c, x_train, y_train, x_test, y_test, self.criterion, self.graph_analyzer)
+                for c in tqdm(candidates, desc="Evaluating candidates")
+                )
             _candidate_scores, _candidate_models, _cand_graph_props_after = zip(*results)
             _candidate_scores = list(_candidate_scores)
             _candidate_models = list(_candidate_models)
@@ -800,7 +819,7 @@ if __name__ == "__main__":
         candidate_fraction=0.9,
         remove_isolated_nodes=True,
         metrics=["mse"],
-        #parallel=True
+        parallel=True
     )
 
     model_pruned, history = pruner.prune(
