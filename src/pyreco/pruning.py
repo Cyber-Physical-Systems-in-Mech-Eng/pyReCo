@@ -6,7 +6,6 @@ performance while reducing the reservoir size
 import numpy as np
 from pyreco.custom_models import RC
 from pyreco.node_selector import NodeSelector
-from pyreco.edge_selector import EdgeSelector
 import networkx as nx
 import math
 from typing import Union
@@ -34,7 +33,6 @@ class NetworkPruner:
         return_best_model: bool = True,
         graph_analyzer: GraphAnalyzer = None,
         node_analyzer: NodeAnalyzer = None,
-        edge_pruning: bool = False,
     ):
         """
         Initializer for the pruning class.
@@ -114,7 +112,6 @@ class NetworkPruner:
         self.return_best_model = return_best_model
         self.graph_analyzer = graph_analyzer
         self.node_analyzer = node_analyzer
-        self.edge_pruning = edge_pruning
 
         # TODO not implemented yet
         self.remove_isolated_nodes = remove_isolated_nodes
@@ -127,7 +124,6 @@ class NetworkPruner:
         # needs to be attributes as the history updates depend on them
         self._curr_loss = None
         self._curr_num_nodes = None
-        self._curr_num_edges = None
         self._curr_loss_history = []
         self._idx_prune = None
         self._patience_counter = 0
@@ -217,42 +213,18 @@ class NetworkPruner:
                 f"current reservoir size: {self._curr_num_nodes}, current loss: {self._curr_loss:.8f}"
             )
 
-            # TODO: rethink this whole logic
-            if self.edge_pruning:
-                _graph = model.reservoir_layer.weights
-                if isinstance(_graph, nx.Graph):
-                    self._curr_num_edges = _graph.number_of_edges()
-                if isinstance(_graph, np.ndarray):
-                    self._curr_num_edges = np.count_nonzero(_graph)
-                # propose a list of edges to prune using a random uniform distribution. If the user specified a candidate_fraction of 1.0, we will try out all nodes
-                _num_to_prune = math.ceil(
-                    self.candidate_fraction * self._curr_num_edges
-                )
-                #print(_graph)
-                #print(_graph.shape)
-                selector = EdgeSelector(
-                    graph=_graph, strategy="random_uniform_wo_repl"
-                )
-                # obtain nodes that are proposed for pruning
-                _curr_candidates = selector.select_edges(fraction=self.candidate_fraction)
-                #print(_curr_candidates)
-                print(
-                    f"propose {_num_to_prune}/{self._curr_num_edges} edges for pruning"
-                )
-
-            else:
-                # propose a list of nodes to prune using a random uniform distribution. If the user specified a candidate_fraction of 1.0, we will try out all nodes
-                _num_to_prune = math.ceil(
-                    self.candidate_fraction * self._curr_num_nodes
-                )
-                selector = NodeSelector(
-                    total_nodes=self._curr_num_nodes, strategy="random_uniform_wo_repl"
-                )
-                # obtain nodes that are proposed for pruning
-                _curr_candidates = selector.select_nodes(num=_num_to_prune)
-                print(
-                    f"propose {_num_to_prune}/{self._curr_num_nodes} nodes for pruning"
-                )
+            # propose a list of nodes to prune using a random uniform distribution. If the user specified a candidate_fraction of 1.0, we will try out all nodes
+            _num_nodes_to_prune = math.ceil(
+                self.candidate_fraction * self._curr_num_nodes
+            )
+            selector = NodeSelector(
+                total_nodes=self._curr_num_nodes, strategy="random_uniform_wo_repl"
+            )
+            # obtain nodes that are proposed for pruning
+            _curr_candidate_nodes = selector.select_nodes(num=_num_nodes_to_prune)
+            print(
+                f"propose {_num_nodes_to_prune}/{self._curr_num_nodes} nodes for pruning"
+            )
 
             # track the performance of the RC with the candidate nodes removed
             _candidate_scores = []
@@ -269,7 +241,7 @@ class NetworkPruner:
 
             # iteratate over the candidate nodes: delete one-by-one, measure performance,
             # and also track node/graph-level properties
-            for candidate in _curr_candidates:
+            for node in _curr_candidate_nodes:
 
                 # get a copy of the original model to try out the deletion
                 _model = copy.deepcopy(model)
@@ -277,31 +249,24 @@ class NetworkPruner:
                 # extract information about the node that we will prune,
                 # and about the graph before we prune it
                 _graph = _model.reservoir_layer.weights
-
-                # Graph state before pruning
+                _node_props = self.node_analyzer.extract_properties(
+                    graph=_graph, node=node
+                )
                 _graph_props = self.graph_analyzer.extract_properties(graph=_graph)
+
+                # check for links to input and read-out layer of the current node
+                _is_input_receiving = (
+                    node in _model.reservoir_layer.input_receiving_nodes
+                )
+                _is_output_sending = node in _model.readout_layer.readout_nodes
+
+                _cand_node_props.append(_node_props)
                 _cand_graph_props_before.append(_graph_props)
+                _cand_node_input_receiving.append(_is_input_receiving)
+                _cand_node_output_sending.append(_is_output_sending)
 
-                if self.edge_pruning:
-                    _model.remove_reservoir_edges(edges=[candidate])
-                    # For logging/analysis: define node as the 'target' of the edge or skip node-specific props
-                    current_id = candidate
-
-                else:
-                    _node_props = self.node_analyzer.extract_properties(
-                        graph=_graph, node=candidate
-                    )
-                    # check for links to input and read-out layer of the current node
-                    _is_input_receiving = (
-                        candidate in _model.reservoir_layer.input_receiving_nodes
-                    )
-                    _is_output_sending = candidate in _model.readout_layer.readout_nodes
-                    _cand_node_props.append(_node_props)
-                    _cand_node_input_receiving.append(_is_input_receiving)
-                    _cand_node_output_sending.append(_is_output_sending)
-
-                    # remove current candidate node
-                    _model.remove_reservoir_nodes(nodes=[candidate])
+                # remove current candidate node
+                _model.remove_reservoir_nodes(nodes=[node])
 
                 # TODO: remove isolated nodes using utility function from utils_networks
                 # if self.remove_isolated_nodes:
@@ -324,16 +289,8 @@ class NetworkPruner:
                 _graph_props = self.graph_analyzer.extract_properties(graph=_graph)
                 _cand_graph_props_after.append(_graph_props)
 
-                # Format the candidate identifier cleanly
-                if isinstance(candidate, tuple):
-                    # Formats np.int64() cleanly
-                    label = f"{int(candidate[0])}-{int(candidate[1])}"
-                else:
-                    # Handles a single node ID
-                    label = int(candidate)
-
                 print(
-                    f"deletion of candidate {label}. loss: \t{_score:.6f} ({(self._curr_loss-_score)/self._curr_loss:+.3%})"
+                    f"deletion of candidate node {node}. loss: \t{_score:.6f} ({(self._curr_loss-_score)/self._curr_loss:+.3%})"
                 )
 
                 # store the relevant candidate information
@@ -346,7 +303,7 @@ class NetworkPruner:
                     _score,
                     _graph,
                     _graph_props,
-                    #_node_props,
+                    _node_props,
                 )
 
             # store the candidate properties in the history object
@@ -357,7 +314,7 @@ class NetworkPruner:
 
             self.add_val_to_history(
                 ["candidate_nodes"],
-                _curr_candidates,
+                _curr_candidate_nodes,
             )
 
             self.add_val_to_history(
@@ -378,8 +335,7 @@ class NetworkPruner:
             # after trying out all candidate nodes, we need to select the node to prune,
             # i.e. the one that has the smallest loss among all candidate nodes
             idx_prune = np.argmin(_candidate_scores)
-            self._curr_idx_prune = idx_prune 
-            pruned_candidate =  _curr_candidates[idx_prune]# just for history logging
+            self._curr_idx_prune = idx_prune  # just for history logging
 
             # update the termination relevant quantities,
             # assuming that we will prune that node
@@ -393,7 +349,7 @@ class NetworkPruner:
                 # exit the pruning loop
                 break
 
-            print(f"pruning candidate {pruned_candidate}, resulting in loss {self._curr_loss:.6f}")
+            print(f"pruning node {idx_prune}, resulting in loss {self._curr_loss:.6f}")
             print(
                 f"loss improvement by {((self._curr_loss_history[-2]-self._curr_loss)/self._curr_loss_history[-2]):+.3%}\n"
             )
@@ -420,17 +376,16 @@ class NetworkPruner:
             self.add_val_to_history(["idx_prune"], self._curr_idx_prune)
             self.add_val_to_history(["iteration"], self._iter_count)
 
-            if not self.edge_pruning:
-                self.add_val_to_history(
-                    ["del_node_props", "input_receiving_node"],
-                    _cand_node_input_receiving[idx_prune],
-                )
-                self.add_val_to_history(
-                    ["del_node_props", "output_sending_node"],
-                    _cand_node_output_sending[idx_prune],
-                )
-                self.add_dict_to_history(["del_node_props"], _cand_node_props[idx_prune])
+            self.add_val_to_history(
+                ["del_node_props", "input_receiving_node"],
+                _cand_node_input_receiving[idx_prune],
+            )
+            self.add_val_to_history(
+                ["del_node_props", "output_sending_node"],
+                _cand_node_output_sending[idx_prune],
+            )
 
+            self.add_dict_to_history(["del_node_props"], _cand_node_props[idx_prune])
             self.add_dict_to_history(
                 ["graph_props"], _cand_graph_props_after[idx_prune]
             )
@@ -456,30 +411,6 @@ class NetworkPruner:
         print(f"final model loss {self.criterion}: {final_loss:.6f}")
         print(f"final model metrics ({self.metrics}): {final_metrics}")
         return model, self.history
-    
-    # TODO: Maybe also make this part of the RC class so that graph can be updated right away
-    def remove_reservoir_edges(self, edges: list):
-        """
-        Removes specific edges from the reservoir weights.
-        
-        Parameters:
-        - edges (list): List of tuples [(u, v), ...] representing edges to remove.
-        """
-        if not isinstance(edges, list):
-            raise TypeError("Edges must be provided as a list of tuples (u, v).")
-        
-        # If weights are a NetworkX Graph
-        if isinstance(self.weights, nx.Graph):
-            self.weights.remove_edges_from(edges)
-            
-        # If weights are a NumPy Array (Adjacency Matrix)
-        elif isinstance(self.weights, np.ndarray):
-            for u, v in edges:
-                self.weights[u, v] = 0
-                # If undirected, also remove the symmetric edge
-                # self.weights[v, u] = 0 
-        else:
-            raise TypeError("Reservoir weights must be NetworkX or NumPy array.")
 
     def _keep_pruning(self):
         # Termination criteria for the pruning process
@@ -753,7 +684,6 @@ if __name__ == "__main__":
         remove_isolated_nodes=False,
         metrics=["mse"],
         maintain_spectral_radius=False,
-        edge_pruning=True
     )
 
     model_pruned, history = pruner.prune(
