@@ -144,6 +144,7 @@ class EdgePruner:
         self._curr_num_nodes = None
         self._curr_num_edges = None
         self._curr_loss_history = []
+        self._best_loss = None
         self._idx_prune = None
         self._patience_counter = 0
         self._curr_metrics = None
@@ -301,7 +302,7 @@ class EdgePruner:
         if self.return_best_model:
             idx_best = np.argmin(_pruned_models_losses)
             model = copy.deepcopy(_pruned_models[idx_best])
-            print(f"Returning model {idx_best} as the best (with lowest loss)")
+            print(f"\nReturning model form iteration {idx_best-1} as the best")
 
         # we should fit the final model, and evaluate it
         model.fit(x=x_train, y=y_train)
@@ -598,34 +599,34 @@ class EdgePruner:
     ############## STOPPING CRITERIONS FUNCTIONS ##############
 
     def _patience_stopping(self):
-        # Checks if the loss is at a minimum, considering also patience
-        # Returns True if loss is not at minimum and we should continue pruning
-        if len(self._curr_loss_history) < 2:
-            # Just at the start of pruning, cannot really check for minimum
+        # Checks if the loss is at a minimum, considering also patience.
+        # Patience counts steps since the all-time best loss was achieved,
+        # not just since the last improvement over the previous step.
+        # Returns True if we should continue pruning, False to stop.
+        if len(self._curr_loss_history) < 1:
             return True
 
-        if self._curr_loss_history[-2] > self._curr_loss_history[-1]:
-            # Current loss is smaller than previous, continue pruning
+        current_loss = self._curr_loss_history[-1]
+
+        if self._best_loss is None or current_loss <= self._best_loss:
+            # New best score — reset patience
             print(
-                f'Loss decreased from {self._curr_loss_history[-2]:.6f} to {self._curr_loss_history[-1]:.6f} \nContinuing pruning ...'
+                f'Score improved to new best {current_loss:.6f}. \nContinuing pruning ...'
             )
+            self._best_loss = current_loss
             self._patience_counter = 0
             return True
-
         else:
-            # Current loss is larger than previous
+            # No improvement over best score
             self._patience_counter += 1
-            if self._patience_counter < self.patience:
-                # Patience counter still below patience, contiue pruning
+            if self._patience_counter <= self.patience:
                 print(
-                    f'Loss increased, but {self._patience_counter} < {self.patience}. \nContinuing pruning ...'
+                    f'No improvement over best score ({self._best_loss:.6f}), patience {self._patience_counter}/{self.patience}. \nContinuing pruning ...'
                 )
                 return True
             else:
-                # TODO: we need to recover the model that had the best score!
-                # Patience is reached, stop pruning
                 print(
-                    f'Loss increased for {self.patience} consecutive iterations. \nTerminating pruning!'
+                    f'No improvement over best score ({self._best_loss:.6f}) for {self.patience} consecutive iterations. \nTerminating pruning!'
                 )
                 return False
 
@@ -813,8 +814,8 @@ if __name__ == "__main__":
     pruner = EdgePruner(
         #min_num_nodes=46,
         #stopping_criterion=['patience'],
-        stopping_criterion=['min_edges'],
-        #patience=2,
+        stopping_criterion=['min_edges','patience'],
+        patience=2,
         min_num_edges=0,
         candidate_fraction=0.9,
         remove_isolated_nodes=True,
