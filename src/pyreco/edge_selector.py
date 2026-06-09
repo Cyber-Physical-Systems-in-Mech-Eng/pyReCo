@@ -116,7 +116,9 @@ class EdgeSelector:
 
         # Assign values to class attributes
         # Calculate number of edges to select or fraction
-        self.num_select_edges = num if num is not None else round(self.num_total_edges * fraction)
+        # max(1, ...) to ensure at least one edge is always proposed, preventing
+        #   fraction * small edge counts from rounding down to 0 (enables pruning to 0)
+        self.num_select_edges = num if num is not None else max(1, round(self.num_total_edges * fraction))
         self.fraction = fraction if fraction is not None else num / self.num_total_edges
 
         self.selected_edges = self.strategy()
