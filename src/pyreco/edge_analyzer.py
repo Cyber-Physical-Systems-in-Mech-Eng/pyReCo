@@ -50,7 +50,7 @@ def map_extractor_names(prop_names: list):
     list
         List of extractor functions in same order
     """
-    # Define a dictionary mapping network property names to their corresponding
+    # Define dictionary mapping network property names to their corresponding
     #   extractor functions
     all_extractors = available_extractors()
     extractor_dict = {}
@@ -66,11 +66,11 @@ def map_extractor_names(prop_names: list):
 
 class EdgeAnalyzer:
     """
-    A class for analyzing properties of a specific edge in a graph.
+    A class for analyzing properties of a specific edge in a graph,
+    analogue to 'NodeAnalyzer for nodes.
 
-    Mirrors the interface of NodeAnalyzer: extract_properties takes a graph
-    and a specific edge (u, v), returning a flat dict of scalars describing
-    that edge and the nodes it connects.
+    Takes a graph and a specific edge (u, v), returning a flat dict of scalars
+    describing that edge and the nodes it connects.
 
     Note: betweenness-based properties (betweenness, source_betweenness,
     target_betweenness) each trigger a full graph betweenness computation.
@@ -80,13 +80,13 @@ class EdgeAnalyzer:
 
     def __init__(self, quantities=None):
         """
-        Initialize the EdgeAnalyzer with specified quantities to extract.
+        Initializes the EdgeAnalyzer with specified quantities to extract.
 
         Parameters
         ----------
         quantities : list, optional
             List of edge properties to extract.
-            Defaults to all available:
+            Defaults to all at the moment available:
             ['abs_weight', 'sign', 'is_reciprocal', 'in_scc', 'betweenness',
              'source_out_degree', 'target_in_degree',
              'source_betweenness', 'target_betweenness'].
@@ -99,24 +99,27 @@ class EdgeAnalyzer:
         self, graph: Union[nx.Graph, nx.DiGraph, np.ndarray], edge: tuple
     ) -> dict:
         """
-        Extract the specified properties for a given edge.
+        Extracts the specified properties for a given edge.
 
         Parameters
         ----------
         graph : nx.Graph, nx.DiGraph, or np.ndarray
-            The graph to analyze.
+            Graph to analyze.
         edge : tuple
-            The (u, v) edge to extract properties for.
+            Edge (u, v) to extract properties for.
 
         Returns
         -------
         dict
-            A dictionary containing the extracted edge properties.
+            Dictionary containing the extracted edge properties.
         """
+        # Check edge is tuple list with two entries specifiying edge
         if not isinstance(edge, tuple) or len(edge) != 2:
             raise ValueError("edge must be a (u, v) tuple")
 
+        #  dict for properties
         edge_props = {}
+        # Get property name and functions to store in dict
         for extr_name, extr_fun in self.extractors.items():
             edge_props[extr_name] = extr_fun(graph, edge)
         return edge_props
@@ -125,15 +128,15 @@ class EdgeAnalyzer:
         self, graph: Union[nx.Graph, nx.DiGraph, np.ndarray], edges: list
     ) -> list:
         """
-        Extract properties for a list of edges with expensive graph-level metrics
+        Extracts properties for a list of edges with expensive graph-level metrics
         (betweenness centrality, SCC) so that they're computed only once.
 
         Parameters
         ----------
         graph : nx.Graph, nx.DiGraph, or np.ndarray
-            The graph in its current state, e.g. before edge removal.
+            Graph in its current state, e.g. before edge removal.
         edges : list
-            List of (u, v) tuples to extract properties for.
+            List of edges, (u, v) tuples, to extract properties for.
 
         Returns
         -------
@@ -141,7 +144,7 @@ class EdgeAnalyzer:
             List of dicts containing the extracted edge properties.
             One per edge, in the same order as edges.
         """
-        # convert here already to use networkx functions
+        # Convert here already to use networkx functions
         g = convert_to_nx_graph(graph)
 
         # Pre compute node_betweenness, edge_betweenness and scc_map on one graph
