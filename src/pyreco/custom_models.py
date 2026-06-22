@@ -662,10 +662,26 @@ class CustomModel(ABC):
 
     def remove_reservoir_edges(self, edges: list):
         """
-        Removes specific edges from the reservoir weights.
+        Removes specific edges from the reservoir weights by setting them 0.
 
-        Parameters:
-        - edges (list): List of tuples [(u, v), ...] representing edges to remove.
+        Parameters
+        ----------
+        edges : list of tuple
+            List of edges (u, v) tuples representing the edges to remove.
+
+        Raises
+        ------
+        TypeError
+            If 'edges' is not a list, or if the reservoir weights are
+            neither a NetworkX graph nor a NumPy array.
+
+        Notes
+        -----
+        For 'np.ndarray' weights, only 'weights[u, v]' is zeroed, the
+        reverse direction 'weights[v, u]' is not adjusted. This is
+        correct for directed graphs (the assumed case), but for an undirected graphs,
+        leaving  the matrix asymmetric, with the edge still present in the reverse
+        direction.
         """
         if not isinstance(edges, list):
             raise TypeError("Edges must be provided as a list of tuples (u, v).")
@@ -676,13 +692,14 @@ class CustomModel(ABC):
 
         # If weights are a NumPy Array (Adjacency Matrix)
         elif isinstance(self.reservoir_layer.weights, np.ndarray):
-            #print(edges)
             for u, v in edges:
                 self.reservoir_layer.weights[u, v] = 0
-                #TODO If undirected, also remove the symmetric edge
+                # TODO If undirected, also remove the symmetric edge
+                #       (we assume directed grpahs for now)
                 # self.weights[v, u] = 0
-        #TODO check if input receving node can still access rest of the reservoir
-        #TODO maybe make protection rules for pruner regarding input receveiving nodes, bias to output, etc.?
+        # TODO check if input receving node can still access rest of the reservoir
+        # TODO maybe make protection rules for pruner regarding input receveiving nodes,
+        #       bias to output, etc.?
         else:
             raise TypeError("Reservoir weights must be NetworkX or NumPy array.")
 
