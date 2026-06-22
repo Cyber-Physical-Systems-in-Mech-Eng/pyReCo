@@ -312,6 +312,22 @@ def extract_node_pagerank(
 
 def extract_edge_weight(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
                         edge: tuple) -> float:
+    """
+    Extracts the weight of an edge.
+
+    Parameters
+    ----------
+    graph : np.ndarray, nx.Graph, or nx.DiGraph
+        Graph containing the edge.
+    edge : tuple
+        Edge (u, v) to extract the weight for.
+
+    Returns
+    -------
+    float
+        Edge weight, or 1.0 if edge has no explicit "weight"
+        attribute.
+    """
     graph = convert_to_nx_graph(graph)
     u, v = edge
     return graph[u][v].get("weight", 1.0)
@@ -319,7 +335,21 @@ def extract_edge_weight(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
 
 def extract_edge_is_reciprocal(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
                                edge: tuple) -> int:
-    # 1 if reverse edge v→u also exists, 0 otherwise
+    """
+    Checks whether an edge is reciprocated.
+
+    Parameters
+    ----------
+    graph : np.ndarray, nx.Graph, or nx.DiGraph
+        Graph containing the edge.
+    edge : tuple
+        Edge (u, v) to check.
+
+    Returns
+    -------
+    int
+        1 if reverse edge (v, u) also exists in graph, 0 otherwise.
+    """
     graph = convert_to_nx_graph(graph)
     u, v = edge
     return int(graph.has_edge(v, u))
@@ -327,9 +357,24 @@ def extract_edge_is_reciprocal(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
 
 def extract_edge_in_scc(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
                         edge: tuple) -> int:
-    # Strongly connected component = set of nodes in a directed graph that are
-    #   mutually reachable
-    # 1 if both endpoints belong to same strongly connected component, 0 otherwise
+    """
+    Check whether an edge's endpoints lie in the same strongly connected component.
+
+    Parameters
+    ----------
+    graph : np.ndarray, nx.Graph, or nx.DiGraph
+        The graph containing the edge.
+    edge : tuple
+        The (u, v) edge to check.
+
+    Returns
+    -------
+    int
+        1 if both endpoints belong to the same strongly connected component,
+        0 otherwise.
+    """
+    # Strongly connected component (SCC) is a set of nodes in a directed
+    #   graph that are mutually reachable from one another
     graph = convert_to_nx_graph(graph)
     # u, v essentially are the nodes we want to look for
     u, v = edge
@@ -347,6 +392,22 @@ def extract_edge_in_scc(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
 
 def extract_edge_betweenness(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
                              edge: tuple) -> float:
+    """
+    Extracts the edge betweenness centrality of an edge.
+
+    Parameters
+    ----------
+    graph : np.ndarray, nx.Graph, or nx.DiGraph
+        Graph containing the edge.
+    edge : tuple
+        Edge (u, v) to extract betweenness centrality for.
+
+    Returns
+    -------
+    float
+        Edge's betweenness centrality, or 0.0 if edge is not found
+        (e.g. due to a direction mismatch).
+    """
     graph = convert_to_nx_graph(graph)
     # nx.edge_betweenness_centrality(graph) returns dict with values for all graph edges
     return nx.edge_betweenness_centrality(graph).get(edge, 0.0)
@@ -354,13 +415,43 @@ def extract_edge_betweenness(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
 
 def extract_edge_source_out_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
                                    edge: tuple) -> int:
+    """
+    Extracts the out-degree of an edge's source node.
+
+    Parameters
+    ----------
+    graph : np.ndarray, nx.Graph, or nx.DiGraph
+        Graph containing the edge.
+    edge : tuple
+        Edge (u, v) whose source node's out-degree is extracted.
+
+    Returns
+    -------
+    int
+        Out-degree of node u.
+    """
     graph = convert_to_nx_graph(graph)
     u, _ = edge
     return graph.out_degree[u]
 
 
-def extract_edge_target_in_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph], 
+def extract_edge_target_in_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
                                   edge: tuple) -> int:
+    """
+    Extracts the in-degree of an edge's target node.
+
+    Parameters
+    ----------
+    graph : np.ndarray, nx.Graph, or nx.DiGraph
+        Graph containing the edge.
+    edge : tuple
+        Edge(u, v) whose target node's in-degree is extracted.
+
+    Returns
+    -------
+    int
+        In-degree of node v.
+    """
     graph = convert_to_nx_graph(graph)
     _, v = edge
     return graph.in_degree[v]
@@ -368,6 +459,22 @@ def extract_edge_target_in_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]
 
 def extract_edge_source_betweenness(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
                                     edge: tuple) -> float:
+    """
+    Extracts the node betweenness centrality of an edge's source node.
+
+    Parameters
+    ----------
+    graph : np.ndarray, nx.Graph, or nx.DiGraph
+        Graph containing the edge.
+    edge : tuple
+        Edge (u, v) whose source node's betweenness centrality is
+        extracted.
+
+    Returns
+    -------
+    float
+        Betweenness centrality of node u.
+    """
     graph = convert_to_nx_graph(graph)
     u, _ = edge
     return nx.betweenness_centrality(graph)[u]
@@ -375,6 +482,22 @@ def extract_edge_source_betweenness(graph: Union[np.ndarray, nx.Graph, nx.DiGrap
 
 def extract_edge_target_betweenness(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
                                     edge: tuple) -> float:
+    """
+    Extracts the node betweenness centrality of an edge's target node.
+
+    Parameters
+    ----------
+    graph : np.ndarray, nx.Graph, or nx.DiGraph
+        Graph containing the edge.
+    edge : tuple
+        Edge (u, v) whose target node's betweenness centrality is
+        extracted.
+
+    Returns
+    -------
+    float
+        Betweenness centrality of node v.
+    """
     graph = convert_to_nx_graph(graph)
     _, v = edge
     return nx.betweenness_centrality(graph)[v]
@@ -382,16 +505,26 @@ def extract_edge_target_betweenness(graph: Union[np.ndarray, nx.Graph, nx.DiGrap
 
 def precompute_edge_metrics(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> dict:
     """
-    Precompute expensive graph-level metrics needed for edge property extraction.
-    Call once per graph state and pass the result to EdgeAnalyzers batch extraction
-    to avoid recomputing betweenness centrality and SCC for every candidate edge.
+    Precomputes expensive graph-level metrics needed for edge property extraction.
 
-    Returns:
-        dict with keys:
-            'graph'              - nx.DiGraph
-            'node_betweenness'   - dict {node: centrality}
-            'edge_betweenness'   - dict {(u,v): centrality}
-            'scc_map'            - dict {node: component_id}
+    Calls once per graph state and passes the result to
+    'EdgeAnalyzer.extract_properties_batch' to avoid recomputing
+    betweenness centrality and SCC membership for every candidate edge.
+
+    Parameters
+    ----------
+    graph : np.ndarray, nx.Graph, or nx.DiGraph
+        Graph to compute metrics for.
+
+    Returns
+    -------
+    dict
+        Dictionary with keys:
+
+        - 'graph' : nx.DiGraph
+        - 'node_betweenness' : dict mapping node -> centrality
+        - 'edge_betweenness' : dict mapping (u, v) -> centrality
+        - 'scc_map' : dict mapping node -> strongly connected component id
     """
     g = convert_to_nx_graph(graph)
     node_betweenness = nx.betweenness_centrality(g)
