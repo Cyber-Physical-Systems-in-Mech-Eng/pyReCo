@@ -13,6 +13,7 @@ def nx_graph():
     G.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 4)])
     return G
 
+
 # Graph in form of numpy array
 @pytest.fixture
 def np_graph():
@@ -167,11 +168,11 @@ class TestValidateGraph:
 
     def test_valid_nx_does_not_raise(self, nx_graph):
         # Valid nx graph passes validation without raising
-        EdgeSelector(graph=nx_graph)  
+        EdgeSelector(graph=nx_graph)
 
     def test_valid_np_does_not_raise(self, np_graph):
         # Valid numpy array passes validation without raising
-        EdgeSelector(graph=np_graph)  
+        EdgeSelector(graph=np_graph)
 
     def test_directed_true_with_undirected_nx_raises(self):
         # directed=True with an undirected nx.Graph is a flag mismatch
@@ -261,7 +262,8 @@ class TestSelectEdges:
         selector_nx.select_edges(num=2)
         assert selector_nx.fraction == pytest.approx(0.5)
 
-    def test_num_select_edges_attribute_set_when_selecting_by_fraction(self, selector_nx):
+    def test_num_select_edges_attribute_set_when_selecting_by_fraction(self,
+                                                                       selector_nx):
         # Selecting by fraction should also back-fill num_select_edges
         selector_nx.select_edges(fraction=0.5)
         assert selector_nx.num_select_edges == 2
