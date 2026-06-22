@@ -3,40 +3,39 @@ import networkx as nx
 import numpy as np
 import warnings
 
+
 class EdgeSelector:
     '''
-    A class to select edges from a graph based on specific criteria.
-
-    Provides functionality to select a subset of edges from a graph
-    using different sampling strategies.
+    A class to select edges from a graph based on specific criteria,
+    analogue to 'NodeSelector'.
 
     Parameters
     ----------
     graph : nx.Graph or np.ndarray
-        A NetworkX graph or adjacency matrix to select edges from.
+        NetworkX graph or adjacency matrix to select edges from.
     strategy : str, optional
-        The strategy used for edge selection.
+        Strategy used for edge selection.
         Default is "random_uniform_wo_repl".
 
     Attributes
     ----------
     graph : nx.Graph or np.ndarray
-        The input graph.
+        Input graph.
     directed : bool, optional
         Whether the graph is directed. Only used for np.ndarray inputs.
         Default is True.
     edge_indices : list of tuple
         List of all edge indices in the graph.
     num_total_edges : int
-        The total number of edges in the graph.
+        Total number of edges in the graph.
     num_select_edges : int
-        The number of edges to select. Set after calling select_edges.
+        Number of edges to select. Set after calling select_edges.
     fraction : float
-        The fraction of edges to select. Set after calling select_edges.
+        Fraction of edges to select. Set after calling select_edges.
     strategy : callable
-        The bound method corresponding to the selected strategy.
+        Method corresponding to the selected strategy.
     selected_edges : list
-        The list of selected edges. Set after calling select_edges.
+        List of selected edges. Set after calling select_edges.
 
     Raises
     ------
@@ -49,7 +48,8 @@ class EdgeSelector:
     '''
 
     # Selection strategies implemented
-    # TODO think about putting these in classes (ABC?)
+    # TODO think about putting these in classes and have abstract base class to
+    #       define them
     STRATEGIES = {
         'random_uniform_wo_repl': '_random_uniform_wo_repl',
 
@@ -59,7 +59,7 @@ class EdgeSelector:
         self,
         graph: nx.Graph | np.ndarray = None,
         strategy: str = 'random_uniform_wo_repl',
-        directed: bool = False,  # TODO think about making this true. I feel like the usual case for RCs is directed
+        directed: bool = True,
     ):
         # Sanity checks for passed graph and selection strategy
         self._validate_graph(graph, directed)
@@ -114,11 +114,11 @@ class EdgeSelector:
         # Sanity checks for passed fraction and num of edges
         self._validate_selection_args(fraction, num)
 
-        # Assign values to class attributes
         # Calculate number of edges to select or fraction
         # max(1, ...) to ensure at least one edge is always proposed, preventing
         #   fraction * small edge counts from rounding down to 0 (enables pruning to 0)
-        self.num_select_edges = num if num is not None else max(1, round(self.num_total_edges * fraction))
+        self.num_select_edges = num if num is not None else \
+            max(1, round(self.num_total_edges * fraction))
         self.fraction = fraction if fraction is not None else num / self.num_total_edges
 
         self.selected_edges = self.strategy()
@@ -127,10 +127,7 @@ class EdgeSelector:
 
     def _random_uniform_wo_repl(self):
         '''
-        Select edges by uniform random sampling without replacement.
-
-        Samples num_select_edges edges uniformly at random from
-        edge_indices without replacement.
+        Select num_select_edges edges by uniform random sampling without replacement.
 
         Returns
         -------
@@ -147,9 +144,9 @@ class EdgeSelector:
         Parameters
         ----------
         graph : any
-            The graph object to validate.
+            Graph object to validate.
         directed : bool
-            Whether the graph is directed. Used to verify consistency with
+            Whether graph is directed. Used to verify consistency with
             nx.Graph/nx.DiGraph types, and to warn about symmetric np.ndarray inputs.
 
         Raises
@@ -173,17 +170,23 @@ class EdgeSelector:
 
             if isinstance(graph, nx.Graph):
                 if directed and not isinstance(graph, nx.DiGraph):
-                    raise ValueError('directed=True but graph is undirected nx.Graph, use nx.DiGraph instead')
+                    raise ValueError('directed=True but graph is undirected nx.Graph, '
+                                     'use nx.DiGraph instead')
                 if not directed and isinstance(graph, nx.DiGraph):
-                    raise ValueError('directed=False but graph is directed nx.DiGraph, use nx.Graph instead')
+                    raise ValueError('directed=False but graph is directed nx.DiGraph, '
+                                     'use nx.Graph instead')
 
             # directed=True but matrix is symmetric
-            if directed and isinstance(graph, np.ndarray) and np.array_equal(graph, graph.T):
-                warnings.warn('directed graph appears symmetric, verify this is intended')
+            if directed and isinstance(graph, np.ndarray) and np.array_equal(graph,
+                                                                             graph.T):
+                warnings.warn('directed graph appears symmetric, verify this is '
+                              'intended')
 
             # directed=False but matrix is asymmetric
-            if not directed and isinstance(graph, np.ndarray) and not np.array_equal(graph, graph.T):
-                warnings.warn('directed=False but graph appears asymmetric, verify this is intended')
+            if not directed and isinstance(graph, np.ndarray) and not \
+                    np.array_equal(graph, graph.T):
+                warnings.warn('directed=False but graph appears asymmetric, verify this'
+                              ' is intended')
 
         else:
             raise ValueError('Graph must be provided')
@@ -195,7 +198,7 @@ class EdgeSelector:
         Parameters
         ----------
         strategy : str
-            The strategy name to validate.
+            Strategy name to validate.
 
         Raises
         ------
@@ -204,7 +207,8 @@ class EdgeSelector:
         '''
         if strategy not in self.STRATEGIES:
             raise NotImplementedError(
-                f"Unknown strategy '{strategy}'. Available strategies: {list(self.STRATEGIES)}"
+                f"Unknown strategy '{strategy}'. "
+                "Available strategies: {list(self.STRATEGIES)}"
             )
 
     def _validate_selection_args(self, fraction, num):
@@ -236,14 +240,16 @@ class EdgeSelector:
         if fraction is not None and num is not None:
             raise ValueError('Provide either fraction or num, not both')
 
-        # Check that selected num is an integer and not larger than total amount of edges in graph
+        # Check that selected num is an integer and not larger than total amount of
+        #   edges in graph
         if num is not None:
             if not isinstance(num, int):
                 raise TypeError('num must be an integer')
             if not (0 < num <= self.num_total_edges):
                 raise ValueError(f'num must be between 1 and {self.num_total_edges}')
 
-        # Check that selected fraction is a float and larger than zero but not larger than 1
+        # Check that selected fraction is a float and larger than zero but not larger
+        #   than 1
         if fraction is not None:
             if not isinstance(fraction, float):
                 raise TypeError('fraction must be a float')
@@ -257,7 +263,7 @@ class EdgeSelector:
         Parameters
         ----------
         graph : nx.Graph or np.ndarray
-            The graph to extract edges from.
+            Graph to extract edges from.
 
         Returns
         -------
@@ -280,22 +286,22 @@ class EdgeSelector:
 if __name__ == "__main__":
 
     # Create a sample graph
-    G = nx.erdos_renyi_graph(10, 0.5)
+    G = nx.erdos_renyi_graph(10, 0.5, directed=True)
     print(G.edges())        # all edges
     print(G.number_of_edges())  # total edge count
     print(G.number_of_nodes())  # total node count
     # Graphs edges
-    print(f"Possible edges: {G.edges()}")
+    print(f'Possible edges: {G.edges()}')
     # Select random edges
     selector = EdgeSelector(strategy="random_uniform_wo_repl", graph=G)
     random_edges = selector.select_edges(num=4)
-    print(f"Randomly selected edges: {random_edges}")
+    print(f'Randomly selected edges: {random_edges}')
 
     # Create a sample graph
-    G = nx.erdos_renyi_graph(10, 0.5)
+    G = nx.erdos_renyi_graph(10, 0.5, directed=True)
     # Graphs edges
-    print(f"Possible edges: {G.edges()}")
+    print(f'Possible edges: {G.edges()}')
     # Select random edges
     selector = EdgeSelector(strategy="random_uniform_wo_repl", graph=G)
     random_edges = selector.select_edges(fraction=0.5)
-    print(f"Randomly selected edges: {random_edges}")
+    print(f'Randomly selected edges: {random_edges}')
