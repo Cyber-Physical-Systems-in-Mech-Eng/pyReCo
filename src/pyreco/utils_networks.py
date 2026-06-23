@@ -158,18 +158,25 @@ def remove_nodes_from_graph(graph: np.ndarray, nodes: list):
 def rename_nodes_after_removal(original_nodes: list, removed_nodes: list):
     # removes the nodes from the original list of nodes and renames the remaining nodes
 
-    # Create a mapping of old indices to new indices
-    old_to_new = {}
-    new_index = 0
-    for old_index in np.unique(
-        original_nodes
-    ):  # range(np.min(original_nodes), np.max(original_nodes)):
-        if old_index not in removed_nodes:
-            old_to_new[old_index] = new_index
-            new_index += 1
+    # removing node 5 from a 6-node graph with original_nodes=[1,2]
+    # -> wrongly produced [0,1] instead of [1,2].
+    # old_to_new = {}
+    # new_index = 0
+    # for old_index in np.unique(original_nodes):
+    #     if old_index not in removed_nodes:
+    #         old_to_new[old_index] = new_index
+    #         new_index += 1
+    # updated_nodes = [
+    #     old_to_new[node] for node in original_nodes if node not in removed_nodes
+    # ]
 
+    # Surviving node's new index = old index minus the number of removed nodes that had
+    #   smaller index
+    removed_set = set(removed_nodes)
     updated_nodes = [
-        old_to_new[node] for node in original_nodes if node not in removed_nodes
+        node - sum(1 for r in removed_nodes if r < node)
+        for node in original_nodes
+        if node not in removed_set
     ]
 
     return updated_nodes
@@ -548,7 +555,7 @@ def precompute_edge_metrics(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> d
 if __name__ == "__main__":
 
     # test the node renaming function
-    original_nodes = [0, 2, 1, 3, 4, 5, 6]
+    original_nodes = [0, 2, 1, 3, 4, 5, 6, 8, 7]
     removed_nodes = [0, 5, 6]
 
     updated_nodes = rename_nodes_after_removal(original_nodes, removed_nodes)
