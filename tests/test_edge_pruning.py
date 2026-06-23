@@ -54,19 +54,10 @@ def isolatable_data():
 
 
 def _build_fixed_topology_model(x_train, y_train, mat, input_nodes, readout_nodes):
-    """
+    '''
     Build an RC model with a hand-specified reservoir adjacency matrix and
     fixed input-receiving/readout node assignments.
-
-    Uses a large, "safe" placeholder reservoir and overwrites its weights
-    *before* calling compile(), rather than building a RandomReservoirLayer
-    at the small target size directly: gen_ER_graph occasionally produces a
-    near-zero spectral radius on tiny graphs, which blows up to NaN/inf when
-    normalizing -- irrelevant here since the placeholder weights are
-    immediately discarded, but it crashes construction before that happens.
-    Pre-compile, set_weights() accepts any square shape, so this also
-    resizes the reservoir down to mat's shape.
-    """
+    '''
     model = RC()
     model.add(InputLayer(input_shape=x_train.shape[1:]))
     model.add(RandomReservoirLayer(
@@ -83,17 +74,11 @@ def _build_fixed_topology_model(x_train, y_train, mat, input_nodes, readout_node
 
 @pytest.fixture
 def isolatable_model(isolatable_data):
-    """
-    Small (6-node), hand-built RC model. Nodes 0-4 form a connected,
-    dynamically stable reservoir (spectral radius < 1) with input only at
-    node 0 and readout only at nodes 1 and 2. Node 5 has zero edges from
-    the start: isolated, not input-receiving, not readout.
-
-    Built this way (rather than relying on edge pruning to organically
-    create an isolated node) so isolated-node removal is exercised
-    deterministically, independent of which edge the performance criterion
-    happens to prune first.
-    """
+    '''
+    Small RC model.
+    Nodes 0-4 form reservoir with input node 0 and readout  nodes 1 and 2.
+    Node 5 is isolated, not input-receiving, not readout.
+    '''
     data_train, _ = isolatable_data
     X_train, y_train = data_train
 
@@ -184,7 +169,7 @@ class TestInit:
             EdgePruner(pruning_criterion='unknown')
 
     def test_structural_pruning_blocked(self):
-        # 'structure' is registered but not implemented yet 
+        # 'structure' is registered but not implemented yet
         with pytest.raises(NotImplementedError, match="not implemented"):
             EdgePruner(pruning_criterion='structure')
 
@@ -298,7 +283,7 @@ class TestInit:
             EdgePruner(parallel='yes')
 
 
-# Test prune() parameter validation 
+# Test prune() parameter validation
 
 class TestPruningParams:
 
@@ -409,7 +394,7 @@ class TestPruningLoop:
 
     def test_candidates_entry_structure(self, small_model, small_data):
         # Each candidate is keyed by (u, v) edge tuple, with its score,
-        #   edge_props, graph_props_after 
+        #   edge_props, graph_props_after
         data_train, data_val = small_data
         pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
                             min_num_edges=8)
@@ -562,7 +547,7 @@ class TestStoppingCriteria:
         assert history[last_iter]['final_model']['num_edges'] >= 2
 
 
-# Test return_best_model 
+# Test return_best_model
 
 class TestReturnBestModel:
 
@@ -717,7 +702,7 @@ class TestIsolatedNodes:
         #   -> ids must be unaffected by the removal
         assert list(history[0]['final_model']['readout_nodes']) == [1, 2]
 
-        # Node count never goes up once reduced 
+        # Node count never goes up once reduced
         node_counts = [history[0]['final_model']['num_nodes']]
         for it in sorted(history.keys())[1:]:
             assert history[it]['starting_model']['num_nodes'] == node_counts[-1]
