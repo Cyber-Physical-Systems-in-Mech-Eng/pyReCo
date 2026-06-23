@@ -644,12 +644,17 @@ class CustomModel(ABC):
         self.input_layer.remove_nodes(nodes)
 
         # 2.b update input-receiving nodes in reservoir layer
-        # Find non-zero rows
-        non_zero_rows = np.all(self.input_layer.weights != 0, axis=1)
+        # This is opposite of how input is defined
+        # non_zero_rows = np.all(self.input_layer.weights != 0, axis=1)
+        # non_zero_row_indices = np.where(non_zero_rows)[0]
+        # self.reservoir_layer.input_receiving_nodes = non_zero_row_indices
 
-        # Get the indices of zero rows
-        non_zero_row_indices = np.where(non_zero_rows)[0]
-        self.reservoir_layer.input_receiving_nodes = non_zero_row_indices
+        # Remap surviving input-receiving node indices the same way as readout_nodes:
+        # each node's new index = old index minus the number of removed nodes below it.
+        self.reservoir_layer.input_receiving_nodes = rename_nodes_after_removal(
+            original_nodes=list(self.reservoir_layer.input_receiving_nodes),
+            removed_nodes=nodes
+        )
 
         # 3. remove nodes from the list of readout-nodes in the readout layer
         # update the indices in the readout.readout_nodes list
@@ -830,6 +835,8 @@ class CustomModel(ABC):
         self.reservoir_layer.input_receiving_nodes = input_receiving_nodes
         node_mask = np.ones_like(full_input_weights)
         node_mask[input_receiving_nodes] = 0
+        #node_mask = np.zeros_like(full_input_weights)
+        #node_mask[input_receiving_nodes] = 1
 
         # set the input layer weight matrix
         self._set_readin_weights(weights=(full_input_weights * node_mask))
