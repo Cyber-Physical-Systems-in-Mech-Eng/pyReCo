@@ -86,6 +86,7 @@ def compute_spec_rad(network: np.ndarray) -> float:
         raise ValueError("adjacency matrix must be square")
     return np.max(np.abs(np.linalg.eigvals(network)))
 
+
 def set_spec_rad(network: np.ndarray, spec_radius: float) -> np.ndarray:
     if not isinstance(network, np.ndarray):
         raise TypeError("adjacency matrix must be numpy.ndarray")
@@ -106,7 +107,8 @@ def set_spec_rad(network: np.ndarray, spec_radius: float) -> np.ndarray:
 
 
 def is_zero_col_and_row(x: np.ndarray, idx: int) -> bool:
-    # returns zero if adjacency matrix x carries only zeros in column and row of index idx (i.e. missing node)
+    # returns zero if adjacency matrix x carries only zeros in column and row of index
+    #   idx (i.e. missing node)
 
     is_zero_column = np.all(x[:, idx] == 0)
     is_zero_row = np.all(x[idx, :] == 0)
@@ -156,20 +158,7 @@ def remove_nodes_from_graph(graph: np.ndarray, nodes: list):
 
 
 def rename_nodes_after_removal(original_nodes: list, removed_nodes: list):
-    # removes the nodes from the original list of nodes and renames the remaining nodes
-
-    # removing node 5 from a 6-node graph with original_nodes=[1,2]
-    # -> wrongly produced [0,1] instead of [1,2].
-    # old_to_new = {}
-    # new_index = 0
-    # for old_index in np.unique(original_nodes):
-    #     if old_index not in removed_nodes:
-    #         old_to_new[old_index] = new_index
-    #         new_index += 1
-    # updated_nodes = [
-    #     old_to_new[node] for node in original_nodes if node not in removed_nodes
-    # ]
-
+    # Removes the nodes from the original list of nodes and renames the remaining nodes
     # Surviving node's new index = old index minus the number of removed nodes that had
     #   smaller index
     removed_set = set(removed_nodes)
@@ -198,7 +187,8 @@ def gen_init_states(num_nodes: int, method: str = "random"):
     else:
         raise (
             ValueError(
-                f"Sampling method {method} is unknown for generating initial reservoir states"
+                f"Sampling method {method} is unknown for generating initial reservoir "
+                "states"
             )
         )
 
@@ -228,7 +218,8 @@ def extract_density(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
     """
     Extract the density of a graph from its adjacency matrix.
     Args:
-        adjacency_matrix (np.ndarray, nx.Graph, nx.DiGraph): The adjacency matrix of the graph.
+        adjacency_matrix (np.ndarray, nx.Graph, nx.DiGraph): The adjacency matrix of
+        the graph.
     Returns:
         float: The density of the graph.
     """
