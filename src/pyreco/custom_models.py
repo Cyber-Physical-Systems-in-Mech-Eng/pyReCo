@@ -1,6 +1,7 @@
 import numpy as np
 from abc import ABC
 from typing import Union
+import networkx as nx
 import copy
 import multiprocessing
 from functools import partial
@@ -643,12 +644,17 @@ class CustomModel(ABC):
         self.input_layer.remove_nodes(nodes)
 
         # 2.b update input-receiving nodes in reservoir layer
-        # Find non-zero rows
-        non_zero_rows = np.all(self.input_layer.weights != 0, axis=1)
+        # This is opposite of how input is defined
+        # non_zero_rows = np.all(self.input_layer.weights != 0, axis=1)
+        # non_zero_row_indices = np.where(non_zero_rows)[0]
+        # self.reservoir_layer.input_receiving_nodes = non_zero_row_indices
 
-        # Get the indices of zero rows
-        non_zero_row_indices = np.where(non_zero_rows)[0]
-        self.reservoir_layer.input_receiving_nodes = non_zero_row_indices
+        # Remap surviving input-receiving node indices the same way as readout_nodes:
+        # each node's new index = old index minus the number of removed nodes below it.
+        self.reservoir_layer.input_receiving_nodes = rename_nodes_after_removal(
+            original_nodes=list(self.reservoir_layer.input_receiving_nodes),
+            removed_nodes=nodes
+        )
 
         # 3. remove nodes from the list of readout-nodes in the readout layer
         # update the indices in the readout.readout_nodes list
@@ -659,9 +665,52 @@ class CustomModel(ABC):
 
         # TODO: any more attributes to change here?
 
+    def remove_reservoir_edges(self, edges: list):
+        """
+        Removes specific edges from the reservoir weights by setting them 0.
+
+        Parameters
+        ----------
+        edges : list of tuple
+            List of edges (u, v) tuples representing the edges to remove.
+
+        Raises
+        ------
+        TypeError
+            If 'edges' is not a list, or if the reservoir weights are
+            neither a NetworkX graph nor a NumPy array.
+
+        Notes
+        -----
+        For 'np.ndarray' weights, only 'weights[u, v]' is zeroed, the
+        reverse direction 'weights[v, u]' is not adjusted. This is
+        correct for directed graphs (the assumed case), but for an undirected graphs,
+        leaving  the matrix asymmetric, with the edge still present in the reverse
+        direction.
+        """
+        if not isinstance(edges, list):
+            raise TypeError("Edges must be provided as a list of tuples (u, v).")
+
+        # If weights are a NetworkX Graph
+        if isinstance(self.reservoir_layer.weights, nx.Graph):
+            self.reservoir_layer.weights.remove_edges_from(edges)
+
+        # If weights are a NumPy Array (Adjacency Matrix)
+        elif isinstance(self.reservoir_layer.weights, np.ndarray):
+            for u, v in edges:
+                self.reservoir_layer.weights[u, v] = 0
+                # TODO If undirected, also remove the symmetric edge
+                #       (we assume directed grpahs for now)
+                # self.weights[v, u] = 0
+        # TODO check if input receving node can still access rest of the reservoir
+        # TODO maybe make protection rules for pruner regarding input receveiving nodes,
+        #       bias to output, etc.?
+        else:
+            raise TypeError("Reservoir weights must be NetworkX or NumPy array.")
+
     """
     The setter methods are used to set the parameters of the model.
-    """
+    """    
 
     def _set_readin_weights(self, weights: Union[list, np.ndarray]):
         """
@@ -784,8 +833,8 @@ class CustomModel(ABC):
         )
 
         self.reservoir_layer.input_receiving_nodes = input_receiving_nodes
-        node_mask = np.ones_like(full_input_weights)
-        node_mask[input_receiving_nodes] = 0
+        node_mask = np.zeros_like(full_input_weights)
+        node_mask[input_receiving_nodes] = 1
 
         # set the input layer weight matrix
         self._set_readin_weights(weights=(full_input_weights * node_mask))
@@ -850,7 +899,7 @@ class CustomModel(ABC):
         alpha = self.reservoir_layer.leakage_rate  # leakage rate
         A = self.reservoir_layer.weights  # reservoir weight matrix (adjacency matrix)
         W_in = self.input_layer.weights  # read-in weight matrix
-        
+
         # We will compute the reservoir states for all time steps in the first sample,
         # then reset the reservoir state to the initial values, and proceed with the
         # next sample. This makes sure to have no data leakage between samples.
@@ -883,13 +932,12 @@ class CustomModel(ABC):
         # [(n_batch * n_timesteps), num_nodes]
         # states[:, 1:].reshape(-1, num_nodes)
         return states
-    
 
     def AutoRC_predict(self, x: np.ndarray, fb_scale: float, T_run: int, feedback_indices: np.ndarray = None) -> np.ndarray:
         """
         Contains the prediction function for the AutoRC model along with the feedback mechanism.
         It returns the predictions and reservoir states.
-        
+
         Args:
             x (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
             feedback_indices (np.ndarray): Indices from the inputs to be used for feedback
