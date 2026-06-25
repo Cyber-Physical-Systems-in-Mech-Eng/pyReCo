@@ -143,6 +143,16 @@ class TestInit:
         # History starts out as empty dict
         assert EdgePruner().history == {}
 
+    def test_invalid_edge_selection_strat_type(self):
+        # edge_selection_strat must be a string
+        with pytest.raises(TypeError):
+            EdgePruner(edge_selection_strat=42)
+
+    def test_invalid_edge_selection_strat_unknown(self):
+        # edge_selection_strat must be a recognized strategy name
+        with pytest.raises(NotImplementedError):
+            EdgePruner(edge_selection_strat='not_a_strategy')
+
     def test_invalid_candidate_fraction_type(self):
         # candidate_fraction must be a float, not an int
         with pytest.raises(TypeError):
@@ -217,6 +227,11 @@ class TestInit:
         with pytest.raises(TypeError):
             EdgePruner(patience=1.0)
 
+    def test_invalid_patience_negative(self):
+        # patience must be >= 0
+        with pytest.raises(ValueError):
+            EdgePruner(patience=-1)
+
     def test_invalid_performance_criterion_type(self):
         # performance_criterion must be a string
         with pytest.raises(TypeError):
@@ -276,6 +291,11 @@ class TestInit:
         # remove_isolated_nodes must be boolean
         with pytest.raises(TypeError):
             EdgePruner(remove_isolated_nodes='yes')
+
+    def test_invalid_directed_type(self):
+        # directed must be a boolean
+        with pytest.raises(TypeError):
+            EdgePruner(directed='yes')
 
     def test_invalid_parallel_type(self):
         # parallel must be  boolean
