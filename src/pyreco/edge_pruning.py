@@ -184,20 +184,22 @@ class EdgePruner:
 
         # Sanity checks for the input parameter types and values
         self._validate_init_params(
+            edge_selection_strat,
             candidate_fraction,
             pruning_criterion,
             stopping_criterion,
             min_num_nodes,
-            min_num_edges,  # TODO create validation function
+            min_num_edges,
             patience,
             performance_criterion,
             structural_criterion,
-            metrics,  # TODO create validation function
+            metrics,
             return_best_model,
             graph_analyzer,
             node_analyzer,
             edge_analyzer,
             remove_isolated_nodes,
+            directed,
             parallel,
             )
 
@@ -402,8 +404,9 @@ class EdgePruner:
             print(f'Pruning candidate {pruned_candidate}, '
                   f'resulting in loss {self._curr_loss:.6f}')
             print(
-                f'Loss improvement by {((self._curr_loss_history[-2]-self._curr_loss) /
-                                        self._curr_loss_history[-2]):+.3%}\n'
+                f'Loss improvement to previous iteration by {(
+                    (self._curr_loss_history[-2]-self._curr_loss) /
+                    self._curr_loss_history[-2]):+.3%}\n'
             )
 
             # Prune edge that gives us the least performance drop
@@ -452,8 +455,7 @@ class EdgePruner:
         print(f'Final model metrics ({self.metrics}): {final_metrics}')
         return model, self.history
 
-
-    ######### PRUNING STEPS FUNCTIONS ##########
+    #   ######## PRUNING STEPS FUNCTIONS ##########
 
     def _history_update_before_pruning(self, model, graph):
         """
@@ -782,14 +784,16 @@ class EdgePruner:
         for node in isolated_readout_nodes:
             # Compute how many previously removed nodes had a smaller original ID,
             #   since each such removal shifted this node's current index down by 1
-            adjusted_id = node['id'] - sum(1 for r in removed_original_ids if r < node['id'])
+            adjusted_id = node['id'] - sum(1 for r in removed_original_ids
+                                           if r < node['id'])
             _model = copy.deepcopy(model)
             _model.remove_reservoir_nodes(nodes=[adjusted_id])
             _model.fit(x=x_train, y=y_train)
-            _score = _model.evaluate(x=x_test, y=y_test, metrics=self.performance_criterion)[0]
+            _score = _model.evaluate(x=x_test, y=y_test,
+                                     metrics=self.performance_criterion)[0]
 
             if _score <= self._curr_loss:
-                print(f'Removing isolated readout node {node['id']}: loss '
+                print(f'Removing isolated readout node {node["id"]:>3}: loss '
                       f'{self._curr_loss:.6f} -> {_score:.6f}')
                 # Note that node has been removed
                 removed_original_ids.append(node['id'])
@@ -798,7 +802,7 @@ class EdgePruner:
                 model = _model
                 self._curr_loss = _score
             else:
-                print(f'Keeping isolated readout node {node['id']}: removal would '
+                print(f'Keeping isolated readout node  {node["id"]:>3}: removal would '
                       f'increase loss {self._curr_loss:.6f} -> {_score:.6f}')
 
         return model, removed
@@ -861,7 +865,8 @@ class EdgePruner:
         self.history[self._iter_count]['winner'] = (int(winner[0]), int(winner[1]))
         self.history[self._iter_count]['removed_nodes'] = removed_nodes
         self.history[self._iter_count]['final_model'] = {
-            'weights': sp.csr_matrix(graph) if isinstance(graph, np.ndarray) else nx.to_scipy_sparse_array(graph),
+            'weights': sp.csr_matrix(graph) if isinstance(graph, np.ndarray) else
+            nx.to_scipy_sparse_array(graph),
             'input_nodes': list(model.reservoir_layer.input_receiving_nodes),
             'readout_nodes': list(model.readout_layer.readout_nodes),
             'loss': self._curr_loss,
@@ -871,7 +876,8 @@ class EdgePruner:
             'graph_props': graph_props,
         }
 
-    ######### MODEL TRAINING FUNCTIONS #########
+    #   ######## MODEL TRAINING FUNCTIONS #########
+
     def _retrain_model(self, model, x_train, y_train):
         """
         Fit a model on training data.
@@ -891,7 +897,8 @@ class EdgePruner:
         """
         return model.fit(x=x_train, y=y_train)
 
-    ######### PRUNING CRITERIONS FUNCTIONS #########
+    #   ######## PRUNING CRITERIONS FUNCTIONS #########
+
     def _performance_pruning(self, model, candidates, x_train, y_train, x_test, y_test):
         """
         Score candidates by the model's loss after removing and refitting.
@@ -968,7 +975,6 @@ class EdgePruner:
 
         return _candidate_scores, _candidate_models, _cand_graph_props_after
 
-
     def _evaluate_candidate_performance(self, model, candidate,
                                         x_train, y_train, x_test, y_test):
         """
@@ -1014,7 +1020,8 @@ class EdgePruner:
         _model.fit(x=x_train, y=y_train)
 
         # Evaluate pruned model regarding performance criterion
-        _score = _model.evaluate(x=x_test, y=y_test, metrics=self.performance_criterion)[0]
+        _score = _model.evaluate(x=x_test, y=y_test,
+                                 metrics=self.performance_criterion)[0]
 
         # Extract graph properties after pruning
         _graph = _model.reservoir_layer.weights
@@ -1045,7 +1052,7 @@ class EdgePruner:
         # possible other pruning strategies (neglecting for now)
         pass
 
-    ############## STOPPING CRITERIONS FUNCTIONS ##############
+    #   ############# STOPPING CRITERIONS FUNCTIONS ##############
 
     def _patience_stopping(self):
         """
@@ -1106,7 +1113,7 @@ class EdgePruner:
             we should continue pruning, False to stop.
         """
         # Checks if the number of nodes is above the minimum number of nodes
-        # Returns True if number of nodes is above minimum and we should continue 
+        # Returns True if number of nodes is above minimum and we should continue
         #   pruning
         if self._curr_num_nodes >= self.min_num_nodes:
             # When reaching min_num_nodes we should still continue pruning
@@ -1149,9 +1156,11 @@ class EdgePruner:
               f'of edges {self.min_num_edges}. \nContinuing pruning ...')
         return True
 
-    ######### VALIDATION FUNCTIONS #########
+    #   ######## VALIDATION FUNCTIONS #########
+
     def _validate_init_params(
         self,
+        edge_selection_strat,
         candidate_fraction,
         pruning_criterion,
         stopping_criterion,
@@ -1166,6 +1175,7 @@ class EdgePruner:
         node_analyzer,
         edge_analyzer,
         remove_isolated_nodes,
+        directed,
         parallel,
     ):
         """
@@ -1173,6 +1183,8 @@ class EdgePruner:
 
         Parameters
         ----------
+        edge_selection_strat : str
+            See ``__init__``.
         candidate_fraction : float
             See ``__init__``.
         pruning_criterion : str
@@ -1201,6 +1213,8 @@ class EdgePruner:
             See ``__init__``.
         remove_isolated_nodes : bool
             See ``__init__``.
+        directed : bool
+            See ``__init__``.
         parallel : bool
             See ``__init__``.
 
@@ -1214,6 +1228,16 @@ class EdgePruner:
             If ``pruning_criterion`` or an entry of ``stopping_criterion`` is
             not a recognized strategy.
         """
+        # Validate edge selection strategy
+        from pyreco.edge_selector import EdgeSelector
+        if not isinstance(edge_selection_strat, str):
+            raise TypeError('edge_selection_strat must be a string')
+        if edge_selection_strat not in EdgeSelector.STRATEGIES:
+            raise NotImplementedError(
+                f"Unknown edge selection strategy '{edge_selection_strat}'. "
+                f'Available strategies: {list(EdgeSelector.STRATEGIES)}'
+            )
+
         # Validate candidate fraction
         if not isinstance(candidate_fraction, float):
             raise TypeError('candidate_fraction must be a float in (0, 1]')
@@ -1264,8 +1288,10 @@ class EdgePruner:
             raise ValueError('min_num_edges must be larger than or equal to 0')
 
         # Validate patience
-        if patience is not None and not isinstance(patience, int):
+        if not isinstance(patience, int):
             raise TypeError('patience must be an integer')
+        if patience < 0:
+            raise ValueError('patience must be >= 0')
 
         # Validate performance criterion
         if not isinstance(performance_criterion, str):
@@ -1297,7 +1323,7 @@ class EdgePruner:
                 f'Available metrics: {available_metrics()}'
             )
 
-        # Validate parallel
+        # Validate return_best_model
         if not isinstance(return_best_model, bool):
             raise TypeError('return_best_model must be a boolean')
 
@@ -1316,6 +1342,10 @@ class EdgePruner:
         # Validate remove isolated nodes
         if not isinstance(remove_isolated_nodes, bool):
             raise TypeError('remove_isolated_nodes must be a boolean')
+
+        # Validate directed
+        if not isinstance(directed, bool):
+            raise TypeError('directed must be a boolean')
 
         # Validate parallel
         if not isinstance(parallel, bool):
@@ -1425,7 +1455,8 @@ if __name__ == "__main__":
     pruner = EdgePruner(
         #min_num_nodes=46,
         #stopping_criterion=['patience'],
-        stopping_criterion=['min_edges', 'patience'],
+        #stopping_criterion=['min_edges', 'patience'],
+        stopping_criterion=['min_edges'],
         patience=2,
         min_num_edges=0,
         candidate_fraction=0.9,
