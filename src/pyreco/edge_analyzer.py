@@ -153,14 +153,14 @@ class EdgeAnalyzer:
         # Create look up table, basically just functions to look up edge properties
         #   from pre compute
         _cached = {
-            "weight":              lambda u, v: g[u][v].get("weight", 1.0),
-            "is_reciprocal":       lambda u, v: int(g.has_edge(v, u)),
-            "in_scc":              lambda u, v: int(cache["scc_map"][u] == cache["scc_map"][v]),
-            "betweenness":         lambda u, v: cache["edge_betweenness"].get((u, v), 0.0),
-            "source_out_degree":   lambda u, v: g.out_degree[u],
-            "target_in_degree":    lambda u, v: g.in_degree[v],
-            "source_betweenness":  lambda u, v: cache["node_betweenness"][u],
-            "target_betweenness":  lambda u, v: cache["node_betweenness"][v],
+            "weight": lambda u, v: g[u][v].get("weight", 1.0),
+            "is_reciprocal": lambda u, v: int(g.has_edge(v, u)),
+            "in_scc": lambda u, v: int(cache["scc_map"][u] == cache["scc_map"][v]),
+            "betweenness": lambda u, v: cache["edge_betweenness"].get((u, v), 0.0),
+            "source_out_degree": lambda u, v: g.out_degree[u],
+            "target_in_degree": lambda u, v: g.in_degree[v],
+            "source_betweenness": lambda u, v: cache["node_betweenness"][u],
+            "target_betweenness": lambda u, v: cache["node_betweenness"][v],
         }
 
         results = []
@@ -168,7 +168,8 @@ class EdgeAnalyzer:
             # Go through edges
             u, v = int(edge[0]), int(edge[1])
             # Look up values for edge for specified properties
-            props = {name: _cached[name](u, v) for name in self.quantities if name in _cached}
+            props = {name: _cached[name](u, v) for name in self.quantities if name in
+                     _cached}
             # Append properties for edge
             results.append(props)
 
