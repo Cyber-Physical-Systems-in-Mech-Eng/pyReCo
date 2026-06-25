@@ -833,10 +833,8 @@ class CustomModel(ABC):
         )
 
         self.reservoir_layer.input_receiving_nodes = input_receiving_nodes
-        node_mask = np.ones_like(full_input_weights)
-        node_mask[input_receiving_nodes] = 0
-        #node_mask = np.zeros_like(full_input_weights)
-        #node_mask[input_receiving_nodes] = 1
+        node_mask = np.zeros_like(full_input_weights)
+        node_mask[input_receiving_nodes] = 1
 
         # set the input layer weight matrix
         self._set_readin_weights(weights=(full_input_weights * node_mask))
@@ -901,7 +899,7 @@ class CustomModel(ABC):
         alpha = self.reservoir_layer.leakage_rate  # leakage rate
         A = self.reservoir_layer.weights  # reservoir weight matrix (adjacency matrix)
         W_in = self.input_layer.weights  # read-in weight matrix
-        
+
         # We will compute the reservoir states for all time steps in the first sample,
         # then reset the reservoir state to the initial values, and proceed with the
         # next sample. This makes sure to have no data leakage between samples.
@@ -934,13 +932,12 @@ class CustomModel(ABC):
         # [(n_batch * n_timesteps), num_nodes]
         # states[:, 1:].reshape(-1, num_nodes)
         return states
-    
 
     def AutoRC_predict(self, x: np.ndarray, fb_scale: float, T_run: int, feedback_indices: np.ndarray = None) -> np.ndarray:
         """
         Contains the prediction function for the AutoRC model along with the feedback mechanism.
         It returns the predictions and reservoir states.
-        
+
         Args:
             x (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
             feedback_indices (np.ndarray): Indices from the inputs to be used for feedback
