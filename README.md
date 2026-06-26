@@ -3,7 +3,7 @@
 **A Reservoir Computing Library for Time Series Forecasting and Research**
 
 <p align="center">
-<img src="https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo/blob/dev/PyReCo.png">
+<img src="https://raw.githubusercontent.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo/main/PyReCo.png">
 </p>
 
 **[Official Documentation](https://cyber-physical-systems-in-mech-eng.github.io/pyReCo/index.html)**
@@ -72,7 +72,7 @@ plt.show()
 
 ```
 Plotting `y_pred` and `y_train` against the time vector `t` shows how the minimal RC can learn a phase shift, i.e. translate a sine signal to a cosine signal, and also scale the output to the correct amplitude. You may want to increase the reservoir size (`num_nodes`) or change the leakage rate (`leakage_rate`) to improve the prediction quality.  
-![model_predictions](https://github.com/user-attachments/assets/6db9bb21-fc93-493c-adee-3310bf6a7f4f)
+![model_predictions](https://raw.githubusercontent.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo/main/model_predictions.png)
 
 
 **Input data shapes**: the shape of the input data is of utmost importance. ResPy is built for sequential modeling tasks. Make sure to provide the input data in the shape of `[n_batch, n_time, n_states]`, where
