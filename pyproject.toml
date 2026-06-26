@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "pyreco"
-version = "0.1.0"
+dynamic = ["version"]
 authors = [
   { name="Merten Stender", email="merten.stender@tu-berlin.de" },
   { name="Manish Yadav", email="manish.yadav@tu-berlin.de" },
@@ -26,6 +26,12 @@ dependencies = [
     "tqdm>=4.60.0",
     "scipy>=1.7.0",
 ]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/pyreco/_version.py"
 
 [tool.hatch.build]
 # exclude files and directories from the build
