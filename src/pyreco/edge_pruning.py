@@ -394,10 +394,12 @@ class EdgePruner:
                 pruned_candidate = (int(pruned_candidate[0]), int(pruned_candidate[1]))
             print(f'Pruning candidate {pruned_candidate}, '
                   f'resulting in loss {self._curr_loss:.6f}')
+
+            prev_loss = self._curr_loss_history[-2]
+            loss_improvement = (prev_loss-self._curr_loss) / prev_loss
             print(
-                f'Loss improvement to previous iteration by {(
-                    (self._curr_loss_history[-2]-self._curr_loss) /
-                    self._curr_loss_history[-2]):+.3%}\n'
+                'Loss improvement to previous iteration by '
+                f'{loss_improvement:+.3%}\n'
             )
 
             # Prune edge that gives us the least performance drop
