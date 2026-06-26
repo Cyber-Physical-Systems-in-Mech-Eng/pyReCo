@@ -1,8 +1,3 @@
-"""
-Capabilities to prune an existing RC model, i.e. try to cut reservoir nodes and improve 
-performance while reducing the reservoir size
-"""
-
 import numpy as np
 import networkx as nx
 import scipy.sparse as sp
@@ -128,10 +123,8 @@ class EdgePruner:
         min_num_edges : int, optional
             Stop pruning when arriving at this number of edges. Default is 2.
         patience : int, optional
-            We allow a patience, i.e. keep pruning after we reached a (local)
-            minimum of the test set loss. Depends on the size of the
-            original reservoir network, defaults to 10% of initial reservoir
-            nodes. Default is 0.
+            We allow a patience, i.e. to keep pruning after we reached a (local)
+            minimum of the test set loss. Default is 0.
         performance_criterion : str, optional
             Loss metric used to evaluate model performance, both for
             steering ``pruning_criterion='performance'`` and for tracking
@@ -143,7 +136,7 @@ class EdgePruner:
             ``pruning_criterion='structure'``. Must be a key of
             :func:`pyreco.edge_analyzer.available_extractors` (e.g.
             "betweenness", "source_out_degree"). Unused for other pruning
-            criteria. Default is "betweenness".
+            criteria. Default is "betweenness" Still needs to be implemented.
         metrics : list or str, optional
             Additional metrics to track throughout the pruning history,
             without influencing pruning decisions. Each entry must be a key
@@ -242,7 +235,7 @@ class EdgePruner:
         # Initialize attributes that will be used during pruning (and changed during
         #  the process)
         # Needs to be attributes as the history updates depend on them
-        self._curr_model = None  # TODO check this again
+        self._curr_model = None
         self._curr_loss = None
         self._curr_num_nodes = None
         self._curr_num_edges = None
@@ -362,7 +355,7 @@ class EdgePruner:
                                                           x_test, y_test)
             # TODO rethink if we should do the setting of these props above already and
             #   rename function so we can use it more
-            #  and then also do current amount of edges
+            #   and then also do current amount of edges
             self._curr_model = curr_model
             self._curr_loss = curr_loss
             self._curr_num_nodes = curr_num_nodes
@@ -370,8 +363,6 @@ class EdgePruner:
             self._curr_loss_history.append(self._curr_loss)
 
             # Check for isolated nodes and remove if no effect on performance
-            # TODO: remove isolated nodes using utility function from utils_networks
-            #   (follow up on this, the function seems to be buggy)
             removed_nodes = {}
             if self.remove_isolated_nodes:
                 isolated_nodes = self._get_isolated_nodes(self._curr_model)
@@ -683,8 +674,6 @@ class EdgePruner:
         """
         Find nodes that are isolated (degree 0) in the reservoir graph.
 
-        TODO confirm pyreco RC have same logic as nx objects
-
         Parameters
         ----------
         model : RC
@@ -780,7 +769,6 @@ class EdgePruner:
         # Each removal shifts down the indices of all higher-numbered nodes by 1
         removed_original_ids = list(fully_isolated_node_ids)
         # Check effect on performance performance
-        # TODO check this again, removing nodes seems to be buggy from pyReCo side
         for node in isolated_readout_nodes:
             # Compute how many previously removed nodes had a smaller original ID,
             #   since each such removal shifted this node's current index down by 1
@@ -1453,9 +1441,9 @@ if __name__ == "__main__":
 
     # Prune the model
     pruner = EdgePruner(
-        #min_num_nodes=46,
-        #stopping_criterion=['patience'],
-        #stopping_criterion=['min_edges', 'patience'],
+        # min_num_nodes=46,
+        # stopping_criterion=['patience'],
+        # stopping_criterion=['min_edges', 'patience'],
         stopping_criterion=['min_edges'],
         patience=2,
         min_num_edges=0,
