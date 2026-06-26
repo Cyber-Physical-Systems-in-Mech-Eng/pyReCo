@@ -3,7 +3,7 @@
 **A Reservoir Computing Library for Time Series Forecasting and Research**
 
 <p align="center">
-<img src="https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo/blob/dev/PyReCo.png">
+<img src="https://raw.githubusercontent.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo/main/PyReCo.png">
 </p>
 
 **[Official Documentation](https://cyber-physical-systems-in-mech-eng.github.io/pyReCo/index.html)**
