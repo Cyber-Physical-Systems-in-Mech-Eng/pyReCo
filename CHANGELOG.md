@@ -8,17 +8,18 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Breaking Changes
 
-* Breaking changes go here
+* None
 
 
 ### Minor Improvements
 
-* Minor improvements go here
+* Prepared release metadata updates for `v2.1.0`.
+* Confirmed automated publish flow via GitHub Release (`published`) to PyPI.
 
 
 ### Bugfixes
 
-* Bugfixes go here
+* None
 
 
 ## pyReCo-0.0.3
