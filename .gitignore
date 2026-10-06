@@ -73,6 +73,7 @@ instance/
 build/*
 dist/*
 sdist/*
+src/pyreco/_version.py
 docs/_rst/*
 docs/_build/*
 docs/_static/*

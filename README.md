@@ -170,7 +170,7 @@ If you use pyReCo in your research, please cite it. GitHub's "Cite this reposito
 @software{pyreco,
   title   = {pyReCo: A Python Reservoir Computing Library for Time Series Forecasting and Research},
   author  = {Yadav, Manish and Disson, Klara and Stender, Merten},
-  version = {2.0.0},
+  version = {2.1.0},
   year    = {2026},
   license = {Apache-2.0},
   url     = {https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo}
@@ -179,5 +179,4 @@ If you use pyReCo in your research, please cite it. GitHub's "Cite this reposito
 
 **APA**
 
-Yadav, M., Disson, K., & Stender, M. (2026). *pyReCo: A Python reservoir computing library for time series forecasting and research* (Version 2.0.0) [Computer software]. Technische Universität Berlin. https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo
-
+Yadav, M., Disson, K., & Stender, M. (2026). *pyReCo: A Python reservoir computing library for time series forecasting and research* (Version 2.1.0) [Computer software]. Technische Universität Berlin. https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo

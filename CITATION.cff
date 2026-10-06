@@ -3,7 +3,7 @@ message: >-
   If you use pyReCo, please cite it using the metadata in this file.
 title: >-
   pyReCo: A Python Reservoir Computing Library for Time Series Forecasting and Research
-version: 2.0.0
+version: 2.1.0
 abstract: >-
   pyReCo is built by TU Berlin researchers for researchers all across the world
   with the aim to develop new RC methods that allow for fast and efficient learning 
