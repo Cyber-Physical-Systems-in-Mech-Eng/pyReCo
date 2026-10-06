@@ -17,6 +17,8 @@ pyReCo is built by researchers for researchers: we aim to develop new RC methods
 
 **Compatability**: ResPy follows the syntax of scikit-learn (pyReCo Model-API), such that an estimator has the methods `.fit()` and `.predict()`. Any more experimental modeling can be realised by pyReCo's CustomModel-API, which follows TensorFlow's Sequential-API: a custom pyReCo model is compiled using `model.add()` functions for stacking different layers.  
 
+[![Cite this repository](https://img.shields.io/badge/Cite%20this%20repository-CITATION.cff-blue)](CITATION.cff)
+
 ## **Table of Contents**
 
 1. [About the Developers](#about-the-developers)
@@ -24,6 +26,7 @@ pyReCo is built by researchers for researchers: we aim to develop new RC methods
 3. [Installation](#installation)
 5. [Documentation](#documentation)
 6. [Background and Supplementary Material](#background-and-supplementary-material)
+7. [Cite pyReCo](#cite-pyreco)
 
 ## **About the Developers**
 
@@ -153,4 +156,28 @@ The official pyReCo documentation can be found here: **[Official Documentation](
 - [PYRCN](https://github.com/TUD-STKS/PyRCN/)
 - [EchoTorch](https://github.com/nschaetti/EchoTorch)
 - [list of more packages](https://github.com/topics/reservoir-computing)
+
+
+## Cite pyReCo
+
+[![Cite this repository](https://img.shields.io/badge/Cite%20this%20repository-CITATION.cff-blue)](CITATION.cff)
+
+If you use pyReCo in your research, please cite it. GitHub's "Cite this repository" button (in the sidebar) uses the metadata in [`CITATION.cff`](CITATION.cff).
+
+**BibTeX**
+
+```bibtex
+@software{pyreco,
+  title   = {pyReCo: A Python Reservoir Computing Library for Time Series Forecasting and Research},
+  author  = {Yadav, Manish and Disson, Klara and Stender, Merten},
+  version = {2.0.0},
+  year    = {2026},
+  license = {Apache-2.0},
+  url     = {https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo}
+}
+```
+
+**APA**
+
+Yadav, M., Disson, K., & Stender, M. (2026). *pyReCo: A Python reservoir computing library for time series forecasting and research* (Version 2.0.0) [Computer software]. Technische Universität Berlin. https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo
 
