@@ -24,6 +24,7 @@ class NodeSelector:
         strategy: str = "random_uniform_wo_repl",
         total_nodes: int = None,
         graph: nx.Graph | np.ndarray = None,
+        seed: int | None = None,
     ):
         """
         Initializes the NodeSelector object.
@@ -76,6 +77,7 @@ class NodeSelector:
         self.fraction: float = 0.0
         self.strategy: str = strategy
         self.selected_nodes: list = []
+        self.seed = seed
 
     def select_nodes(
         self,
@@ -138,9 +140,16 @@ class NodeSelector:
         if self.strategy == "random_uniform_wo_repl":
             # random uniform WITHOUT replacement
 
-            self.selected_nodes = random.sample(
-                range(0, self.num_total_nodes), self.num_select_nodes
+            # using a local RNG, so node selection is deterministic for a given seed
+            rng = random.Random(self.seed)
+
+            self.selected_nodes = rng.sample(
+                range(self.num_total_nodes), self.num_select_nodes,
             )
+
+            # self.selected_nodes = random.sample(
+            #     range(0, self.num_total_nodes), self.num_select_nodes
+            # )
 
             if isinstance(self.graph_shape, int):
                 # input was list, output will be list

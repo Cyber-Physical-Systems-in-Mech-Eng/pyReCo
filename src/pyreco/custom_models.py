@@ -803,7 +803,8 @@ class CustomModel(ABC):
         method (str, optional): Method for sampling initial states.
         """
         num_nodes = self.reservoir_layer.nodes
-        initializer = NetworkInitializer(method=method)
+        # initializer = NetworkInitializer(method=method)
+        initializer = NetworkInitializer(method=method,seed=self.reservoir_layer.seed)
         init_states = initializer.gen_initial_states(num_nodes)
         self._set_init_states(init_states=init_states)
 
@@ -816,7 +817,8 @@ class CustomModel(ABC):
         """
 
         # generate random input connection matrix [nodes, n_states_in]
-        net_generator = NetworkInitializer(method="random_normal")
+        # net_generator = NetworkInitializer(method="random_normal")
+        net_generator = NetworkInitializer(method="random_normal", seed=self.reservoir_layer.seed)
         full_input_weights = net_generator.gen_initial_states(
             shape=(self.num_nodes, self.num_states_in)
         )
@@ -825,6 +827,7 @@ class CustomModel(ABC):
         node_selector = NodeSelector(
             total_nodes=self.num_nodes,
             strategy="random_uniform_wo_repl",
+            seed=self.reservoir_layer.seed,
         )
 
         # select the fraction of nodes that are input nodes [nodes, n_states_in]

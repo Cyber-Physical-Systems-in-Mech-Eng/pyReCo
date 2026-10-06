@@ -8,8 +8,12 @@ class NetworkInitializer:
     network initializers.
     """
 
-    def __init__(self, method: str = "random"):
+    # def __init__(self, method: str = "random"):
+    #     self.method = method
+    def __init__(self, method: str = "random", seed=None):
         self.method = method
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)
 
     def gen_initial_states(self, shape: Union[tuple, list]) -> np.ndarray:
         """
@@ -32,9 +36,11 @@ class NetworkInitializer:
             shape = tuple(shape)
 
         if self.method == "random":
-            init_states = np.random.random(*shape)
+            # init_states = np.random.random(*shape)
+            init_states = self.rng.random(shape)
         elif self.method == "random_normal":
-            init_states = np.random.randn(*shape)
+            # init_states = np.random.randn(*shape)
+            init_states = self.rng.standard_normal(shape)
         elif self.method == "ones":
             init_states = np.ones(*shape)
         elif self.method == "zeros":
