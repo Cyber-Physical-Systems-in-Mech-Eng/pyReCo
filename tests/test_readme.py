@@ -31,4 +31,4 @@ def test_readme_example_runs(index, monkeypatch, capsys):
     monkeypatch.setattr(plt, "show", lambda *args, **kwargs: None)
     exec(compile(_python_blocks()[index], f"README block {index}", "exec"), {"__name__": "__main__"})
     plt.close("all")
-    assert "scores" in capsys.readouterr().out
+    assert "scores" in capsys.readouterr().out  # every example prints its scores

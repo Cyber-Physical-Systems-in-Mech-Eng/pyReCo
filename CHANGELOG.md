@@ -76,6 +76,10 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* The README was brought up to date: installation first, the capabilities (pruning, benchmark data
+  sets, tuning, seeds), data shapes and warm-up, initial state and reproducibility, benchmark data
+  sets, edge pruning, hyperparameter tuning, an overview of the examples and how to run the tests.
+  All code examples of the README are run by the test suite.
 * Examples: `mwe_tuner.py` is now `mwe_hyperparameter_tuning.py`; `mwe_task_shapes.py` shows five
   input/output shapes (vector to vector, sequence to scalar, sequence to sequence, several states,
   inputs longer than targets with a warm-up) on one data set (`sine_pred`); the cross-validation
