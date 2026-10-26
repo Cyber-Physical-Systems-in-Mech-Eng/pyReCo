@@ -296,19 +296,19 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         # check that the value is positive and that the weights are set
         if value <= 0:
             raise ValueError("Spectral radius must be positive")
-        if self.weights is not None:
-            self.weights = set_spec_rad(self.weights, value)
-        else:
+        if self.weights is None:
             raise ValueError("Weights must be set before changing spectral radius.")
-        
-        # check that the weights re-scaling was successful
-        _new_spec_rad = compute_spec_rad(self.weights)
-        if np.isclose(value, _new_spec_rad, atol=1e-5):
-            self.spec_rad = _new_spec_rad
-        else:
+
+        # rescale and verify first, so that a failure leaves the layer untouched.
+        # Raises a ValueError if the network has spectral radius 0 (no directed cycle).
+        _new_weights = set_spec_rad(self.weights, value)
+        _new_spec_rad = compute_spec_rad(_new_weights)
+        if not np.isclose(value, _new_spec_rad, atol=1e-5):
             raise ValueError(
                 f"Failed to set spectral radius within tolerance 1e-5. Expected {value}, got {_new_spec_rad}."
             )
+        self.weights = _new_weights
+        self.spec_rad = _new_spec_rad
 
     def get_leakage_rate(self):
         return self.leakage_rate
@@ -371,25 +371,15 @@ class RandomReservoirLayer(ReservoirLayer):
             seed=seed,
         )
 
-        # update the spectral radius and the density to the actual values
+        # update the spectral radius and the density to the actual values. The density is
+        # the edge probability of the ER graph, so the realized density differs from the
+        # requested one (it is available as self.density).
         self.update_layer_properties()
 
-        # check that the graph actually satisfies the spectral radius and 
-        # density requested by the user
-        _spec_rad = compute_spec_rad(self.weights)
-        _density = compute_density(self.weights)
-        if np.isclose(self.spec_rad, _spec_rad, atol=1e-5):
-            self.spec_rad = _spec_rad
-        else:
+        # check that the graph actually satisfies the spectral radius requested by the user
+        if not np.isclose(spec_rad, self.spec_rad, atol=1e-5):
             raise ValueError(
-                f"Failed to set spectral radius within tolerance 1e-5. Expected {self.spec_rad}, got {_spec_rad}."
-            )
-        
-        if np.isclose(self.density, _density, atol=1e-5):
-            self.density = _density
-        else:
-            raise ValueError(
-                f"Failed to set density within tolerance 1e-5. Expected {self.density}, got {_density}."
+                f"Failed to set spectral radius within tolerance 1e-5. Expected {spec_rad}, got {self.spec_rad}."
             )
 
     #def update_layer_properties(self):

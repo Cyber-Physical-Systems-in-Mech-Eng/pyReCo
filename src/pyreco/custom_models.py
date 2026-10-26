@@ -752,6 +752,9 @@ class CustomModel(ABC):
                 # TODO If undirected, also remove the symmetric edge
                 #       (we assume directed grpahs for now)
                 # self.weights[v, u] = 0
+            # keep density and spectral radius of the layer in sync with the weights
+            # (the spectral radius is 0 once no directed cycle is left)
+            self.reservoir_layer.update_layer_properties()
         # TODO check if input receving node can still access rest of the reservoir
         # TODO maybe make protection rules for pruner regarding input receveiving nodes,
         #       bias to output, etc.?

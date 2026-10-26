@@ -64,6 +64,21 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Bugfixes
 
+* Reservoirs with spectral radius 0 (no directed cycle) no longer produce NaN weights or
+  corrupt the model. Small or sparse ER graphs often have no directed cycle (about 40% of
+  5-node graphs with density 0.05) and crashed construction with a `LinAlgError`;
+  `gen_ER_graph` now redraws such graphs (up to 100 attempts, then raises a clear
+  `ValueError`). For graphs that have a cycle the seed gives the same graph as before.
+  Rescaling a network with spectral radius 0 (e.g. `set_hp(spec_rad=...)` after pruning removed
+  all cycles) now raises a `ValueError` and leaves the layer unchanged; before it multiplied the
+  weights by 9e5 and then raised, leaving the corrupted weights in place.
+* `remove_reservoir_edges` refreshes the `density` and `spec_rad` of the reservoir layer
+  (they were stale after pruning). `EdgePruner` warns once per run when pruning drives the
+  spectral radius to 0.
+* The post-construction density check of `RandomReservoirLayer` was removed: it compared the
+  value to itself, and the density of an ER graph is random by definition. `density` is the
+  edge probability; the realized density is available as `layer.density`. The spectral radius
+  check now compares against the requested value.
 * `NetworkInitializer` failed for 2D shapes with the methods `random`, `ones` and `zeros`.
 * `input_scaling` was applied in `fit()` but not in `predict()`, which made predictions
   inconsistent with training for any value other than 1. Training and inference now share

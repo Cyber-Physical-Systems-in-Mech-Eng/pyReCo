@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import networkx as nx
 import scipy.sparse as sp
@@ -287,6 +289,7 @@ class EdgePruner:
 
         # Restart the random stream of the candidate selection from the seed
         self._rng = np.random.default_rng(self.seed)
+        self._warned_zero_spec_rad = False
 
         # Obtain training and testing data
         x_test, y_test = data_val[0], data_val[1]
@@ -422,6 +425,17 @@ class EdgePruner:
             # model = _candidate_models[idx_prune]
             model = self._curr_model
             _graph = model.reservoir_layer.weights
+
+            # Pruning can remove every directed cycle. The reservoir is then a
+            #   feed-forward network: it still runs, but it can no longer be rescaled
+            #   to a target spectral radius (set_hp(spec_rad=...) raises an error).
+            if not self._warned_zero_spec_rad and model.reservoir_layer.spec_rad == 0:
+                warnings.warn(
+                    f'Pruning iteration {self._iter_count} removed the last directed '
+                    'cycle from the reservoir: its spectral radius is now 0.',
+                    RuntimeWarning,
+                )
+                self._warned_zero_spec_rad = True
 
             # Store the model and loss for later use
             _pruned_models.append(copy.deepcopy(model))

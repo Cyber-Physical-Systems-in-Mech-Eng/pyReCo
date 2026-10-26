@@ -10,6 +10,10 @@ import warnings
 from pyreco.utils_random import RngLike, make_rng
 
 
+# number of redraws of a graph without any directed cycle before giving up
+MAX_ER_ATTEMPTS = 100
+
+
 def gen_ER_graph(
     nodes: int,
     density: float,
@@ -43,37 +47,59 @@ def gen_ER_graph(
 
     Returns:
         np.ndarray: Adjacency matrix with shape (nodes, nodes)
+
+    Raises:
+        ValueError: if no graph with a directed cycle could be drawn (e.g. density 0).
+
+    Graphs with spectral radius 0 (no directed cycle) cannot be scaled to the requested
+    spectral radius and are redrawn, up to MAX_ER_ATTEMPTS times. The first attempt is
+    identical to a plain ER draw, so for graphs that have a cycle the seed gives the same
+    graph as before. For reservoirs of realistic size redraws practically never happen;
+    for very small or sparse graphs the result is an ER graph conditioned on having a
+    directed cycle.
     """
     # all randomness comes from this generator, never from the global state
     rng = make_rng(seed)
 
-    # use networkx to generate a random graph. An integer seed is handed to networkx as
-    # is, otherwise a seed is drawn from the generator.
-    if isinstance(seed, (int, np.integer)) and not isinstance(seed, bool):
-        nx_seed = int(seed)
-    else:
-        nx_seed = int(rng.integers(2**31 - 1))
-    G = nx.erdos_renyi_graph(nodes, density, seed=nx_seed, directed=directed)
+    # A graph without a directed cycle (e.g. a sparse or small graph) has spectral radius
+    # 0 and cannot be rescaled to a target spectral radius. Such graphs are redrawn.
+    for attempt in range(MAX_ER_ATTEMPTS):
+        # use networkx to generate a random graph. In the first attempt an integer seed is
+        # handed to networkx as is, otherwise a seed is drawn from the generator.
+        if (
+            attempt == 0
+            and isinstance(seed, (int, np.integer))
+            and not isinstance(seed, bool)
+        ):
+            nx_seed = int(seed)
+        else:
+            nx_seed = int(rng.integers(2**31 - 1))
+        G = nx.erdos_renyi_graph(nodes, density, seed=nx_seed, directed=directed)
 
-    # Instead of removing isolated nodes (old buggy behavior):
-    # G.remove_nodes_from(list(nx.isolates(G)))
+        # Instead of removing isolated nodes (old buggy behavior):
+        # G.remove_nodes_from(list(nx.isolates(G)))
 
-    # New: Connect isolated nodes to maintain matrix size
-    isolated_nodes = list(nx.isolates(G))
-    if isolated_nodes:
-        non_isolated = list(set(G.nodes()) - set(isolated_nodes))
-        for node in isolated_nodes:
-            if non_isolated:
-                target = rng.choice(non_isolated)
-                G.add_edge(node, target)
-                if directed:
-                    G.add_edge(target, node)
+        # New: Connect isolated nodes to maintain matrix size
+        isolated_nodes = list(nx.isolates(G))
+        if isolated_nodes:
+            non_isolated = list(set(G.nodes()) - set(isolated_nodes))
+            for node in isolated_nodes:
+                if non_isolated:
+                    target = rng.choice(non_isolated)
+                    G.add_edge(node, target)
+                    if directed:
+                        G.add_edge(target, node)
 
-    GNet = nx.to_numpy_array(G)
-    curr_spec_rad = max(abs(np.linalg.eigvals(GNet)))
-    graph = GNet * spec_rad / curr_spec_rad
+        GNet = nx.to_numpy_array(G)
+        curr_spec_rad = max(abs(np.linalg.eigvals(GNet)))
+        if curr_spec_rad > 0:
+            return GNet * spec_rad / curr_spec_rad
 
-    return graph
+    raise ValueError(
+        f"Could not draw a graph with a directed cycle (spectral radius > 0) for "
+        f"nodes={nodes}, density={density} in {MAX_ER_ATTEMPTS} attempts. Increase the "
+        f"number of nodes or the density."
+    )
 
 
 def compute_density(network: np.ndarray) -> float:
@@ -114,9 +140,11 @@ def set_spec_rad(network: np.ndarray, spec_radius: float) -> np.ndarray:
     if spec_radius > 1.0:
         warnings.warn("a spectral radius larger than 1 is unusual!", Warning)
     current_spectral_radius = compute_spec_rad(network)
-    if current_spectral_radius < 10 ** (-9):
-        print("spectral radius smaller than 10^-9!")
-        current_spectral_radius = 10 ** (-6)
+    if current_spectral_radius < 1e-12:
+        raise ValueError(
+            "the network has spectral radius 0 (it contains no directed cycle) and "
+            "cannot be rescaled to a target spectral radius"
+        )
     scaling_factor = spec_radius / current_spectral_radius
     return network * scaling_factor
 
