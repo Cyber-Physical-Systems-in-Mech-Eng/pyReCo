@@ -8,6 +8,9 @@ All data generators use numerical integration of the governing equations.
 Lorenz system uses scipy.integrate.solve_ivp for stable ODE integration.
 Mackey-Glass uses a second-order (Heun) scheme with a fine internal step for the delay
 differential equation, sampled at the requested interval.
+NARMA5 and NARMA10 are nonlinear system-identification benchmarks (random input, the target is
+the output of a nonlinear autoregressive moving-average system); they test memory and
+nonlinearity of a reservoir rather than forecasting.
 
 Note: the generated series start from the initial condition of the system and include
 the start-up transient, i.e. the first samples are not yet on the attractor. Discard a
@@ -158,6 +161,83 @@ def _generate_mackey_glass(n_timesteps, tau=17, a=0.2, b=0.1, n=10, x0=1.2, h=1.
     return timeseries.reshape(-1, 1)
 
 
+def _generate_narma(
+    n_timesteps,
+    order=10,
+    seed=None,
+    washout=100,
+    alpha=0.3,
+    beta=0.05,
+    gamma=1.5,
+    delta=0.1,
+    u_max=0.5,
+    max_attempts=100,
+):
+    """
+    Generate the NARMA-`order` system identification benchmark.
+
+    The input u(t) is i.i.d. uniform on [0, u_max] and the system output follows
+
+        y(t+1) = alpha*y(t) + beta*y(t)*sum_{i=0}^{order-1} y(t-i) + gamma*u(t-order+1)*u(t) + delta
+
+    with y = 0 as initial condition. The standard benchmarks are NARMA10 (Jaeger) and NARMA5
+    (order 5) with alpha=0.3, beta=0.05, gamma=1.5, delta=0.1 and u_max=0.5. The output depends
+    on the last `order` inputs and on its own history, so the task needs memory and
+    nonlinearity.
+
+    The output can blow up for some input sequences (NARMA10 for a few percent of the
+    sequences of 5000 steps, NARMA5 practically never). Such sequences are redrawn, up to
+    `max_attempts` times.
+
+    Parameters
+    ----------
+    n_timesteps : int
+        Number of samples to generate
+    order : int, default=10
+        Order of the system (memory length of the input term and of the output sum)
+    seed : int, optional
+        Seed of the random input sequence. If None, the input is different on every call.
+    washout : int, default=100
+        Number of leading samples that are generated and dropped, because the system starts
+        from the artificial initial condition y = 0 (the first `order` outputs are exactly 0).
+    alpha, beta, gamma, delta, u_max : float
+        Coefficients of the system and the upper bound of the input.
+    max_attempts : int, default=100
+        Number of redraws of the input sequence if the output diverges.
+
+    Returns
+    -------
+    data : ndarray of shape (n_timesteps, 2)
+        Column 0 is the input u(t), column 1 the target y(t+1): the system output right
+        after the input u(t) has been applied. A reservoir state r(t+1) has seen the inputs
+        u(0), ..., u(t), so it is the state that is paired with the target y(t+1).
+    """
+    if order < 2 or int(order) != order:
+        raise ValueError(f"order must be an integer >= 2, got {order}")
+    order = int(order)
+    rng = make_rng(seed)
+    n_total = n_timesteps + washout
+
+    for _ in range(max_attempts):
+        u = rng.uniform(0.0, u_max, size=n_total)
+        y = np.zeros(n_total + 1)  # y[t] is the system output at time t
+        with np.errstate(over="ignore", invalid="ignore"):
+            for t in range(order - 1, n_total):
+                y[t + 1] = (
+                    alpha * y[t]
+                    + beta * y[t] * y[t - order + 1 : t + 1].sum()
+                    + gamma * u[t - order + 1] * u[t]
+                    + delta
+                )
+        if np.isfinite(y).all() and np.abs(y).max() < 10.0:
+            return np.stack([u[washout:], y[1:][washout:]], axis=1)
+
+    raise RuntimeError(
+        f"NARMA{order} diverged for all {max_attempts} random input sequences. "
+        "Use a smaller u_max or fewer samples."
+    )
+
+
 def _check_sufficient_data(data, n_in, n_out, data_name):
     """
     Check if dataset has enough timesteps for sliding window.
@@ -221,6 +301,38 @@ def _sliding_window(data, n_in, n_out=1):
     return X, y
 
 
+def _sliding_window_io(inputs, targets, n_in, n_out=1):
+    """
+    Create windows for input/output (system identification) tasks.
+
+    Parameters
+    ----------
+    inputs : ndarray of shape (n_timesteps, n_in_features)
+    targets : ndarray of shape (n_timesteps, n_out_features)
+        targets[t] is the target that belongs to the state after inputs[t] was applied
+    n_in : int
+        Number of time steps in the input window
+    n_out : int, default=1
+        Number of target time steps. They are the targets of the last n_out input steps,
+        i.e. the target windows end together with the input windows (n_out <= n_in).
+
+    Returns
+    -------
+    X : ndarray of shape (n_samples, n_in, n_in_features)
+    y : ndarray of shape (n_samples, n_out, n_out_features)
+    """
+    n_timesteps = len(inputs)
+    n_samples = n_timesteps - n_in + 1
+    if n_samples < 1:
+        raise ValueError(
+            f"Not enough data: need at least {n_in} timesteps, got {n_timesteps}"
+        )
+
+    X = np.stack([inputs[i : i + n_in] for i in range(n_samples)], axis=0)
+    y = np.stack([targets[i + n_in - n_out : i + n_in] for i in range(n_samples)], axis=0)
+    return X, y
+
+
 def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, seed=None, val_fraction=None, standardize=False, **kwargs):
     """
     Load chaotic time series dataset with train/test split.
@@ -234,6 +346,8 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         Name of the dataset. Supported options:
         - 'lorentz69' or 'lorenz' or 'lorenz63': Lorenz 1963 attractor (3D system)
         - 'mackey_glass' or 'mackeyglass' or 'mg': Mackey-Glass delay system (1D system)
+        - 'narma5' or 'narma10': NARMA system identification benchmarks (1D input, 1D
+          target). The inputs are random, the target is the output of the NARMA system.
     n_samples : int, default=5000
         Number of time steps to generate from the chaotic system
     train_fraction : float, default=0.7
@@ -243,8 +357,9 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     n_out : int, default=1
         Number of time steps in each output window (prediction horizon)
     seed : int, optional
-        Random seed for reproducibility. Only used for Mackey-Glass, where it perturbs the
-        initial history slightly; the Lorenz series is deterministic for given parameters.
+        Random seed for reproducibility. For Mackey-Glass it perturbs the initial history
+        slightly, for NARMA it draws the random input sequence (with seed=None every call
+        gives a different sequence); the Lorenz series is deterministic for given parameters.
     val_fraction : float, optional
         Fraction of training data to use for validation (between 0 and 1).
         If None (default), no validation split is created.
@@ -266,6 +381,8 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         - For Lorenz: sigma, rho, beta, h (time step), x0 (initial condition)
         - For Mackey-Glass: tau, a, b, n, h (sampling interval), h_int (internal
           integration step), x0 (initial value)
+        - For NARMA: washout (number of leading samples that are generated and dropped,
+          default 100)
 
     Returns
     -------
@@ -323,6 +440,11 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     -----
     - Input: Past n_in time steps
     - Output: Future n_out time steps (immediately following the input window)
+    - NARMA is an input/output task instead of a forecasting task: the input window is a
+      window of the random input u, and the output window holds the n_out targets that
+      belong to the last n_out input steps (n_out <= n_in). With n_out=1 the target is the
+      system output right after the last input of the window. If the data is standardized,
+      the returned scaler is fitted on the two columns [input, target].
     - Data is split chronologically (earlier data for training, later for testing)
     - Reproducible when seed is set (for Mackey-Glass)
     - Data generation uses numerical integration:
@@ -342,6 +464,7 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     dataset_name = dataset_name.lower().replace('-', '_').replace(' ', '_')
 
     # Generate raw time series using custom integrators
+    io_task = False
     if dataset_name in ['lorentz69', 'lorenz', 'lorenz63']:
         # Extract Lorenz-specific parameters with defaults
         sigma = kwargs.get('sigma', 10.0)
@@ -381,11 +504,35 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
             seed=seed
         )
 
+    elif dataset_name in ['narma5', 'narma_5', 'narma10', 'narma_10']:
+        order = 5 if dataset_name.endswith('5') else 10
+        if n_out > n_in:
+            raise ValueError(
+                f"For NARMA the number of output steps must not exceed the input steps, "
+                f"got n_in={n_in}, n_out={n_out}."
+            )
+        io_task = True
+
+        raw_data = _generate_narma(
+            n_timesteps=n_samples,
+            order=order,
+            seed=seed,
+            washout=kwargs.get('washout', 100),
+        )
+
     else:
         raise ValueError(
             f"Unknown dataset: '{dataset_name}'. "
-            f"Supported: 'lorentz69', 'lorenz', 'lorenz63', 'mackey_glass', 'mackeyglass', 'mg'"
+            f"Supported: 'lorentz69', 'lorenz', 'lorenz63', 'mackey_glass', 'mackeyglass', 'mg', "
+            f"'narma5', 'narma10'"
         )
+
+    def _windows(data):
+        # forecasting: the next n_out values of the series follow the input window;
+        # input/output task: the targets belong to the last n_out steps of the window
+        if io_task:
+            return _sliding_window_io(data[:, :1], data[:, 1:], n_in=n_in, n_out=n_out)
+        return _sliding_window(data, n_in=n_in, n_out=n_out)
 
     # Split time series first (to avoid data leakage)
     if not (0.0 < train_fraction < 1.0):
@@ -407,8 +554,8 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         _check_sufficient_data(train_data, n_in, n_out, "Training data")
         _check_sufficient_data(test_data, n_in, n_out, "Test data")
 
-        x_train, y_train = _sliding_window(train_data, n_in=n_in, n_out=n_out)
-        x_test, y_test = _sliding_window(test_data, n_in=n_in, n_out=n_out)
+        x_train, y_train = _windows(train_data)
+        x_test, y_test = _windows(test_data)
         return x_train, y_train, x_test, y_test
 
     # Mode 2: Standardization without validation split
@@ -426,8 +573,8 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         test_scaled = scaler.transform(test_data)
 
         # Create sliding windows
-        x_train, y_train = _sliding_window(train_scaled, n_in=n_in, n_out=n_out)
-        x_test, y_test = _sliding_window(test_scaled, n_in=n_in, n_out=n_out)
+        x_train, y_train = _windows(train_scaled)
+        x_test, y_test = _windows(test_scaled)
 
         return x_train, y_train, x_test, y_test, scaler
 
@@ -456,8 +603,8 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         test_scaled = scaler.transform(test_data)
 
         # Create sliding windows on scaled data
-        x_train, y_train = _sliding_window(train_final_scaled, n_in=n_in, n_out=n_out)
-        x_val, y_val = _sliding_window(val_scaled, n_in=n_in, n_out=n_out)
-        x_test, y_test = _sliding_window(test_scaled, n_in=n_in, n_out=n_out)
+        x_train, y_train = _windows(train_final_scaled)
+        x_val, y_val = _windows(val_scaled)
+        x_test, y_test = _windows(test_scaled)
 
         return x_train, y_train, x_val, y_val, x_test, y_test, scaler

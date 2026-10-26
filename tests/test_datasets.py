@@ -163,3 +163,128 @@ def test_load_validates_its_arguments(kwargs, match):
 def test_load_does_not_print(capsys):
     ds.load("lorenz", n_samples=500, n_in=10)
     assert capsys.readouterr().out == ""
+
+
+# -------------------------------------------------------------------- NARMA
+
+
+@pytest.mark.parametrize("order", [5, 10])
+def test_narma_satisfies_its_recursion(order):
+    data = ds._generate_narma(400, order=order, seed=0, washout=0)
+    u, target = data[:, 0], data[:, 1]  # target[t] = y(t+1)
+    y = np.concatenate([[0.0], target])  # y[t] with y(0) = 0
+    assert data.shape == (400, 2)
+    assert u.min() >= 0.0 and u.max() <= 0.5
+
+    # the system only starts once `order` inputs are available: the first outputs are 0
+    assert np.all(target[: order - 1] == 0.0)
+    for t in range(order - 1, 400):
+        expected = (
+            0.3 * y[t]
+            + 0.05 * y[t] * y[t - order + 1 : t + 1].sum()
+            + 1.5 * u[t - order + 1] * u[t]
+            + 0.1
+        )
+        assert np.isclose(target[t], expected)
+
+
+@pytest.mark.parametrize("order", [5, 10])
+def test_narma_statistics(order):
+    target = ds._generate_narma(3000, order=order, seed=1)[:, 1]
+    assert np.isfinite(target).all() and 0.1 < target.min() and target.max() < 1.5
+    assert 0.25 < target.mean() < 0.45 and 0.05 < target.std() < 0.2
+
+
+def test_narma_seed_and_washout():
+    a = ds._generate_narma(300, seed=4)
+    assert np.array_equal(a, ds._generate_narma(300, seed=4))
+    assert not np.array_equal(a, ds._generate_narma(300, seed=5))
+    assert not np.array_equal(ds._generate_narma(300), ds._generate_narma(300))  # no seed
+
+    # dropping a washout of w samples is the same as generating w more and discarding them
+    full = ds._generate_narma(250, seed=4, washout=0)
+    assert np.array_equal(ds._generate_narma(200, seed=4, washout=50), full[50:])
+
+
+def test_narma10_diverging_sequences_are_redrawn():
+    # seed 75 gives a diverging output for NARMA10 with 5000 steps
+    with pytest.raises(RuntimeError, match="diverged"):
+        ds._generate_narma(5000, order=10, seed=75, washout=0, max_attempts=1)
+    data = ds._generate_narma(5000, order=10, seed=75, washout=0)
+    assert np.isfinite(data).all() and data[:, 1].max() < 2.0
+    assert np.array_equal(data, ds._generate_narma(5000, order=10, seed=75, washout=0))
+
+
+def test_narma_gives_up_if_the_system_cannot_be_stable():
+    with pytest.raises(RuntimeError, match="diverged"):
+        ds._generate_narma(1000, order=10, u_max=3.0, seed=0, max_attempts=3)
+
+
+@pytest.mark.parametrize("order", [0, 1, 2.5])
+def test_narma_validates_the_order(order):
+    with pytest.raises(ValueError, match="order"):
+        ds._generate_narma(100, order=order)
+
+
+@pytest.mark.parametrize("name, order", [("narma5", 5), ("narma10", 10)])
+def test_load_narma_windows_are_input_output_windows(name, order):
+    n_in, n_out, n = 30, 4, 1000
+    x_train, y_train, x_test, y_test = ds.load(name, n_samples=n, n_in=n_in, n_out=n_out, seed=2)
+    raw = ds._generate_narma(n, order=order, seed=2)
+    n_train = int(n * 0.7)
+
+    assert x_train.shape == (n_train - n_in + 1, n_in, 1)
+    assert y_train.shape == (x_train.shape[0], n_out, 1)
+    assert x_test.shape == (n - n_train - n_in + 1, n_in, 1)
+    for i in (0, 11, x_train.shape[0] - 1):
+        assert np.allclose(x_train[i, :, 0], raw[i : i + n_in, 0])
+        # the targets belong to the last n_out steps of the input window
+        assert np.allclose(y_train[i, :, 0], raw[i + n_in - n_out : i + n_in, 1])
+    assert np.allclose(x_test[0, :, 0], raw[n_train : n_train + n_in, 0])  # chronological split
+    assert np.allclose(y_test[-1, :, 0], raw[-n_out:, 1])
+
+
+def test_load_narma_names_and_options():
+    ref = ds.load("narma10", n_samples=500, n_in=20, seed=3)[0]
+    for name in ["NARMA10", "narma_10", "Narma-10"]:
+        assert np.array_equal(ds.load(name, n_samples=500, n_in=20, seed=3)[0], ref)
+    assert not np.array_equal(ds.load("narma5", n_samples=500, n_in=20, seed=3)[1], ds.load("narma10", n_samples=500, n_in=20, seed=3)[1])
+    assert not np.array_equal(ds.load("narma5", n_samples=500, n_in=20)[0], ds.load("narma5", n_samples=500, n_in=20)[0])
+
+    washed = ds.load("narma5", n_samples=500, n_in=20, seed=3, washout=0)[0]
+    assert not np.array_equal(washed, ds.load("narma5", n_samples=500, n_in=20, seed=3)[0])
+
+    with pytest.raises(ValueError, match="must not exceed"):
+        ds.load("narma10", n_samples=500, n_in=5, n_out=6)
+
+
+def test_load_narma_standardization_covers_input_and_target():
+    n, n_in = 1000, 20
+    raw = ds._generate_narma(n, order=10, seed=1)
+    x_train, y_train, x_test, y_test, scaler = ds.load("narma10", n_samples=n, n_in=n_in, seed=1, standardize=True)
+    n_train = int(n * 0.7)
+    assert scaler.mean_.shape == (2,)  # [input, target]
+    assert np.allclose(scaler.mean_, raw[:n_train].mean(axis=0))
+    assert np.allclose(x_train[0, :, 0], (raw[:n_in, 0] - scaler.mean_[0]) / scaler.scale_[0])
+    assert np.allclose(y_train[0, -1, 0], (raw[n_in - 1, 1] - scaler.mean_[1]) / scaler.scale_[1])
+    assert len(ds.load("narma10", n_samples=n, n_in=n_in, seed=1, val_fraction=0.2)) == 7
+
+
+def test_narma_is_learnable_from_lagged_inputs():
+    # sanity check of the alignment of inputs and targets: a quadratic model on the last 10
+    # inputs (the system contains the product u(t-4) u(t) for NARMA5) explains the target
+    import itertools
+
+    from sklearn.linear_model import Ridge
+
+    x_train, y_train, x_test, y_test = ds.load("narma5", n_samples=3000, n_in=50, seed=1)
+
+    def features(x):
+        last = x[:, -10:, 0]
+        products = [last[:, i] * last[:, j] for i, j in itertools.combinations_with_replacement(range(10), 2)]
+        return np.concatenate([last, np.stack(products, axis=1)], axis=1)
+
+    model = Ridge(alpha=1e-6).fit(features(x_train), y_train[:, 0, 0])
+    prediction = model.predict(features(x_test))
+    nrmse = np.sqrt(np.mean((prediction - y_test[:, 0, 0]) ** 2) / np.var(y_test[:, 0, 0]))
+    assert nrmse < 0.1  # 1.0 for predicting the mean

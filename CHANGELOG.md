@@ -59,6 +59,16 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* New benchmark systems `narma5` and `narma10` in `pyreco.datasets.load`: the NARMA system
+  identification tasks (random input u ~ U[0, 0.5], the target is the output of a nonlinear
+  autoregressive moving-average system of order 5 or 10), which test memory and nonlinearity of a
+  reservoir. Unlike the forecasting datasets, the input windows are windows of the random input
+  and the target windows end with the input window (`n_out <= n_in`); `seed` draws the input
+  sequence, a `washout` (default 100) removes the artificial start of the system, and sequences
+  for which the NARMA10 output diverges (a few percent of the sequences of 5000 steps) are
+  redrawn. See `examples/mwe_narma.py`.
+* `tests/test_benchmark_accuracy.py` guards the forecast quality on Lorenz, Mackey-Glass and the
+  NARMA tasks with seeded reservoirs.
 * Examples were tidied up: the `testing_*` scripts that duplicated the minimal working examples
   were merged into `mwe_task_shapes.py` (vector/sequence-to-scalar/sequence tasks,
   cross-validation, reservoir drawing); the remaining ones are now called `mwe_*`;
