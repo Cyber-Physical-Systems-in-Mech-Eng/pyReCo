@@ -59,6 +59,12 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* A GitHub Actions workflow (`tests.yml`) runs the test suite on every pull request and on pushes
+  to `main`/`dev` (Ubuntu with Python 3.10 and 3.12, plus an informational Windows run). It does
+  not build or publish anything. The test dependencies are available as `pip install -e ".[test]"`,
+  and the coverage option of the pytest configuration now names the package correctly.
+* `pyreco.__version__` exists (read from the installed package metadata; the version itself comes
+  from the git tag of the release).
 * New benchmark systems `narma5` and `narma10` in `pyreco.datasets.load`: the NARMA system
   identification tasks (random input u ~ U[0, 0.5], the target is the output of a nonlinear
   autoregressive moving-average system of order 5 or 10), which test memory and nonlinearity of a
