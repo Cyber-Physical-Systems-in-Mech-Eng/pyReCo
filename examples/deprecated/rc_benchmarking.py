@@ -40,7 +40,7 @@ def setup_model(model_class, input_shape, output_shape):
     return model
 
 
-def run_training_benchmark(model, X, y, n_init=1):
+def run_training_benchmark(model, X, y):
     """Run training benchmark and collect metrics."""
     profiler = RCProfiler(model)
 
@@ -55,7 +55,7 @@ def run_training_benchmark(model, X, y, n_init=1):
 
         # Train model
         with profiler.profile_section("Model Training"):
-            history = model.fit(X, y, n_init=n_init)
+            history = model.fit(X, y)
             mse = model.evaluate(X, y, metrics=["mse"])[0]
 
         metrics = {
@@ -165,8 +165,7 @@ def run_all_benchmarks(num_runs=5):
     output_shape = (y_train.shape[1], y_train.shape[2])
 
     results = {
-        "single_init": {"old": [], "new": []},
-        "multi_init": {"old": [], "new": []},
+        "training": {"old": [], "new": []},
         "prediction": {"old": [], "new": []},
         "pruning": {"old": [], "new": []},
     }
@@ -178,16 +177,10 @@ def run_all_benchmarks(num_runs=5):
         for model_type in ["old", "new"]:
             model_class = rc_old if model_type == "old" else rc_new
 
-            # Single init training
+            # Training
             model = setup_model(model_class, input_shape, output_shape)
-            results["single_init"][model_type].append(
-                run_training_benchmark(model, X_train, y_train, n_init=1)
-            )
-
-            # Multi init training
-            model = setup_model(model_class, input_shape, output_shape)
-            results["multi_init"][model_type].append(
-                run_training_benchmark(model, X_train, y_train, n_init=5)
+            results["training"][model_type].append(
+                run_training_benchmark(model, X_train, y_train)
             )
 
             # Prediction
@@ -209,8 +202,7 @@ def run_all_benchmarks(num_runs=5):
 def plot_benchmark_results(results, save_path_prefix=None):
     """Create plots for each operation type."""
     operations = {
-        "single_init": "Training (Single Init)",
-        "multi_init": "Training (Multiple Init)",
+        "training": "Training",
         "prediction": "Prediction",
         "pruning": "Pruning",
     }
