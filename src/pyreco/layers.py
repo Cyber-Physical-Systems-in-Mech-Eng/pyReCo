@@ -165,6 +165,14 @@ class FeedbackLayer(Layer):
         )
 
 class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
+    """
+    Reservoir layer. `weights` is the adjacency matrix of a directed graph.
+
+    Edge convention: weights[u, v] is the edge u -> v (u sends, v receives),
+    identical to networkx.from_numpy_array(weights, create_using=nx.DiGraph).
+    The state update uses the row-vector form r(t+1) = g(r(t) @ weights + ...),
+    so activity flows from row index to column index.
+    """
 
     def __init__(
         self,

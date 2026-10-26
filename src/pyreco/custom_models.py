@@ -920,10 +920,11 @@ class CustomModel(ABC):
         # 2. now step through time to compute reservoir states
         for t in range(n_time):
 
-            # compute dot(A, r(t)) for all batches
-            reservoir_contrib = np.einsum("ij,bj->bi", A, states[:, t])
+            # compute r(t) @ A for all batches. Row-vector convention: A[u, v] is the
+            # edge u -> v (sender u, receiver v), consistent with networkx.
+            reservoir_contrib = np.einsum("ji,bj->bi", A, states[:, t])
 
-            # now compute r(t+1) = (1-alpha) * r(t) + alpha * g(r(t) * A + x * W_in)
+            # now compute r(t+1) = (1-alpha) * r(t) + alpha * g(r(t) @ A + W_in @ x(t))
             states[:, t + 1] = (1 - alpha) * states[:, t] + alpha * activation(
                 reservoir_contrib + input_contrib[:, t]
             )
@@ -1044,10 +1045,10 @@ class CustomModel(ABC):
             y_pred.append(y_pred_t[:,0,:])
             #############################################
 
-            # compute dot(A, r(t)) for all batches
-            reservoir_contrib = np.einsum("ij,bj->bi", A, states[:, t])
+            # compute r(t) @ A for all batches (A[u, v] is the edge u -> v)
+            reservoir_contrib = np.einsum("ji,bj->bi", A, states[:, t])
 
-            # now compute r(t+1) = (1-alpha) * r(t) + alpha * g(r(t) * A + x * W_in)
+            # now compute r(t+1) = (1-alpha) * r(t) + alpha * g(r(t) @ A + W_in @ x(t))
             states[:, t + 1] = (1 - alpha) * states[:, t] + alpha * activation(
                 reservoir_contrib + input_contrib_t + fb_scale * feedback_contrib
             )

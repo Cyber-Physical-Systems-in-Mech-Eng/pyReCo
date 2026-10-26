@@ -8,7 +8,12 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Breaking Changes
 
-* None
+* Reservoir edge direction is now consistent between the dynamics and the graph
+  analysis: `weights[u, v]` is the edge `u -> v`, and the state update is
+  `r(t+1) = g(r(t) @ weights + ...)`. Previously the update used `weights @ r(t)`,
+  so edge `(u, v)` transmitted activity `v -> u`. Trajectories for a fixed
+  reservoir matrix are now those of its transpose; results are statistically
+  equivalent but not bitwise reproducible against earlier versions.
 
 
 ### Minor Improvements
