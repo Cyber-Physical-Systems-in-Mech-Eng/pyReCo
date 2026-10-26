@@ -25,6 +25,7 @@ dependencies = [
     "joblib>=1.0.0",
     "tqdm>=4.60.0",
     "scipy>=1.7.0",
+    "optuna>=3.0.0",  # hyperparameter search (pyreco.tuner)
 ]
 
 [tool.hatch.version]
@@ -43,8 +44,6 @@ exclude = [
 ]
 
 [project.optional-dependencies]
-# hyperparameter tuning (pyreco.tuner, examples/mwe_tuner.py)
-tuner = ["optuna"]
 # comparison with feed-forward networks (examples/compare_tensorflow_recopy.py, examples/RC_vs_ANN.py)
 benchmarks = ["tensorflow"]
 

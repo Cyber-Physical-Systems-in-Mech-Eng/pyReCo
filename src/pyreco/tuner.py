@@ -235,7 +235,7 @@ class Tuner:
             score = float("inf") if self.direction == "minimize" else -float("inf")
 
         if self.verbose:
-            print(f"Trial {trial.number:02}: Params={params} → Score={float(score):.6f}")
+            print(f"Trial {trial.number:02}: Params={params} -> Score={float(score):.6f}")
 
         # save best model immediately
         if self._is_better(float(score)):

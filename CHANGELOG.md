@@ -66,8 +66,9 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
   `effects_network_structure.py` works again; the broken `examples/deprecated/` folder, the
   unreferenced `predictions_model.png` files and the script `test_new_datasets.py` (replaced by
   `tests/test_datasets.py`) were removed, and `.DS_Store` / `.vscode/` are no longer tracked.
-* Optional dependencies are declared: `pip install pyreco[tuner]` (optuna) and
-  `pyreco[benchmarks]` (tensorflow, for the comparison with feed-forward networks).
+* `optuna` is now a required dependency (hyperparameter search in `pyreco.tuner`; importing the
+  module failed without it). The optional extra `pyreco[benchmarks]` (tensorflow) is for the
+  comparison with feed-forward networks.
 * New metrics `rmse` and `nrmse` (`root_mean_squared_error`,
   `normalized_root_mean_squared_error`). NRMSE is `sqrt(mean_c MSE_c / Var_c)` with the
   variance of each true channel over the evaluated data: 0 for a perfect prediction, 1 for
@@ -90,6 +91,8 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Bugfixes
 
+* `Tuner(verbose=True)` crashed with a `UnicodeEncodeError` on consoles with a legacy code page
+  (Windows) because of an arrow in the trial log. The tuner now has tests.
 * The README examples failed with `TypeError` (they called `evaluate(X=...)`; the argument
   is `x`). A test now runs every README example.
 * `utils_data`: `vector_to_vector` raised a `NameError` for `sine_to_cosine`/`sin_to_cos2`,
