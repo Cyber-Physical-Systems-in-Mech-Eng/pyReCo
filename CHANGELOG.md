@@ -38,6 +38,13 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
   the global state before). `NetworkInitializer`, `NodeSelector` and `gen_ER_graph` take an
   `rng`/`seed`. The same seed value yields different draws than in earlier versions. The unused
   `seed=42` default of the `ReservoirLayer` base class was removed.
+* The remaining users of the global random state were converted as well: `EdgeSelector`
+  (`rng=`) and `EdgePruner` (`seed=`, every `prune()` call restarts from it, so pruning the same
+  model twice proposes the same candidates), `cross_val` (`seed=`, fold shuffling),
+  `utils_data.train_test_split` and the dataset generators `sine_pred`, `sine_to_cosine`,
+  `sincos2`, `vector_to_vector`, `sequence_to_scalar`, `sequence_to_sequence`, `x_to_x`
+  (`seed=`, the train/test split). `visualize_reservoir_network_circle(seed=...)` no longer
+  overwrites the global NumPy seed.
 * Input z-scoring and `input_scaling` are now arguments of `compile()` (defaults: z-scoring
   on, scaling `1.0`). `set_normalization()` only takes `normalize_inputs`.
 

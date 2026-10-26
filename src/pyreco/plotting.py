@@ -85,8 +85,8 @@ def visualize_reservoir_network_circle(G_Net, W_inp, W_out, n_inputs, n_outputs,
     # --------------------------------------------------
     # Setup
     # --------------------------------------------------
-    if seed is not None:
-        np.random.seed(seed)
+    # local generator: drawing a figure must not touch the global random state
+    rng = np.random.default_rng(seed)
 
     G = nx.DiGraph()
 
@@ -196,8 +196,8 @@ def visualize_reservoir_network_circle(G_Net, W_inp, W_out, n_inputs, n_outputs,
     # Reservoir nodes inside a circle
     R = 2
     for i, node in enumerate(reservoir_nodes):
-        theta = np.random.uniform(0, 2 * np.pi)
-        r = R * np.sqrt(np.random.uniform(0, 1))
+        theta = rng.uniform(0, 2 * np.pi)
+        r = R * np.sqrt(rng.uniform(0, 1))
         pos[node] = (r * np.cos(theta), r * np.sin(theta))
 
     # Input column aligned vertically

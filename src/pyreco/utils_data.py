@@ -9,6 +9,8 @@ outputs y: [n_batch, n_timesteps, n_states]
 
 import numpy as np
 
+from pyreco.utils_random import make_rng
+
 # TODO: add Lorenz and other test cases (with potential limits to the number of states etc.)
 
 
@@ -47,22 +49,23 @@ def split_sequence(signal, n_batch, n_time_in, n_time_out):
     return x, y
 
 
-def train_test_split(x, y):
+def train_test_split(x, y, seed=None):
     # train-test split 80% sample random points from the sequence and return inputs and outputs
+    # seed (int, Generator or None): seed of the random split, the global state is not used
     n = x.shape[0]
 
     ratio = 0.8
 
     split_idx = np.max([1, int(n * ratio)])
 
-    shuffle_idx = np.random.choice(n, size=n, replace=False)
+    shuffle_idx = make_rng(seed).choice(n, size=n, replace=False)
     train_idx, test_idx = shuffle_idx[: int(n * ratio)], shuffle_idx[int(n * ratio) :]
 
     # split data according to train/test split and return.
     return x[train_idx], x[test_idx], y[train_idx], y[test_idx]
 
 
-def sine_pred(n_batch, n_time_in, n_time_out, n_states):
+def sine_pred(n_batch, n_time_in, n_time_out, n_states, seed=None):
     # predict a sine signal. Single- and multi-step prediction supported
 
     # we will create different signal frequencies for the different states
@@ -78,12 +81,12 @@ def sine_pred(n_batch, n_time_in, n_time_out, n_states):
     x, y = split_sequence(signal, n_batch, n_time_in, n_time_out)
 
     # train-test split
-    X_train, X_test, y_train, y_test = train_test_split(x, y)
+    X_train, X_test, y_train, y_test = train_test_split(x, y, seed=seed)
 
     return X_train, X_test, y_train, y_test
 
 
-def sine_to_cosine(n_batch, n_time_in, n_time_out, n_states):
+def sine_to_cosine(n_batch, n_time_in, n_time_out, n_states, seed=None):
     # Generate sine input and cosine output signals
     total_time = n_batch + n_time_in + n_time_out
     x, y = [], []
@@ -106,12 +109,12 @@ def sine_to_cosine(n_batch, n_time_in, n_time_out, n_states):
     _, y_output = y
 
     # Train-test split
-    X_train, X_test, y_train, y_test = train_test_split(x_input, y_output)
+    X_train, X_test, y_train, y_test = train_test_split(x_input, y_output, seed=seed)
 
     return X_train, X_test, y_train, y_test
 
 
-def sincos2(n_batch, n_time_in, n_time_out, n_states):
+def sincos2(n_batch, n_time_in, n_time_out, n_states, seed=None):
     # Generate sine input and SinCos-2 output signals
     total_time = n_batch + n_time_in + n_time_out
     x, y = [], []
@@ -135,7 +138,7 @@ def sincos2(n_batch, n_time_in, n_time_out, n_states):
     _, y_output = y
 
     # Train-test split
-    X_train, X_test, y_train, y_test = train_test_split(x_input, y_output)
+    X_train, X_test, y_train, y_test = train_test_split(x_input, y_output, seed=seed)
 
     return X_train, X_test, y_train, y_test
 
@@ -145,7 +148,7 @@ CASE 1: Vector to Vector
 """
 
 
-def vector_to_vector(name, n_batch: int = 50, n_states=1):
+def vector_to_vector(name, n_batch: int = 50, n_states=1, seed=None):
     assert type(n_states) is int
     n_time_in = 1
 
@@ -155,13 +158,15 @@ def vector_to_vector(name, n_batch: int = 50, n_states=1):
     if name == "sine_prediction":
         # single-step predict a sine signal
         X_train, X_test, y_train, y_test = sine_pred(
-            n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=1
+            n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=1,
+            seed=seed,
         )
 
     elif name == "sine_to_cosine":
         # Map a sequence of sines to a sequence of cosines
         X_train, X_test, y_train, y_test = sine_to_cosine(
-            n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=n_time_out
+            n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=n_time_out,
+            seed=seed,
         )
 
     elif name == "sin_to_cos2":
@@ -171,6 +176,7 @@ def vector_to_vector(name, n_batch: int = 50, n_states=1):
             n_states=n_states,
             n_time_in=n_time_in,
             n_time_out=n_time_out,
+            seed=seed,
         )
 
     print(f"shape of inputs (training): {X_train.shape}")
@@ -183,7 +189,7 @@ CASE 2: Sequence to scalar
 """
 
 
-def sequence_to_scalar(name, n_batch: int = 50, n_states=1, n_time_in=2):
+def sequence_to_scalar(name, n_batch: int = 50, n_states=1, n_time_in=2, seed=None):
     assert type(n_states) is int
     assert type(n_time_in) is int
     n_time_out = 1
@@ -198,6 +204,7 @@ def sequence_to_scalar(name, n_batch: int = 50, n_states=1, n_time_in=2):
             n_states=n_states,
             n_time_in=n_time_in,
             n_time_out=n_time_out,
+            seed=seed,
         )
 
     elif name == "sine_to_cosine":
@@ -207,6 +214,7 @@ def sequence_to_scalar(name, n_batch: int = 50, n_states=1, n_time_in=2):
             n_states=n_states,
             n_time_in=n_time_in,
             n_time_out=n_time_out,
+            seed=seed,
         )
 
     elif name == "sin_to_cos2":
@@ -216,6 +224,7 @@ def sequence_to_scalar(name, n_batch: int = 50, n_states=1, n_time_in=2):
             n_states=n_states,
             n_time_in=n_time_in,
             n_time_out=n_time_out,
+            seed=seed,
         )
 
     print(f"shape of inputs (training): {X_train.shape}")
@@ -228,7 +237,9 @@ CASE 3: Sequence to sequence
 """
 
 
-def sequence_to_sequence(name, n_batch: int = 50, n_states: int = 2, n_time: int = 3):
+def sequence_to_sequence(
+    name, n_batch: int = 50, n_states: int = 2, n_time: int = 3, seed=None
+):
 
     # make sure to have at least 1 testing sample
     n_batch = np.max([n_batch, 2])
@@ -240,6 +251,7 @@ def sequence_to_sequence(name, n_batch: int = 50, n_states: int = 2, n_time: int
             n_states=n_states,
             n_time_in=n_time,
             n_time_out=n_time,
+            seed=seed,
         )
     elif name == "sine_to_cosine":
         # Map a sequence of sines to a sequence of cosines
@@ -248,6 +260,7 @@ def sequence_to_sequence(name, n_batch: int = 50, n_states: int = 2, n_time: int
             n_states=n_states,
             n_time_in=n_time,
             n_time_out=n_time,
+            seed=seed,
         )
 
     elif name == "sin_to_cos2":
@@ -257,6 +270,7 @@ def sequence_to_sequence(name, n_batch: int = 50, n_states: int = 2, n_time: int
             n_states=n_states,
             n_time_in=n_time,
             n_time_out=n_time,
+            seed=seed,
         )
 
     print(f"shape of inputs (training): {X_train.shape}")
@@ -271,6 +285,7 @@ def x_to_x(
     n_states_out: int = 2,
     n_time_int: int = 1,
     n_time_out: int = 1,
+    seed=None,
 ):
 
     # make sure to have at least 1 testing sample
@@ -282,19 +297,22 @@ def x_to_x(
     if name == "sine_pred":
         # single-step predict a vector of sine signals
         X_train, X_test, y_train, y_test = sine_pred(
-            n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=1
+            n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=1,
+            seed=seed,
         )
 
     elif name == "sine_to_cosine":
         # Map a sequence of sines to a sequence of cosines
         X_train, X_test, y_train, y_test = sine_to_cosine(
-            n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=1
+            n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=1,
+            seed=seed,
         )
 
     elif name == "sincos2":
         # Map a sequence of sines to a sequence of cosines
         X_train, X_test, y_train, y_test = sincos2(
-            n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=1
+            n_batch=n_batch, n_states=n_states, n_time_in=1, n_time_out=1,
+            seed=seed,
         )
 
     # cut data if input and output vector length is not the same

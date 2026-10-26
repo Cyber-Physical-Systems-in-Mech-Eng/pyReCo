@@ -3,9 +3,11 @@ import numpy as np
 from typing import List, Tuple
 import warnings
 
+from pyreco.utils_random import RngLike, make_rng
 
-def cross_val(model, X: np.ndarray, y: np.ndarray, n_splits: int, metric: str = 'mse') -> Tuple[
-    List[float], float, float]:
+
+def cross_val(model, X: np.ndarray, y: np.ndarray, n_splits: int, metric: str = 'mse',
+              seed: RngLike = None) -> Tuple[List[float], float, float]:
     '''
     Performs k-fold cross-validation on a given model.
 
@@ -20,6 +22,9 @@ def cross_val(model, X: np.ndarray, y: np.ndarray, n_splits: int, metric: str = 
         Number of folds.
     metrics : str
         Metric to evaluate.
+    seed : int, np.random.Generator or None, optional
+        Seed for shuffling the samples before they are split into folds. The global
+        random state is not used. Note that the model itself is seeded separately.
 
     Returns:
     tuple
@@ -38,7 +43,7 @@ def cross_val(model, X: np.ndarray, y: np.ndarray, n_splits: int, metric: str = 
     # get indices for splitting the data
     indices = np.arange(X.shape[0])
     # shuffle the indices
-    np.random.shuffle(indices)
+    make_rng(seed).shuffle(indices)
 
     # split the indices into n_splits parts (floor division)
     fold_sizes = np.full(n_splits, X.shape[0] // n_splits)

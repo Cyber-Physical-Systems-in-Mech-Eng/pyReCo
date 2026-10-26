@@ -5,6 +5,7 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 from pyreco.custom_models import RC
 from pyreco.edge_selector import EdgeSelector
+from pyreco.utils_random import check_seed
 from typing import Union
 import copy
 from pyreco.graph_analyzer import GraphAnalyzer
@@ -93,7 +94,7 @@ class EdgePruner:
         remove_isolated_nodes: bool = False,
         directed: bool = True,
         parallel: bool = False,
-
+        seed: int = None,
     ):
         """
         Initializer for the edge pruning class.
@@ -163,6 +164,11 @@ class EdgePruner:
         parallel : bool, optional
             Whether to parallelize candidate evaluation across CPU cores
             using ``joblib``. Default is False.
+        seed : int, optional
+            Seed for the random choice of pruning candidates. Every call of
+            ``prune`` restarts from this seed, so pruning the same model twice
+            proposes the same candidates. The global random state is not used.
+            None draws fresh entropy. Default is None.
 
         Raises
         ------
@@ -227,6 +233,10 @@ class EdgePruner:
         self.return_best_model = return_best_model
         self.remove_isolated_nodes = remove_isolated_nodes
         self.parallel = parallel
+        # Random stream for the candidate selection
+        check_seed(seed)
+        self.seed = seed
+        self._rng = np.random.default_rng(seed)
 
         # Initialize history dict to store the history of the pruning process in a
         #  nested dictionary
@@ -274,6 +284,9 @@ class EdgePruner:
 
         # Sanity checks for the input parameter types and values
         self._validate_pruning_params(model, data_train, data_val)
+
+        # Restart the random stream of the candidate selection from the seed
+        self._rng = np.random.default_rng(self.seed)
 
         # Obtain training and testing data
         x_test, y_test = data_val[0], data_val[1]
@@ -506,7 +519,8 @@ class EdgePruner:
         selector = EdgeSelector(
             graph=graph,
             strategy=self.edge_selection_strat,
-            directed=self.directed
+            directed=self.directed,
+            rng=self._rng,
             )
 
         # Obtain edges for pruning
