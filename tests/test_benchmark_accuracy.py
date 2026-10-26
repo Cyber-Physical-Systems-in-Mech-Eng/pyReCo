@@ -34,7 +34,7 @@ def test_one_step_forecast_of_chaotic_systems(name, limit):
         name, n_samples=2500, n_in=30, n_out=1, standardize=True
     )
     nrmse = _test_nrmse(
-        x_train, y_train, x_test, y_test, discard_transients=10,
+        x_train, y_train, x_test, y_test, discard_transients=29,  # n_in - n_out
         spec_rad=0.9, leakage_rate=0.5,
     )
     assert nrmse < limit
@@ -47,6 +47,7 @@ def test_one_step_forecast_of_chaotic_systems(name, limit):
 def test_narma(name, limit):
     x_train, y_train, x_test, y_test = load(name, n_samples=3000, n_in=50, n_out=1, seed=1)
     nrmse = _test_nrmse(
-        x_train, y_train, x_test, y_test, alpha=1e-6, spec_rad=0.9, leakage_rate=1.0
+        x_train, y_train, x_test, y_test, discard_transients=49,  # n_in - n_out
+        alpha=1e-6, spec_rad=0.9, leakage_rate=1.0,
     )
     assert nrmse < limit

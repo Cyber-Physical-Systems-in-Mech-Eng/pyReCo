@@ -8,6 +8,23 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Breaking Changes
 
+* The reservoir now starts from the zero state by default (it used to be a random normal vector).
+  Other initial states can be requested with `RandomReservoirLayer(init_res_sampling="ones" |
+  "random" | "random_normal")`, or set explicitly after `compile()` with
+  `model.reservoir_layer.set_initial_state(r0)`; `compile()` honours the layer's setting (it ignored
+  it before).
+* The warm-up `discard_transients` (default 0) has a defined meaning: the target at time step j is
+  paired with the reservoir state after the inputs x(0), ..., x(d + j), d being the warm-up. It
+  must not exceed the number of input time steps minus the number of target time steps, otherwise
+  `fit()` raises a `ValueError`. Before, a warm-up on targets as long as the inputs silently cut
+  the first targets, a warm-up larger than the difference crashed or was replaced by another
+  value, and for targets shorter than the inputs the warm-up was ignored and always the last
+  states were used. Consequence: for a sequence-to-scalar task (or any window whose targets lie at
+  the end of the input window, as in `pyreco.datasets.load`) pass `discard_transients = n_in - n_out`
+  to pair the targets with the last states; the default 0 would use the first ones. Predictions
+  of `predict()` cover all input steps after the warm-up, `evaluate()` compares the first
+  `n_out` of them with the targets. The idea to choose the warm-up automatically is kept as a
+  comment in `compile()`.
 * Reservoir edge direction is now consistent between the dynamics and the graph
   analysis: `weights[u, v]` is the edge `u -> v`, and the state update is
   `r(t+1) = g(r(t) @ weights + ...)`. Previously the update used `weights @ r(t)`,

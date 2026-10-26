@@ -198,6 +198,11 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
 
         # initial reservoir state (will be set later)
         self.initial_res_states = None
+        if init_res_sampling not in ("zeros", "ones", "random", "random_normal"):
+            raise ValueError(
+                f"unknown init_res_sampling '{init_res_sampling}', use 'zeros', 'ones', "
+                "'random' or 'random_normal'"
+            )
         self.init_res_sampling = init_res_sampling
 
     def activation_fun(self, x: np.ndarray):
@@ -336,7 +341,7 @@ class RandomReservoirLayer(ReservoirLayer):
         leakage_rate: float = 0.5,
         fraction_input: float = 0.8,
         spec_rad: float = 0.9,
-        init_res_sampling="random_normal",
+        init_res_sampling="zeros",
         seed=None,
     ):
         """
@@ -346,6 +351,11 @@ class RandomReservoirLayer(ReservoirLayer):
         completely, including the repair of isolated nodes. The global random state is
         never used. The random choices made when a model is compiled (read-in weights,
         initial state, input and readout nodes) are seeded by the model, see RC(seed=...).
+
+        init_res_sampling (str): initial state r(0) of the reservoir, the same for every
+        sample: "zeros" (default), "ones", "random" or "random_normal" (the last two are scaled
+        to a maximum absolute value of 1). Explicit values can be set after compile() with
+        set_initial_state().
         """
 
         # Call the parent class's __init__ method

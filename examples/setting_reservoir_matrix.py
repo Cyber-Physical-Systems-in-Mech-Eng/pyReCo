@@ -37,7 +37,7 @@ model.add(
 model.add(ReadoutLayer(output_shape, fraction_out=0.99))
 
 # Compile the model
-model.compile(discard_transients=10)
+model.compile()  # no warm-up: the targets are as long as the inputs
 
 # Train the model
 model.fit(X_train, y_train)

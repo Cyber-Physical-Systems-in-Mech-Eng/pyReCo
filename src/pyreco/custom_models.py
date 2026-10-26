@@ -168,13 +168,25 @@ class CustomModel(ABC):
         Args:
         optimizer (str): Name of the optimizer.
         metrics (list): List of metric names.
-        discard_transients (int): Number of initial transient timesteps to discard.
+        discard_transients (int): Warm-up of the reservoir, default 0 (none). The target at
+            time step j is paired with the reservoir state r(discard_transients + j + 1),
+            i.e. the state after the inputs x(0), ..., x(discard_transients + j) have been
+            applied. The first states are therefore not used, because they still depend on the
+            initial state. It must not exceed the number of input time steps minus the number
+            of target time steps (checked in fit()): to get a warm-up, provide inputs that are
+            longer than the targets. For a sequence-to-scalar task (one target for a sequence
+            of T inputs) use discard_transients = T - 1 to pair the target with the last state.
         normalize_inputs (bool, optional): z-score each input channel (mean 0, std 1,
             statistics taken over batch and time of the training data). Default: on.
             If None, the current setting is kept.
         input_scaling (float or np.ndarray, optional): positive gain applied to the
             z-scored inputs, a scalar or one value per input channel. Default: 1.0
             (no additional scaling). If None, the current setting is kept.
+
+        The reservoir starts every sample from the same initial state r(0), which is zero by
+        default. Choose another sampling method with
+        RandomReservoirLayer(init_res_sampling="ones" | "random" | "random_normal"), or set
+        explicit values after compile() with model.reservoir_layer.set_initial_state(r0).
         """
 
         # sanity checks for inputs
@@ -207,6 +219,14 @@ class CustomModel(ABC):
 
         # set number of transients to discard (warmup phase)
         self.discard_transients = int(discard_transients)
+        # IDEA (not implemented): discard_transients="auto". The influence of the initial state
+        # decays (echo state property), per step by about lambda = 1 - leakage + leakage * spec_rad
+        # in the linear regime and faster when the input saturates the units. A warm-up could be
+        # chosen from the data: run two different initial states through the training inputs and
+        # take the first number of steps after which the relative difference of the two state
+        # trajectories stays below a threshold (e.g. 1e-2). Measured for 100 nodes with a unit
+        # variance input: 26 steps for leakage 0.5 / spec_rad 0.9, 66 for 0.2 / 0.9, 129 for
+        # 0.1 / 0.9.
 
         # copy some layer properties to the model level for easier access
         self.num_states_in = self.input_layer.n_states
@@ -216,9 +236,8 @@ class CustomModel(ABC):
         # Sample the input connections: create W_in read-in weight matrix
         self._connect_input_to_reservoir()  # check for dependency injection here!
 
-        # Set initial states of the reservoir
-        # TODO: let the user specify the reservoir initialization method
-        self._initialize_network(method="random_normal")
+        # Set initial states of the reservoir (zeros unless the layer asks for another method)
+        self._initialize_network()
 
         # Select readout nodes according to the fraction specified by the user in the readout layer. By default, randomly sample nodes. User can also provide a list of nodes to use for readout.
         self._set_readout_nodes()
@@ -270,6 +289,14 @@ class CustomModel(ABC):
 
         # set number of transients to discard (warmup phase)
         self.discard_transients = int(discard_transients)
+        # IDEA (not implemented): discard_transients="auto". The influence of the initial state
+        # decays (echo state property), per step by about lambda = 1 - leakage + leakage * spec_rad
+        # in the linear regime and faster when the input saturates the units. A warm-up could be
+        # chosen from the data: run two different initial states through the training inputs and
+        # take the first number of steps after which the relative difference of the two state
+        # trajectories stays below a threshold (e.g. 1e-2). Measured for 100 nodes with a unit
+        # variance input: 26 steps for leakage 0.5 / spec_rad 0.9, 66 for 0.2 / 0.9, 129 for
+        # 0.1 / 0.9.
 
         # copy some layer properties to the model level for easier access
         self.num_states_in = self.input_layer.n_states
@@ -286,9 +313,8 @@ class CustomModel(ABC):
         ###connect feedback layer to reservoir
         self._connect_feedback_to_reservoir()
 
-        # Set initial states of the reservoir
-        # TODO: let the user specify the reservoir initialization method
-        self._initialize_network(method="random_normal")
+        # Set initial states of the reservoir (zeros unless the layer asks for another method)
+        self._initialize_network()
 
         # Select readout nodes according to the fraction specified by the user in the readout layer. By default, randomly sample nodes. User can also provide a list of nodes to use for readout.
         self._set_readout_nodes()
@@ -353,29 +379,18 @@ class CustomModel(ABC):
             self.input_mean, self.input_std = None, None
         x = self._transform_x(x)
 
-        # discard transients (warmup phase). This is done by removing the first n_transients timesteps from the reservoir states.
-        # Hence, the targets can have a maximum of (t_in - t_discard) steps, before we have to cut also from the targets
-        # If the number of t_out steps is even smaller, we will discard more steps from the reservoir states
-        self.num_transients_to_remove = 0
-        if self.discard_transients >= n_time_in:
+        # warm-up: the target at time step j is paired with the state r(d + j + 1), d being
+        # the number of transients to discard. The states r(0), ..., r(d) are not used, the
+        # inputs after the state of the last target are not used either.
+        max_warmup = n_time_in - n_time_out
+        if self.discard_transients > max_warmup:
             raise ValueError(
-                f"Number of transients to discard ({self.discard_transients}) must be smaller than the number of time steps in the input data ({n_time_in})."
+                f"discard_transients ({self.discard_transients}) must not exceed the number of "
+                f"input time steps minus the number of target time steps "
+                f"({n_time_in} - {n_time_out} = {max_warmup}). Provide longer inputs or "
+                f"reduce the warm-up."
             )
-        if (n_time_in - self.discard_transients) < n_time_out:
-            print(
-                f"Discarding {self.discard_transients} time steps will reduce the number of output time steps to {n_time_in-self.discard_transients}. The given targets had {n_time_out} time steps."
-            )
-            # cut first steps from the targets to match the desired warmup phase
-            y = y[:, self.discard_transients :, :]
-            n_time_out = n_time_in - self.discard_transients
-            self.num_transients_to_remove = self.discard_transients
-
-        if (n_time_in - self.discard_transients) > n_time_out:
-            # enlarge the number of transients to discard to match the output shape
-            self.num_transients_to_remove = n_time_in - n_time_out
-            print(
-                f"discarding {self.num_transients_to_remove} reservoir states to match the number of time steps on the output."
-            )
+        self.num_transients_to_remove = self.discard_transients
 
         # update some class attributes that depend on the training data
         self.num_time_in = n_time_in
@@ -393,7 +408,7 @@ class CustomModel(ABC):
         reservoir_states, _ = self._train_model(x=x, y=y)
 
         # score on the training data, in the original units of x and y
-        y_pred = self.predict(x=x_raw)
+        y_pred = self.predict(x=x_raw)[:, :n_time_out]
         train_metrics = {
             name: float(fun(y, y_pred)) for name, fun in zip(metric_names, metric_funs)
         }
@@ -508,7 +523,8 @@ class CustomModel(ABC):
         # (n_timesteps+1 because we also store the initial state)
         reservoir_states = self.compute_reservoir_state(x)
 
-        # discard the given transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
+        # discard the warm-up from the reservoir states, incl. the initial reservoir state: one
+        # prediction for every input time step after the warm-up, shape (n_batch, n_time - d, n_nodes)
         del_mask = np.arange(0, self.num_transients_to_remove + 1)
         reservoir_states = np.delete(reservoir_states, del_mask, axis=1)
 
@@ -595,11 +611,10 @@ class CustomModel(ABC):
         # make predictions
         y_pred = self.predict(x=x)
 
-        # remove the time steps that were discarded during training (transient removal, generic seq-to-seq modeling)
-        n_time_out = y_pred.shape[-2]
-        y = y[:, -n_time_out:, :]
-        # if self.discard_transients > 0:
-        # y = y[:, self.discard_transients :, :]
+        # prediction j belongs to target j. The predictions cover all input steps after the
+        # warm-up, the targets may be shorter (e.g. a single target of a sequence)
+        n_compare = min(y.shape[1], y_pred.shape[1])
+        y, y_pred = y[:, :n_compare, :], y_pred[:, :n_compare, :]
 
         # get metric values
         metric_values = []
@@ -628,14 +643,12 @@ class CustomModel(ABC):
         # (n_timesteps+1 because we also store the initial state)
         reservoir_states = self.compute_reservoir_state(x)
 
-        # discard the requested transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
-        # self.num_transients_to_remove
+        # discard the requested transients from the reservoir states, incl. initial reservoir state
         del_mask = np.arange(0, self.num_transients_to_remove + 1)
-        # del_mask = np.arange(0, self.discard_transients + 1)
         reservoir_states = np.delete(reservoir_states, del_mask, axis=1)
 
-        # # now select only the reservoir states that are needed for the output
-        # reservoir_states = reservoir_states[:, -self.num_time_out :, :]
+        # keep the states that are paired with a target (the first n_time_out states after the warm-up)
+        reservoir_states = reservoir_states[:, :n_time_out]
 
         # Masking non-readout nodes: if the user specified to not use all nodes for output, we can get rid of the non-readout node states
         # TODO: check if the readout nodes are in the correct order!!!
@@ -853,13 +866,16 @@ class CustomModel(ABC):
         # set the initial states in the reservoir layer
         self.reservoir_layer.set_initial_state(r_init=init_states)
 
-    def _initialize_network(self, method: str = "random_normal"):
+    def _initialize_network(self, method: str = None):
         """
         Initialize the reservoir states.
 
         Args:
-        method (str, optional): Method for sampling initial states.
+        method (str, optional): Method for sampling initial states. Default: the
+        init_res_sampling of the reservoir layer (zeros unless chosen differently).
         """
+        if method is None:
+            method = self.reservoir_layer.init_res_sampling
         num_nodes = self.reservoir_layer.nodes
         initializer = NetworkInitializer(method=method, rng=self._rng_init_state)
         init_states = initializer.gen_initial_states(num_nodes)

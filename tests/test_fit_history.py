@@ -12,7 +12,8 @@ from pyreco.layers import InputLayer, ReadoutLayer, RandomReservoirLayer
 def _setup(discard_transients=0):
     rng = np.random.default_rng(0)
     x = rng.normal(size=(5, 40, 2))
-    y = np.tanh(x[:, :, :1]) + 0.3 * x[:, :, 1:2] + 7.0
+    # the targets are shorter than the inputs by the warm-up
+    y = (np.tanh(x[:, :, :1]) + 0.3 * x[:, :, 1:2] + 7.0)[:, : 40 - discard_transients]
     model = RC()
     model.add(InputLayer(input_shape=(40, 2)))
     model.add(RandomReservoirLayer(nodes=40, density=0.3))

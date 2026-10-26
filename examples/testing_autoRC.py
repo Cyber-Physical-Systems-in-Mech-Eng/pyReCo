@@ -68,7 +68,7 @@ optim = RidgeSK(alpha=1.0)
 model_rc.AutoRC_compile(
     optimizer=optim,
     metrics=["mean_squared_error"],
-    discard_transients=10
+    discard_transients=0  # targets as long as the inputs: no warm-up possible
 )
 
 # Train the model

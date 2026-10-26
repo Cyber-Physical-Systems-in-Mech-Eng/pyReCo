@@ -28,7 +28,11 @@ def _model(layer_seed=1, model_seed=2, fraction_input=0.5, fraction_out=0.5, nod
     model.add(InputLayer(input_shape=(40, 2)))
     model.add(
         RandomReservoirLayer(
-            nodes=nodes, density=0.2, fraction_input=fraction_input, seed=layer_seed
+            nodes=nodes,
+            density=0.2,
+            fraction_input=fraction_input,
+            seed=layer_seed,
+            init_res_sampling="random_normal",  # the default (zeros) has nothing to seed
         )
     )
     model.add(ReadoutLayer(output_shape=(40, 1), fraction_out=fraction_out))

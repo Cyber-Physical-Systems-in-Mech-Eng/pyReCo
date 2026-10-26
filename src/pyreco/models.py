@@ -95,7 +95,7 @@ class ReservoirComputer(Model):
         n_states_out=None,
         metrics: Union[str, list] = "mean_squared_error",
         optimizer: Union[str, Optimizer] = "ridge",
-        init_res_sampling="random_normal",  # todo: implement a class for generating initial reservoir states
+        init_res_sampling="zeros",  # initial reservoir state: "zeros", "ones", "random", "random_normal"
         seed: int = None,  # seeds the reservoir graph and all random choices of the model
     ):
         # initialize parent class

@@ -10,8 +10,8 @@ memory and nonlinearity to solve it.
 
 pyreco.datasets.load cuts the sequence into windows: the inputs are n_in values of u, the
 target is the system output right after the last input of the window. The first n_in - 1
-reservoir states of every window are discarded automatically (warm-up), because only the
-last state is paired with the target.
+reservoir states of every window are discarded as warm-up (discard_transients = n_in - n_out),
+because only the last state is paired with the target.
 
 The NRMSE is 1 for predicting the mean of the target and 0 for a perfect prediction.
 """
@@ -33,7 +33,7 @@ for ax, name in zip(axes, ["narma5", "narma10"]):
         RandomReservoirLayer(nodes=200, density=0.1, spec_rad=0.9, leakage_rate=1.0, seed=0)
     )
     model.add(ReadoutLayer(output_shape=y_train.shape[1:]))
-    model.compile(metrics=["nrmse"])
+    model.compile(metrics=["nrmse"], discard_transients=49)  # warm-up: n_in - n_out
     model.set_hp(alpha=1e-6)  # weak regularization of the readout
     model.fit(x_train, y_train)
 

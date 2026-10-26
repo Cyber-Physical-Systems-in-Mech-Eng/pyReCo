@@ -7,8 +7,9 @@ the following n_out values. The series is split chronologically into a training 
 part, and the data is standardized with the statistics of the training part only.
 
 Note that the series start from the initial condition of the system, so the first samples
-are a transient. The reservoir's `discard_transients` removes the first reservoir states of
-every window.
+are a transient. The windows are not a problem for the reservoir: every window is a fresh
+start from the initial state (zeros) and only its last state, which has seen the whole window,
+is paired with the target (`discard_transients` = n_in - n_out).
 """
 
 import matplotlib.pyplot as plt
@@ -30,7 +31,8 @@ for ax, name in zip(axes, ["lorenz", "mackey_glass"]):
         RandomReservoirLayer(nodes=200, density=0.1, spec_rad=0.9, leakage_rate=0.5, seed=0)
     )
     model.add(ReadoutLayer(output_shape=y_train.shape[1:]))
-    model.compile(discard_transients=10)
+    # the last reservoir state of every window predicts the next value: warm-up = n_in - n_out
+    model.compile(discard_transients=29)
     model.fit(x_train, y_train)
 
     # nrmse is 1 for predicting the mean of the series and 0 for a perfect prediction
