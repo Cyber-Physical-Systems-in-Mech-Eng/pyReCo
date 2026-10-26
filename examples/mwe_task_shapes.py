@@ -1,71 +1,59 @@
 """
-Minimal working example: the shapes of a supervised sequence task.
+Minimal working example: input and output shapes of a task, with one data set.
 
-Data always has the shape [n_batch, n_time, n_states]. The three tasks below only differ in
-the number of time steps of the inputs and of the targets:
+All data has the shape [n_batch, n_time, n_states]. The data set is `sine_pred`: one sine per
+state (every state has its own frequency), cut into windows. The inputs are n_time_in
+consecutive values and the targets are the n_time_out values that follow the input window.
 
-- vector to vector:     1 input step   -> 1 target step
-- sequence to scalar:   many input steps -> 1 target step
-- sequence to sequence: many input steps -> as many target steps
+The cases below only differ in the number of time steps and states of inputs and targets:
 
-The last part evaluates the sequence-to-scalar model with k-fold cross-validation and draws
-the reservoir network.
+1. vector to vector       1 input step  -> 1 target step
+2. sequence to scalar     20 input steps -> 1 target step
+3. sequence to sequence   20 input steps -> 20 target steps
+4. several states         3 input states -> 2 target states
+5. inputs longer than targets, with a warm-up (see below)
+
+Warm-up: the target at time step j is paired with the reservoir state after d + j + 1 inputs,
+where d is `discard_transients` (default 0). The first states depend on the initial state of the
+reservoir (zeros), so a warm-up helps if the data does not start in the middle of the signal.
+d must not exceed the number of input steps minus the number of target steps. For a sequence to
+a scalar, d = n_time_in - 1 pairs the target with the last state, which has seen the whole input.
 """
 
-from pyreco.cross_validation import cross_val
 from pyreco.custom_models import RC
 from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
 from pyreco.plotting import r2_scatter
-from pyreco.utils_data import sequence_to_scalar, sequence_to_sequence, vector_to_vector
+from pyreco.utils_data import x_to_x
 
 
-def fit_and_evaluate(title, data, discard_transients=0, **reservoir_kwargs):
-    X_train, X_test, y_train, y_test = data
+def fit_and_evaluate(title, n_states_in, n_states_out, n_time_in, n_time_out, warm_up=0):
+    X_train, X_test, y_train, y_test = x_to_x(
+        "sine_pred",
+        n_batch=200,
+        n_states_in=n_states_in,
+        n_states_out=n_states_out,
+        n_time_in=n_time_in,
+        n_time_out=n_time_out,
+        seed=0,
+    )
 
     model = RC(seed=0)
     model.add(InputLayer(input_shape=X_train.shape[1:]))
-    model.add(RandomReservoirLayer(nodes=100, **reservoir_kwargs))
+    model.add(RandomReservoirLayer(nodes=100, leakage_rate=0.3, seed=0))
     model.add(ReadoutLayer(output_shape=y_train.shape[1:]))
-    model.compile(discard_transients=discard_transients)
+    model.compile(discard_transients=warm_up)
     model.fit(X_train, y_train)
 
-    y_pred = model.predict(X_test)
     mae = model.evaluate(X_test, y_test, metrics=["mae"])[0]
     print(
-        f"{title}: input {X_train.shape[1:]} -> output {y_train.shape[1:]}, "
-        f"test MAE {mae:.4f}"
+        f"{title}: inputs {X_train.shape[1:]} -> targets {y_train.shape[1:]}, "
+        f"warm-up {warm_up}, test MAE {mae:.4f}"
     )
-    r2_scatter(y_true=y_test, y_pred=y_pred)
-    return model, X_train, y_train
+    r2_scatter(y_true=y_test[:, :, :], y_pred=model.predict(X_test)[:, : y_test.shape[1]])
 
 
-# predict sin(t + dt) from sin(t)
-fit_and_evaluate(
-    "vector to vector",
-    vector_to_vector("sine_pred", n_batch=200, n_states=1, seed=0),
-    activation="sigmoid",
-    leakage_rate=0.1,
-)
-
-# predict sin(T + dt) from the sequence sin([0, ..., T]); the first 10 reservoir states
-# are discarded as a warm-up
-model, X_train, y_train = fit_and_evaluate(
-    "sequence to scalar",
-    sequence_to_scalar("sine_pred", n_batch=200, n_states=1, n_time_in=20, seed=0),
-    discard_transients=10,
-    leakage_rate=0.1,
-)
-
-# translate a sequence of sines into a sequence of cosines
-fit_and_evaluate(
-    "sequence to sequence",
-    sequence_to_sequence("sine_to_cosine", n_batch=100, n_states=1, n_time=20, seed=0),
-)
-
-# k-fold cross-validation of the sequence-to-scalar model: estimate bias and variance
-scores, mean, std = cross_val(model, X_train, y_train, n_splits=5, metric="mse", seed=0)
-print(f"Cross-validation MSE per fold: {scores}")
-print(f"Mean MSE: {mean:.4f}, standard deviation: {std:.4f}")
-
-# draw the reservoir network (pass save=True, file_name=..., file_type="svg" to write a file)
-model.model_visualize()
+fit_and_evaluate("1 vector to vector", 1, 1, n_time_in=1, n_time_out=1)
+fit_and_evaluate("2 sequence to scalar", 1, 1, n_time_in=20, n_time_out=1, warm_up=19)
+fit_and_evaluate("3 sequence to sequence", 1, 1, n_time_in=20, n_time_out=20)
+fit_and_evaluate("4 several states", 3, 2, n_time_in=20, n_time_out=20)
+fit_and_evaluate("5 longer inputs, warm-up", 1, 1, n_time_in=30, n_time_out=20, warm_up=10)

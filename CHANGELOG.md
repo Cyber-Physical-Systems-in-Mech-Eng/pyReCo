@@ -76,6 +76,12 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* Examples: `mwe_tuner.py` is now `mwe_hyperparameter_tuning.py`; `mwe_task_shapes.py` shows five
+  input/output shapes (vector to vector, sequence to scalar, sequence to sequence, several states,
+  inputs longer than targets with a warm-up) on one data set (`sine_pred`); the cross-validation
+  and the drawing of the reservoir moved to `mwe_cross_validation.py`.
+* New tests for the core model (`tests/test_core_model.py`) and for the warm-up and the initial
+  state against an independent implementation of the reservoir update (`tests/test_warmup.py`).
 * A GitHub Actions workflow (`tests.yml`) runs the test suite on every pull request and on pushes
   to `main`/`dev` (Ubuntu with Python 3.10 and 3.12, plus an informational Windows run). It does
   not build or publish anything. The test dependencies are available as `pip install -e ".[test]"`,
