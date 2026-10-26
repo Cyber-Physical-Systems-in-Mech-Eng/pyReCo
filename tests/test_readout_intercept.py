@@ -63,11 +63,3 @@ def test_training_predictions_reproduce_the_target_mean():
     model = _model(n_out=2)
     model.fit(x, y)
     assert np.allclose(model.predict(x).mean(axis=(0, 1)), y.mean(axis=(0, 1)))
-
-
-def test_history_contains_bias():
-    x, y = _data()
-    model = _model()
-    history = model.fit(x, y, n_init=2)
-    assert history["readout_bias"].shape == (2, 1)
-    assert np.allclose(history["readout_bias"][0], model.readout_layer.bias)

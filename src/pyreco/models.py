@@ -123,15 +123,12 @@ class ReservoirComputer(Model):
         # create a RC from a random reservoir. We do not know about the shapes of input and output at this stage
         self.model = RC()
 
-    def fit(
-        self, x: np.ndarray, y: np.ndarray, n_init: int = 1, store_states: bool = False
-    ):
+    def fit(self, x: np.ndarray, y: np.ndarray, store_states: bool = False):
         # Computes the model weights (readout matrix) through fitting the training data.
 
         # expects data in particular format that is reasonable for univariate/multivariate time series data
         # - X input data of shape [n_batch, n_time_in, n_states_in]
         # - y target data of shape [n_batch, n_time_out, n_states_out]
-        # - n_init: number of times that initial reservoir states are sampled.
         # - store_states returns the full time trace of reservoir states (memory-heavy!)
         # finds the optimal model parameters (W_out): trains dense layer at output
 
@@ -170,7 +167,7 @@ class ReservoirComputer(Model):
         self.model.compile(optimizer=self.optimizer, metrics=self.metrics)
 
         # fit to training data
-        history = self.model.fit(x=x, y=y, n_init=n_init, store_states=store_states)
+        history = self.model.fit(x=x, y=y, store_states=store_states)
 
         self.trainable_weights = self.model.num_trainable_weights
 

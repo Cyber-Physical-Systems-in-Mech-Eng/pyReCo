@@ -269,7 +269,6 @@ class CustomModel(ABC):
     def fit(self, x: np.ndarray,
             y: np.ndarray,
             visualize=False,
-            n_init: int = 1,
             store_states: bool = False
             ) -> dict:
         """
@@ -296,10 +295,6 @@ class CustomModel(ABC):
             raise ValueError(
                 "Input data must have at least as many timesteps as the target data."
             )
-        if not isinstance(n_init, int):
-            raise TypeError("Number of initializations must be an integer (positive).")
-        if n_init < 1:
-            raise ValueError("Number of initializations must be at least 1.")
         if not isinstance(store_states, bool):
             raise TypeError("store_states must be a boolean.")
 
@@ -307,7 +302,6 @@ class CustomModel(ABC):
         # of shape [n_batch, n_timesteps, n_features]
         n_batch, n_time_in = x.shape[0], x.shape[1]
         n_time_out, n_states_out = y.shape[-2], y.shape[-1]
-        n_nodes = self.reservoir_layer.nodes
 
         # Input preprocessing: z-score per channel (statistics over batches and time of
         # the training data), then apply the input scaling. The settings and the
@@ -356,15 +350,6 @@ class CustomModel(ABC):
         self.num_time_out = n_time_out
         self.num_states_out = n_states_out
 
-        # Pre-allocate arrays for storing results
-        n_R0 = np.zeros((n_init, n_nodes))
-        n_weights = np.zeros(
-            (n_init, len(self.readout_layer.readout_nodes), n_states_out)
-        )
-        n_bias = np.zeros((n_init, n_states_out))
-        n_scores = np.zeros(n_init)
-        n_res_states = [] if store_states else None
-
         # Get metric functions that scores the model performance
         metric_fun = (
             self.metrics_fun[0]
@@ -372,41 +357,20 @@ class CustomModel(ABC):
             else assign_metric("mean_squared_error")
         )
 
-        # Batch process multiple reservoir initializations
-        for i in range(n_init):
-            if n_init > 1:
-                print(f"initialization {i}/{n_init}: computing reservoir states")
+        # train the model on the given data
+        reservoir_states, _ = self._train_model(x=x, y=y)
 
-            # train the model on the given data
-            reservoir_states, _ = self._train_model(x=x, y=y)
-
-            # Tracking the variation of initial conditions
-            n_R0[i] = self.reservoir_layer.initial_res_states
-            n_weights[i] = self.readout_layer.weights
-            n_bias[i] = self.readout_layer.bias
-            n_scores[i] = metric_fun(y, self.predict(x=x_raw))
-            if store_states:
-                n_res_states.append(reservoir_states)
-
-        # Select best initialization
-        idx_optimal = np.argmin(n_scores)
-        self.reservoir_layer.set_initial_state(n_R0[idx_optimal])
-        self.readout_layer.weights = n_weights[idx_optimal]
-        self.readout_layer.bias = n_bias[idx_optimal]
+        # score on the training data, in the original units of x and y
+        train_score = float(metric_fun(y, self.predict(x=x_raw)))
 
         # Update trainable weights count
         self.num_trainable_weights = self.reservoir_layer.weights.size
 
         # Build history dictionary
-        history = {
-            "init_res_states": n_R0,
-            "readout_weights": n_weights,
-            "readout_bias": n_bias,
-            "train_scores": n_scores,
-        }
+        history = {"train_score": train_score}
 
         if store_states:
-            history["res_states"] = n_res_states
+            history["res_states"] = reservoir_states
 
         return history
 

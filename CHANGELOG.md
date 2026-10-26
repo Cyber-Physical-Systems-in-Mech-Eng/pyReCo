@@ -19,6 +19,14 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
   is linear in the targets, so dividing by the target standard deviation or scaling the
   targets does not change predictions; only the centering did. Targets are now used as
   given and predictions are in the units of `y`.
+* `n_init` was removed from `fit()`. It never explored anything: the loop reused the same
+  reservoir, input weights and initial state, so all initializations were identical and the
+  best of `k` identical models was returned. The influence of the initial state fades with the
+  echo state property and with `discard_transients`, and resampling the reservoir inside
+  `fit()` would overwrite a user-supplied or pruned network. The fit history is now
+  `{"train_score": float}` (plus `"res_states"` with `store_states=True`); the readout
+  weights, intercept and initial state are on the layers. `examples/effects_network_initialization.py`
+  was removed with it.
 * Input z-scoring and `input_scaling` are now arguments of `compile()` (defaults: z-scoring
   on, scaling `1.0`). `set_normalization()` only takes `normalize_inputs`.
 
@@ -28,8 +36,7 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 * The readout now has an intercept: `y = R W + b`, fitted by centering the reservoir states
   and the targets before the ridge solve (the intercept is not penalized). Targets with a
   nonzero mean no longer have to be encoded in the reservoir states. The intercept is stored
-  in `readout_layer.bias` (shape `(n_outputs,)`, `readout_layer.weights` is unchanged) and
-  returned in the fit history as `readout_bias`. Replaces the centering that output
+  in `readout_layer.bias` (shape `(n_outputs,)`, `readout_layer.weights` is unchanged). Replaces the centering that output
   normalization used to provide.
 * Input preprocessing is documented: per-channel z-scoring (statistics over batch and time),
   then multiplication by `input_scaling`.
