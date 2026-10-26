@@ -27,6 +27,14 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
   `{"train_score": float}` (plus `"res_states"` with `store_states=True`); the readout
   weights, intercept and initial state are on the layers. `examples/effects_network_initialization.py`
   was removed with it.
+* `r2` is now computed per channel and averaged with equal weights. It used to pool all
+  channels, so a channel with a large mean or variance hid a failing one (perfect on a
+  channel with std 50, noise on a channel with std 1: 0.9997 pooled, 0.03 per channel).
+  Values for single-channel targets are unchanged.
+* `EdgePruner` and `NetworkPruner` reject scores for which higher is better (`r2`) as the
+  `performance_criterion` / `criterion`: candidates are ranked by the lowest value, so `r2`
+  selected the worst candidate. Use a loss (`mse`, `mae`, `rmse`, `nrmse`); `r2` can still be
+  tracked through `metrics`.
 * Seeding was reworked. pyReCo no longer uses the global random state (`np.random.seed(...)`
   and `random.seed(...)` have no effect on it); every random draw comes from an explicit
   `numpy.random.Generator` created from a `seed` argument. `RC(seed=...)`, `AutoRC(seed=...)`
@@ -51,6 +59,15 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* New metrics `rmse` and `nrmse` (`root_mean_squared_error`,
+  `normalized_root_mean_squared_error`). NRMSE is `sqrt(mean_c MSE_c / Var_c)` with the
+  variance of each true channel over the evaluated data: 0 for a perfect prediction, 1 for
+  predicting the mean, independent of the scale of the data (NRMSE^2 = 1 - r2). Constant
+  channels are left out with a warning. All metrics now check that `y_true` and `y_pred`
+  have the same shape (a mismatch such as `(n, t, 1)` against `(n, t)` used to broadcast
+  silently), and `pyreco.metrics.is_loss` tells whether lower is better.
+* The history returned by `fit()` gains `train_metrics`, a dict with every metric given to
+  `compile()`; `train_score` remains the first one.
 * The readout now has an intercept: `y = R W + b`, fitted by centering the reservoir states
   and the targets before the ridge solve (the intercept is not penalized). Targets with a
   nonzero mean no longer have to be encoded in the reservoir states. The intercept is stored

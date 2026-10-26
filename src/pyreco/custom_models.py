@@ -383,24 +383,28 @@ class CustomModel(ABC):
         self.num_time_out = n_time_out
         self.num_states_out = n_states_out
 
-        # Get metric functions that scores the model performance
-        metric_fun = (
-            self.metrics_fun[0]
-            if self.metrics_fun
-            else assign_metric("mean_squared_error")
-        )
+        # metrics that score the model performance (the ones given to compile())
+        if self.metrics_fun:
+            metric_names, metric_funs = self.metrics, self.metrics_fun
+        else:
+            metric_names, metric_funs = ["mean_squared_error"], [assign_metric("mean_squared_error")]
 
         # train the model on the given data
         reservoir_states, _ = self._train_model(x=x, y=y)
 
         # score on the training data, in the original units of x and y
-        train_score = float(metric_fun(y, self.predict(x=x_raw)))
+        y_pred = self.predict(x=x_raw)
+        train_metrics = {
+            name: float(fun(y, y_pred)) for name, fun in zip(metric_names, metric_funs)
+        }
+        train_score = train_metrics[metric_names[0]]
 
         # Update trainable weights count
         self.num_trainable_weights = self.reservoir_layer.weights.size
 
-        # Build history dictionary
-        history = {"train_score": train_score}
+        # Build history dictionary: train_score is the first metric given to compile(),
+        # train_metrics holds all of them
+        history = {"train_score": train_score, "train_metrics": train_metrics}
 
         if store_states:
             history["res_states"] = reservoir_states
@@ -556,7 +560,7 @@ class CustomModel(ABC):
 
     def evaluate(
         self, x: np.ndarray, y: np.ndarray, metrics: Union[str, list, None] = None
-    ) -> tuple:
+    ) -> list:
         """
         Evaluate metrics on predictions made for input data.
 
@@ -566,7 +570,7 @@ class CustomModel(ABC):
         metrics (Union[str, list, None], optional): List of metric names or a single metric name. If None, use metrics from .compile()
 
         Returns:
-        tuple: Metric values
+        list: Metric values, in the order of the given metrics
         """
         # evaluate metrics on predictions made for input data
         # expects: x of shape [n_batch, n_timesteps, n_states]

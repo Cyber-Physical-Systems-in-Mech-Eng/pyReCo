@@ -11,6 +11,7 @@ import math
 from typing import Union
 import copy
 from pyreco.graph_analyzer import GraphAnalyzer
+from pyreco.metrics import is_loss
 from pyreco.node_analyzer import NodeAnalyzer
 
 
@@ -86,6 +87,14 @@ class NetworkPruner:
 
         if not isinstance(criterion, str):
             raise TypeError("criterion must be a string")
+        if not is_loss(criterion):  # also raises a ValueError for unknown metrics
+            # candidates are ranked by the lowest value, so a score for which higher is
+            # better (e.g. r2) would select the worst candidate
+            raise ValueError(
+                f"criterion '{criterion}' is a score for which higher is better, but "
+                "pruning minimizes the criterion. Use a loss (e.g. 'mse', 'mae', 'rmse', "
+                "'nrmse'); a score such as 'r2' can be tracked through the metrics argument."
+            )
 
         if graph_analyzer is not None and not isinstance(graph_analyzer, GraphAnalyzer):
             raise TypeError("graph_analyzer must be an instance of GraphAnalyzer")

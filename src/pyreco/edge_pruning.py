@@ -13,7 +13,7 @@ import copy
 from pyreco.graph_analyzer import GraphAnalyzer
 from pyreco.node_analyzer import NodeAnalyzer
 from pyreco.edge_analyzer import EdgeAnalyzer, available_extractors
-from pyreco.metrics import available_metrics
+from pyreco.metrics import available_metrics, is_loss
 
 
 def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y_test,
@@ -132,8 +132,9 @@ class EdgePruner:
             Loss metric used to evaluate model performance, both for
             steering ``pruning_criterion='performance'`` and for tracking
             real loss (patience, history, ``return_best_model``) regardless
-            of which ``pruning_criterion`` is active. Must be a key of
-            :func:`pyreco.metrics.available_metrics`. Default is "mse".
+            of which ``pruning_criterion`` is active. Must be a loss (lower is
+            better) from :func:`pyreco.metrics.available_metrics`, i.e. not
+            "r2". Default is "mse".
         structural_criterion : str, optional
             Edge property used to score candidates when
             ``pruning_criterion='structure'``. Must be a key of
@@ -1318,6 +1319,15 @@ class EdgePruner:
             raise ValueError(
                 f"Unknown metric '{performance_criterion}'. "
                 f'Available metrics: {available_metrics()}'
+            )
+        if not is_loss(performance_criterion):
+            # candidates are ranked by the lowest value, so a score for which higher is
+            #   better (e.g. r2) would select the worst candidate
+            raise ValueError(
+                f"performance_criterion '{performance_criterion}' is a score for which "
+                'higher is better, but pruning minimizes the criterion. Use a loss '
+                "(e.g. 'mse', 'mae', 'rmse', 'nrmse'); a score such as 'r2' can be "
+                'tracked through the metrics argument.'
             )
 
         # Validate structural criterion

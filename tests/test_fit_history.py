@@ -31,10 +31,10 @@ def test_train_score_matches_evaluate(discard_transients):
 
 def test_history_keys():
     model, x, y = _setup()
-    assert set(model.fit(x, y)) == {"train_score"}
+    assert set(model.fit(x, y)) == {"train_score", "train_metrics"}
     model, x, y = _setup()
     history = model.fit(x, y, store_states=True)
-    assert set(history) == {"train_score", "res_states"}
+    assert set(history) == {"train_score", "train_metrics", "res_states"}
     assert history["res_states"].shape[:2] == (5, 40)
 
 
