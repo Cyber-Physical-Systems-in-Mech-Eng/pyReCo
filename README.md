@@ -131,6 +131,14 @@ metric_value = model.evaluate(X=x_train, y=y_train, metrics=['mse','mae'])
 print(f'scores:{metric_value}')
 ```
 
+**Input preprocessing (z-scoring and input scaling)**: with the `CustomModel` API, `fit()` standardizes every input channel by *z-scoring* it, i.e. subtracting its mean and dividing by its standard deviation (statistics are computed over all batches and time steps of the training data and reused in `predict()`). The z-scored inputs are then multiplied by `input_scaling`, a positive gain (scalar or one value per channel, default `1.0`). The gain is equivalent to scaling the columns of the read-in matrix `W_in` and controls how nonlinear the reservoir responds. Both are set in `compile()`:
+
+```python
+model.compile(optimizer='ridge', normalize_inputs=True, input_scaling=1.0)  # these are the defaults
+```
+
+The targets are **not** transformed: predictions are returned in the units of `y`.
+
 
 ## Installation
 Simply use pip, or get the source files from this repo.

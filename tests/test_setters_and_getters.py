@@ -23,19 +23,16 @@ def test_setter_and_getters():
 
     # Set scaling
     input_scaling = 2.0
-    output_scaling = 0.5
     model.set_input_scaling(input_scaling)
-    model.set_output_scaling(output_scaling)
 
     # Compile and fit with default alpha
     model.compile(optimizer='ridge', metrics=['mean_squared_error'])
-    model.set_normalization(normalize_inputs=True, normalize_outputs=True)
+    model.set_normalization(normalize_inputs=True)
     model.fit(x_train, y_train)
     y_pred = model.predict(x_train)
 
     # Check stored values and prediction validity
     assert np.isclose(model.input_scaling, input_scaling)
-    assert np.isclose(model.output_scaling, output_scaling)
     assert np.isfinite(y_pred).all()
 
     # Check other HPs

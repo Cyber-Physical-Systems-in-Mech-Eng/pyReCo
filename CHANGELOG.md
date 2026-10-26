@@ -14,17 +14,34 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
   so edge `(u, v)` transmitted activity `v -> u`. Trajectories for a fixed
   reservoir matrix are now those of its transpose; results are statistically
   equivalent but not bitwise reproducible against earlier versions.
+* Output normalization and output scaling were removed (`normalize_outputs`,
+  `output_scaling`, `set_output_scaling`, `output_mean`, `output_std`). Ridge regression
+  is linear in the targets, so dividing by the target standard deviation or scaling the
+  targets does not change predictions; only the centering did. Targets are now used as
+  given and predictions are in the units of `y`.
+* Input z-scoring and `input_scaling` are now arguments of `compile()` (defaults: z-scoring
+  on, scaling `1.0`). `set_normalization()` only takes `normalize_inputs`.
 
 
 ### Minor Improvements
 
+* Input preprocessing is documented: per-channel z-scoring (statistics over batch and time),
+  then multiplication by `input_scaling`.
 * Prepared release metadata updates for `v2.1.0`.
 * Confirmed automated publish flow via GitHub Release (`published`) to PyPI.
 
 
 ### Bugfixes
 
-* None
+* `input_scaling` was applied in `fit()` but not in `predict()`, which made predictions
+  inconsistent with training for any value other than 1. Training and inference now share
+  one transform, and the preprocessing settings are frozen at fit time. `input_scaling`
+  is validated (positive, finite, scalar or one value per channel).
+* The training score computed inside `fit()` fed already-normalized inputs through
+  `predict()` (normalizing twice) and compared them to targets in a different space.
+  It now compares predictions to the targets on the original data scale.
+* `AutoRC_predict` applies the same input preprocessing, and maps the fed-back
+  prediction into the coordinates of the input channels.
 
 
 ## pyReCo-0.0.3

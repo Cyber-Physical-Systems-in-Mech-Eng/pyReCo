@@ -109,9 +109,6 @@ search_space = {
     # float (uniform)
     "input_scaling": ("float", 0.5, 1.0),
 
-    # float (uniform)
-    "output_scaling": ("float", 0.1, 1.0),
-
     # float (log-uniform) — great for regularization hyperparameters
     "alpha": ("float", 1e-8, 1.0, "log"),
 }

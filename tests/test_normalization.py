@@ -21,8 +21,7 @@ def test_input_normalization_and_model_performance():
 
     # ✅ Toggle normalization here:
     use_input_norm = True
-    use_output_norm = True
-    model.set_normalization(normalize_inputs=use_input_norm, normalize_outputs=use_output_norm)
+    model.set_normalization(normalize_inputs=use_input_norm)
     model.set_input_scaling(1.0)
 
     model.compile(optimizer='ridge')

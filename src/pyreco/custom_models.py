@@ -80,19 +80,22 @@ class CustomModel(ABC):
         self.num_states_in: int
         self.num_states_out: int
 
-        # Normalization flags
-        self.normalize_inputs: bool = True
-        self.normalize_outputs: bool = True
+        # Input preprocessing: per-channel z-scoring followed by a gain (input scaling).
+        #   x_tilde = input_scaling * (x - input_mean) / input_std
+        # The gain is equivalent to scaling the columns of the read-in matrix W_in.
+        # The flags below are the user-facing settings; the values actually used for
+        # predictions are frozen at fit time (see the *_fit attributes), so that
+        # training and inference always apply the same transform.
+        self.normalize_inputs: bool = True  # z-score the inputs
+        self.input_scaling: Union[float, np.ndarray] = 1.0  # scalar or (d,) vector
 
-        # Scaling parameters (apply after normalization)
-        self.input_scaling: float or np.ndarray = 1.0  # scalar or (d,) vector
-        self.output_scaling: float = 1.0  # usually scalar
+        # Statistics learned during fit (z-scoring), shape (d,)
+        self.input_mean: np.ndarray = None
+        self.input_std: np.ndarray = None
 
-        # Stored normalization parameters (learned during training)
-        self.input_mean: np.ndarray = None  # shape: (d,)
-        self.input_std: np.ndarray = None  # shape: (d,)
-        self.output_mean: np.ndarray = None  # shape: (k,)
-        self.output_std: np.ndarray = None  # shape: (k,)
+        # Preprocessing settings frozen at fit time
+        self._normalize_inputs_fit: bool = None
+        self._input_scaling_fit: Union[float, np.ndarray] = None
 
     def add(self, layer: Layer):
         """
@@ -129,6 +132,8 @@ class CustomModel(ABC):
         optimizer: str = "ridge",
         metrics: Union[list, str] = None,
         discard_transients: int = 0,
+        normalize_inputs: bool = None,
+        input_scaling: Union[float, np.ndarray] = None,
     ):
         """
         Configure the model for training.
@@ -137,6 +142,12 @@ class CustomModel(ABC):
         optimizer (str): Name of the optimizer.
         metrics (list): List of metric names.
         discard_transients (int): Number of initial transient timesteps to discard.
+        normalize_inputs (bool, optional): z-score each input channel (mean 0, std 1,
+            statistics taken over batch and time of the training data). Default: on.
+            If None, the current setting is kept.
+        input_scaling (float or np.ndarray, optional): positive gain applied to the
+            z-scored inputs, a scalar or one value per input channel. Default: 1.0
+            (no additional scaling). If None, the current setting is kept.
         """
 
         # sanity checks for inputs
@@ -147,6 +158,11 @@ class CustomModel(ABC):
 
         if metrics is None:
             metrics = ["mse"]
+
+        # input preprocessing settings
+        self.set_normalization(normalize_inputs=normalize_inputs)
+        if input_scaling is not None:
+            self.set_input_scaling(input_scaling)
 
         # check consistency of layers, data shapes etc.
         # TODO: do we have input, reservoir and readout layer?
@@ -187,14 +203,11 @@ class CustomModel(ABC):
         optimizer: str = "ridge",
         metrics: Union[list, str] = None,
         discard_transients: int = 0,
+        normalize_inputs: bool = None,
+        input_scaling: Union[float, np.ndarray] = None,
     ):
         """
-        Configure the model for training.
-
-        Args:
-        optimizer (str): Name of the optimizer.
-        metrics (list): List of metric names.
-        discard_transients (int): Number of initial transient timesteps to discard.
+        Configure the model for training. Same arguments as `compile`.
         """
 
         # sanity checks for inputs
@@ -205,6 +218,11 @@ class CustomModel(ABC):
 
         if metrics is None:
             metrics = ["mse"]
+
+        # input preprocessing settings
+        self.set_normalization(normalize_inputs=normalize_inputs)
+        if input_scaling is not None:
+            self.set_input_scaling(input_scaling)
 
         # check consistency of layers, data shapes etc.
         # TODO: do we have input, reservoir and readout layer?
@@ -256,6 +274,12 @@ class CustomModel(ABC):
             ) -> dict:
         """
         RC training with batch processing.
+
+        The inputs are preprocessed as x_tilde = input_scaling * (x - mean) / std
+        (per-channel z-scoring with statistics over batches and time, if enabled; see
+        compile() and set_normalization()). The settings and statistics are frozen
+        here and reused by predict(). Targets are used as given, so predictions are in
+        the physical units of y.
         """
         # sanity checks for inputs
         if not isinstance(x, np.ndarray) or not isinstance(y, np.ndarray):
@@ -285,28 +309,22 @@ class CustomModel(ABC):
         n_time_out, n_states_out = y.shape[-2], y.shape[-1]
         n_nodes = self.reservoir_layer.nodes
 
-        # Input normalization (z-score per channel)
-
-        if self.normalize_inputs:
-            self.input_mean = x.mean(axis=(0, 1))  # mean over batches and time
+        # Input preprocessing: z-score per channel (statistics over batches and time of
+        # the training data), then apply the input scaling. The settings and the
+        # statistics are frozen here and reused by predict().
+        x_raw = x
+        self.input_scaling = self._validate_input_scaling(
+            self.input_scaling, n_channels=x.shape[-1]
+        )
+        self._normalize_inputs_fit = bool(self.normalize_inputs)
+        self._input_scaling_fit = self.input_scaling
+        if self._normalize_inputs_fit:
+            self.input_mean = x.mean(axis=(0, 1))
             self.input_std = x.std(axis=(0, 1))
             self.input_std[self.input_std == 0] = 1.0  # avoid divide-by-zero
-            x = (x - self.input_mean) / self.input_std
-
-
-        # Output normalization (z-score per channel)
-
-        if self.normalize_outputs:
-            self.output_mean = y.mean(axis=(0, 1))  # mean over batches and time
-            self.output_std = y.std(axis=(0, 1))
-            self.output_std[self.output_std == 0] = 1.0
-            y = (y - self.output_mean) / self.output_std
-
-        # Apply input scaling
-        x = x * self.input_scaling  # scalar or (features,)
-
-        # Apply output scaling (optional, rare)
-        y = y * self.output_scaling
+        else:
+            self.input_mean, self.input_std = None, None
+        x = self._transform_x(x)
 
         # discard transients (warmup phase). This is done by removing the first n_transients timesteps from the reservoir states.
         # Hence, the targets can have a maximum of (t_in - t_discard) steps, before we have to cut also from the targets
@@ -364,7 +382,7 @@ class CustomModel(ABC):
             # Tracking the variation of initial conditions
             n_R0[i] = self.reservoir_layer.initial_res_states
             n_weights[i] = self.readout_layer.weights
-            n_scores[i] = metric_fun(y, self.predict(x=x))
+            n_scores[i] = metric_fun(y, self.predict(x=x_raw))
             if store_states:
                 n_res_states.append(reservoir_states)
 
@@ -477,15 +495,12 @@ class CustomModel(ABC):
         # TODO: external function that is going to check the input dimensionality
         # and raise an error if shape is not correct
 
+        # Same input preprocessing as in fit() (z-scoring and input scaling)
+        x = self._transform_x(x)
+
         # Compute reservoir states. Returns reservoir states of shape
         # [n_batch, n_timesteps+1, n_nodes]
         # (n_timesteps+1 because we also store the initial state)
-        # Normalize input (if enabled)
-        if self.normalize_inputs:
-            if self.input_mean is None or self.input_std is None:
-                raise RuntimeError("Input normalization parameters not set. Fit the model first.")
-            x = (x - self.input_mean) / self.input_std
-
         reservoir_states = self.compute_reservoir_state(x)
 
         # discard the given transients from the reservoir states, incl. initial reservoir state. Should give the size of (n_batch, n_time_out, n_nodes)
@@ -499,19 +514,44 @@ class CustomModel(ABC):
         y_pred = np.einsum(
             "bik,jk->bij", reservoir_states, self.readout_layer.weights.T
         )
-        # Undo output scaling (if any)
-        y_pred = y_pred / self.output_scaling
-
-        # -------------------------------
-        # Denormalize output
-        # -------------------------------
-        if self.normalize_outputs:
-            if self.output_mean is None or self.output_std is None:
-                raise RuntimeError("Outpaut normalization parameters not set. Fit the model first.")
-            y_pred = y_pred * self.output_std + self.output_mean
-
         return y_pred
     
+
+    def _transform_x(self, x: np.ndarray, channels=None) -> np.ndarray:
+        """
+        Input preprocessing used for training and inference:
+            x_tilde = input_scaling * (x - input_mean) / input_std
+        (z-scoring only if enabled at fit time). Uses the settings frozen in fit().
+
+        channels (optional): indices of the input channels that the last axis of x
+        corresponds to. Used to map a signal that lives in physical units, such as a
+        readout prediction that is fed back, into the coordinates of those inputs.
+        """
+        if self._input_scaling_fit is None:
+            raise RuntimeError("Model is not fitted yet. Call fit() first.")
+        scaling = self._input_scaling_fit
+        if channels is not None and np.ndim(scaling) == 1:
+            scaling = scaling[channels]
+        if self._normalize_inputs_fit:
+            mean, std = self.input_mean, self.input_std
+            if channels is not None:
+                mean, std = mean[channels], std[channels]
+            x = (x - mean) / std
+        return x * scaling
+
+    @staticmethod
+    def _validate_input_scaling(scaling, n_channels: int = None):
+        """Input scaling must be positive and finite: a scalar or one value per channel."""
+        s = np.asarray(scaling, dtype=float)
+        if s.ndim > 1:
+            raise ValueError("input_scaling must be a scalar or a 1D array (one value per input channel).")
+        if not np.all(np.isfinite(s)) or np.any(s <= 0):
+            raise ValueError("input_scaling must be positive and finite.")
+        if s.ndim == 1 and n_channels is not None and s.shape[0] != n_channels:
+            raise ValueError(
+                f"input_scaling has {s.shape[0]} entries but the input has {n_channels} channels."
+            )
+        return float(s) if s.ndim == 0 else s
 
     def evaluate(
         self, x: np.ndarray, y: np.ndarray, metrics: Union[str, list, None] = None
@@ -958,6 +998,9 @@ class CustomModel(ABC):
                 "Input data must have 3 dimensions (n_batch, n_timesteps, n_states)."
             )
 
+        # Same input preprocessing as in fit() (z-scoring and input scaling)
+        x = self._transform_x(x)
+
         # Extract shapes and parameters
         n_batch, n_time, n_states = x.shape[0], x.shape[1], x.shape[2]
 
@@ -1022,22 +1065,12 @@ class CustomModel(ABC):
             #############################################          
             y_pred_t = np.einsum("bik,jk->bij", states[:, t: t+1, self.readout_layer.readout_nodes], self.readout_layer.weights.T)
             
-            # print("y_pred_t shape: ", y_pred_t.shape)
-            # Undo output scaling (if any)
-            # y_pred_t = y_pred_t / self.output_scaling
-            
-            # print(t, "y_pred_t after scaling: ", y_pred_t[:, 0, :])
-            # # -------------------------------
-            # # Denormalize output
-            # # -------------------------------
-            # if self.normalize_outputs:
-            #     if self.output_mean is None or self.output_std is None:
-            #         raise RuntimeError("Output normalization parameters not set. Fit the model first.")
-            #     y_pred_t = y_pred_t * self.output_std + self.output_mean
-
             ####feedback contribution
             if t >= 500:#input_contrib.shape[1]:
-                feedback_contrib = np.einsum("ij,bj->bi", y_pred_t[:, 0, :], self.feedback_layer.weights[:, feedback_indices]).T
+                # the readout predicts in physical units; map the fed-back signal into
+                # the coordinates of the inputs it replaces (z-scoring and scaling)
+                fb_signal = self._transform_x(y_pred_t[:, 0, :], channels=feedback_indices)
+                feedback_contrib = np.einsum("ij,bj->bi", fb_signal, self.feedback_layer.weights[:, feedback_indices]).T
             else:
                 feedback_contrib = 0
             # print("feedback_contrib shape am ende: ", feedback_contrib.shape)
@@ -1117,47 +1150,40 @@ class CustomModel(ABC):
         # print the model to some figure file
         raise NotImplementedError("Method not implemented yet.")
 
-    def set_normalization(
-            self,
-            normalize_inputs: bool = None,
-            normalize_outputs: bool = None,
-    ):
+    def set_normalization(self, normalize_inputs: bool = None):
         """
-        Set normalization flags independently.
+        Enable or disable z-scoring of the inputs (default: enabled).
+
+        With z-scoring, every input channel is shifted and divided by its mean and
+        standard deviation, computed over all batches and time steps of the training
+        data in fit(). The same statistics are used in predict().
+        Takes effect at the next fit().
 
         Args:
-            normalize_inputs (bool or None): Enable/disable input normalization. If None, leave unchanged.
-            normalize_outputs (bool or None): Enable/disable output normalization. If None, leave unchanged.
+            normalize_inputs (bool or None): If None, leave unchanged.
         """
         if normalize_inputs is not None:
-            self.normalize_inputs = normalize_inputs
-        if normalize_outputs is not None:
-            self.normalize_outputs = normalize_outputs
+            if not isinstance(normalize_inputs, (bool, np.bool_)):
+                raise TypeError("normalize_inputs must be a boolean.")
+            self.normalize_inputs = bool(normalize_inputs)
 
-    def set_input_scaling(self, input_scaling: float or np.ndarray):
+    def set_input_scaling(self, input_scaling: Union[float, np.ndarray]):
         """
-        Set input scaling factor.
-
-        Args:
-            input_scaling (float or np.ndarray): Scalar or per-channel vector.
-        """
-        self.input_scaling = input_scaling
-
-    def set_output_scaling(self, output_scaling: float):
-        """
-        Set output scaling factor.
+        Set the input scaling: a positive gain multiplied onto the (z-scored) inputs.
+        Equivalent to scaling the columns of the read-in matrix W_in. Takes effect at
+        the next fit().
 
         Args:
-            output_scaling (float): Scalar value for output scaling.
+            input_scaling (float or np.ndarray): Scalar or one value per input channel.
         """
-        self.output_scaling = output_scaling
+        self.input_scaling = self._validate_input_scaling(input_scaling)
 
     def set_hp(self, **kwargs):
         """
         Set one or more reservoir hyperparameters.
         Supported kwargs: spec_rad, leakage_rate, activation
         """
-        supported_hps = {"spec_rad", "leakage_rate", "activation", "input_scaling", "output_scaling", "alpha"}
+        supported_hps = {"spec_rad", "leakage_rate", "activation", "input_scaling", "alpha"}
         unsupported = set(kwargs) - supported_hps
         if unsupported:
             raise ValueError(f"Unsupported hyperparameter(s): {', '.join(unsupported)}")
@@ -1170,8 +1196,6 @@ class CustomModel(ABC):
             self.reservoir_layer.set_activation(kwargs['activation'])
         if "input_scaling" in kwargs:
             self.set_input_scaling(kwargs['input_scaling'])
-        if "output_scaling" in kwargs:
-            self.set_output_scaling(kwargs['output_scaling'])
         if "alpha" in kwargs:
             self.optimizer.set_alpha(kwargs['alpha'])
         # Add more as needed
@@ -1186,7 +1210,6 @@ class CustomModel(ABC):
             'leakage_rate': self.reservoir_layer.get_leakage_rate(),
             'activation': self.reservoir_layer.get_activation(),
             "input_scaling": self.input_scaling,
-            "output_scaling": self.output_scaling,
             "alpha": self.optimizer.get_alpha()
             # Add more as needed
         }
