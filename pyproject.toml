@@ -42,6 +42,12 @@ exclude = [
     ".*",                    # exclude all hidden files like .gitignore
 ]
 
+[project.optional-dependencies]
+# hyperparameter tuning (pyreco.tuner, examples/mwe_tuner.py)
+tuner = ["optuna"]
+# comparison with feed-forward networks (examples/compare_tensorflow_recopy.py, examples/RC_vs_ANN.py)
+benchmarks = ["tensorflow"]
+
 [project.urls]
 Homepage = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo"
 Issues = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo/issues"

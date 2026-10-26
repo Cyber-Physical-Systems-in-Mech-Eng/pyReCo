@@ -49,7 +49,7 @@ plt.plot(y_pred[0, :, 0], label="prediction", marker=".", color="#E63946")
 plt.legend()
 plt.xlabel("time")
 plt.tight_layout()
-plt.savefig("model_predictions.png")
+# plt.savefig("model_predictions.png")
 plt.show()
 
 # plot an R^2 - like graphic

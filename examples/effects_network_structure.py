@@ -47,7 +47,7 @@ def run_trials(
         _model = ReservoirComputer(num_nodes=num_nodes, activation=activation)
 
         # fit to data
-        _model.fit(X=x_train, y=y_train)
+        _model.fit(x=x_train, y=y_train)
 
         # evaluate score
         _score = _model.evaluate(x_test, y_test, metrics="mae")[0]
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     # run the analysis for different numbers of reservoir nodes. Hypothesis: the larger the number of reservoir
     # nodes, the less will be the effect of network structure (redundancy of information)
 
-    num_trials = 100  # for each RC specification in terms of hyperparameters
+    num_trials = 20  # for each RC specification in terms of hyperparameters (increase for smoother statistics)
     num_nodes = [10, 50, 100, 250, 500]  # number of nodes to try out
     activation = "tanh"  # common activation function
     model_scores, best_models, worst_models = [], [], []

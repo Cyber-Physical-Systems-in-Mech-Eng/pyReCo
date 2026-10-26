@@ -59,6 +59,15 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* Examples were tidied up: the `testing_*` scripts that duplicated the minimal working examples
+  were merged into `mwe_task_shapes.py` (vector/sequence-to-scalar/sequence tasks,
+  cross-validation, reservoir drawing); the remaining ones are now called `mwe_*`;
+  `mwe_chaotic_datasets.py` forecasts the Lorenz and Mackey-Glass series from `pyreco.datasets`;
+  `effects_network_structure.py` works again; the broken `examples/deprecated/` folder, the
+  unreferenced `predictions_model.png` files and the script `test_new_datasets.py` (replaced by
+  `tests/test_datasets.py`) were removed, and `.DS_Store` / `.vscode/` are no longer tracked.
+* Optional dependencies are declared: `pip install pyreco[tuner]` (optuna) and
+  `pyreco[benchmarks]` (tensorflow, for the comparison with feed-forward networks).
 * New metrics `rmse` and `nrmse` (`root_mean_squared_error`,
   `normalized_root_mean_squared_error`). NRMSE is `sqrt(mean_c MSE_c / Var_c)` with the
   variance of each true channel over the evaluated data: 0 for a perfect prediction, 1 for
