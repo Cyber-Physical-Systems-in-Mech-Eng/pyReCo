@@ -6,13 +6,20 @@ formatted for direct use with PyReCo reservoir computers.
 
 All data generators use numerical integration of the governing equations.
 Lorenz system uses scipy.integrate.solve_ivp for stable ODE integration.
-Mackey-Glass uses custom Euler integration for delay differential equations.
+Mackey-Glass uses a second-order (Heun) scheme with a fine internal step for the delay
+differential equation, sampled at the requested interval.
+
+Note: the generated series start from the initial condition of the system and include
+the start-up transient, i.e. the first samples are not yet on the attractor. Discard a
+washout at the beginning if that matters for your use case (or use the reservoir's
+`discard_transients`).
 """
 
 import numpy as np
-from collections import deque
 from sklearn.preprocessing import StandardScaler
 from scipy.integrate import solve_ivp
+
+from pyreco.utils_random import make_rng
 
 
 def _generate_lorenz(n_timesteps, sigma=10.0, rho=28.0, beta=8.0/3.0, h=0.01, x0=None):
@@ -72,18 +79,23 @@ def _generate_lorenz(n_timesteps, sigma=10.0, rho=28.0, beta=8.0/3.0, h=0.01, x0
     return sol.y.T
 
 
-def _generate_mackey_glass(n_timesteps, tau=17, a=0.2, b=0.1, n=10, x0=1.2, h=1.0, seed=None):
+def _generate_mackey_glass(n_timesteps, tau=17, a=0.2, b=0.1, n=10, x0=1.2, h=1.0, h_int=0.1, seed=None):
     """
     Generate Mackey-Glass time series using delay differential equation integration.
 
     Mackey-Glass equation:
         dx/dt = a*x(t-τ)/(1 + x(t-τ)^n) - b*x(t)
 
+    The equation is integrated with Heun's method (explicit trapezoidal rule) using the
+    internal step `h_int` and the series is sampled every `h` time units. Integrating
+    with a coarse step (e.g. an Euler step of 1.0) gives a visibly different trajectory
+    (deviations of up to 0.8 on a series with range 0.4 to 1.3 for tau=17).
+
     Parameters
     ----------
     n_timesteps : int
-        Number of time steps to generate
-    tau : int, default=17
+        Number of samples to generate
+    tau : float, default=17
         Time delay
     a : float, default=0.2
         Production rate
@@ -92,58 +104,56 @@ def _generate_mackey_glass(n_timesteps, tau=17, a=0.2, b=0.1, n=10, x0=1.2, h=1.
     n : float, default=10
         Hill coefficient (nonlinearity)
     x0 : float, default=1.2
-        Initial condition
+        Initial condition (constant history on [-tau, 0])
     h : float, default=1.0
-        Integration time step
+        Sampling interval of the returned series, in time units
+    h_int : float, default=0.1
+        Internal integration step. tau/h_int and h/h_int must be integers.
     seed : int, optional
-        Random seed for initialization noise. If None, uses deterministic initialization
+        Seed for a small random perturbation (std 0.001) of the initial history. If None,
+        the initialization is deterministic.
 
     Returns
     -------
     timeseries : ndarray of shape (n_timesteps, 1)
         Mackey-Glass time series
     """
+    # Validate that the delay and the sampling interval are multiples of the internal step
+    delay_steps = tau / h_int
+    sub_steps = h / h_int
+    for name, value, quotient in (("tau/h_int", tau, delay_steps), ("h/h_int", h, sub_steps)):
+        if abs(quotient - round(quotient)) > 1e-9:
+            raise ValueError(
+                f"{name} must be an integer to correctly align the time delay. "
+                f"Got tau={tau}, h={h}, h_int={h_int}, {name}={quotient:.6f}."
+            )
+    delay_steps, sub_steps = int(round(delay_steps)), int(round(sub_steps))
+
+    # History ring buffer holding x(t - tau), ..., x(t); the slot at `oldest` is x(t - tau)
+    history = np.full(delay_steps + 1, float(x0))
     if seed is not None:
-        rng = np.random.RandomState(seed)
-    else:
-        rng = None
+        history = history + make_rng(seed).normal(0, 0.001, size=delay_steps + 1)
+    oldest = 0
+    x_current = history[-1]
 
-    # Validate that tau/h is an integer to ensure correct delay alignment
-    delay_steps = tau / h
-    if abs(delay_steps - round(delay_steps)) > 1e-9:
-        raise ValueError(
-            f"tau/h must be an integer to correctly align the time delay. "
-            f"Got tau={tau}, h={h}, tau/h={delay_steps:.6f}. "
-            f"Please adjust tau or h so that tau/h is an integer."
-        )
+    def mg_deriv(x_now, x_delayed):
+        return a * x_delayed / (1 + x_delayed**n) - b * x_now
 
-    # Initialize history buffer
-    history_len = int(round(delay_steps)) + 1
-    if rng is not None:
-        # Add small random perturbations to initial history
-        history = deque([x0 + rng.normal(0, 0.001) for _ in range(history_len)], maxlen=history_len)
-    else:
-        history = deque([x0] * history_len, maxlen=history_len)
-
-    # Pre-allocate output
     timeseries = np.empty((n_timesteps,), dtype=np.float64)
+    for i in range(n_timesteps * sub_steps):
+        if i % sub_steps == 0:
+            timeseries[i // sub_steps] = x_current
 
-    # Define Mackey-Glass derivative
-    def mg_deriv(x_current, x_delayed):
-        return a * x_delayed / (1 + x_delayed**n) - b * x_current
+        # Heun step; the delayed value at the end of the step is the next slot
+        x_delayed = history[oldest]
+        x_delayed_next = history[(oldest + 1) % (delay_steps + 1)]
+        k1 = mg_deriv(x_current, x_delayed)
+        k2 = mg_deriv(x_current + h_int * k1, x_delayed_next)
+        x_current = x_current + 0.5 * h_int * (k1 + k2)
 
-    # Euler integration (suitable for DDEs with moderate stiffness)
-    for i in range(n_timesteps):
-        x_current = history[-1]
-        x_delayed = history[0]
-
-        timeseries[i] = x_current
-
-        # Euler step
-        dx = mg_deriv(x_current, x_delayed)
-        x_next = x_current + h * dx
-
-        history.append(x_next)
+        # the oldest slot is replaced by the new value
+        history[oldest] = x_current
+        oldest = (oldest + 1) % (delay_steps + 1)
 
     return timeseries.reshape(-1, 1)
 
@@ -215,7 +225,7 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     """
     Load chaotic time series dataset with train/test split.
 
-    This function generates data from chaotic dynamical systems using reservoirpy
+    This function generates data from chaotic dynamical systems by numerical integration
     and formats it for reservoir computing tasks using sliding windows.
 
     Parameters
@@ -233,7 +243,8 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     n_out : int, default=1
         Number of time steps in each output window (prediction horizon)
     seed : int, optional
-        Random seed for reproducibility (used for Mackey-Glass)
+        Random seed for reproducibility. Only used for Mackey-Glass, where it perturbs the
+        initial history slightly; the Lorenz series is deterministic for given parameters.
     val_fraction : float, optional
         Fraction of training data to use for validation (between 0 and 1).
         If None (default), no validation split is created.
@@ -253,7 +264,8 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     **kwargs : dict
         Additional parameters passed to the generator function:
         - For Lorenz: sigma, rho, beta, h (time step), x0 (initial condition)
-        - For Mackey-Glass: tau, a, b, n, h (time step), x0 (initial value)
+        - For Mackey-Glass: tau, a, b, n, h (sampling interval), h_int (internal
+          integration step), x0 (initial value)
 
     Returns
     -------
@@ -315,7 +327,11 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
     - Reproducible when seed is set (for Mackey-Glass)
     - Data generation uses numerical integration:
       * Lorenz: scipy.integrate.solve_ivp for stable ODE integration
-      * Mackey-Glass: Euler integration for delay differential equation
+      * Mackey-Glass: Heun integration with an internal step of 0.1 for the delay
+        differential equation
+    - The series include the start-up transient (no washout is discarded)
+    - The return value depends on the options: 4 items (default), 5 items with
+      standardize=True, 7 items with val_fraction (see Returns)
     - When val_fraction is used:
       * Validation split happens BEFORE sliding window to prevent data leakage
       * StandardScaler is fitted ONLY on final training data (not on validation)
@@ -350,6 +366,7 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         b = kwargs.get('b', 0.1)
         n = kwargs.get('n', 10)
         h = kwargs.get('h', 1.0)
+        h_int = kwargs.get('h_int', 0.1)
         x0 = kwargs.get('x0', 1.2)
 
         raw_data = _generate_mackey_glass(
@@ -359,6 +376,7 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
             b=b,
             n=n,
             h=h,
+            h_int=h_int,
             x0=x0,
             seed=seed
         )

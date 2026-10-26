@@ -81,6 +81,20 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Bugfixes
 
+* The README examples failed with `TypeError` (they called `evaluate(X=...)`; the argument
+  is `x`). A test now runs every README example.
+* `utils_data`: `vector_to_vector` raised a `NameError` for `sine_to_cosine`/`sin_to_cos2`,
+  `sequence_to_scalar` rejected `sine_pred`, `x_to_x` ignored its `n_time_int`/`n_time_out`
+  arguments, and unknown names raised an `UnboundLocalError`. All data functions now share one
+  dispatch: the names `sine_pred`, `sine_to_cosine`, `sincos2` (and the aliases `sine_prediction`,
+  `sin_to_cos2`) work everywhere and unknown names raise a `ValueError` that lists them. The
+  parameter typo `n_time_int` of `x_to_x` is now `n_time_in`, the functions no longer print the
+  shapes, and `available_problems()` lists the names.
+* `datasets.load('mackey_glass')` integrated the delay equation with an Euler step of 1.0,
+  which deviates from the true solution by up to 0.8 (the series ranges from 0.4 to 1.3). It
+  now uses Heun's method with an internal step `h_int=0.1` (error below 2e-3 over the first
+  600 samples) and samples every `h=1.0` time units. The generated series changes accordingly.
+  The seed now uses `numpy.random.default_rng` like the rest of the library.
 * Reservoirs with spectral radius 0 (no directed cycle) no longer produce NaN weights or
   corrupt the model. Small or sparse ER graphs often have no directed cycle (about 40% of
   5-node graphs with density 0.05) and crashed construction with a `LinAlgError`;
