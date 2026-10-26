@@ -25,6 +25,12 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* The readout now has an intercept: `y = R W + b`, fitted by centering the reservoir states
+  and the targets before the ridge solve (the intercept is not penalized). Targets with a
+  nonzero mean no longer have to be encoded in the reservoir states. The intercept is stored
+  in `readout_layer.bias` (shape `(n_outputs,)`, `readout_layer.weights` is unchanged) and
+  returned in the fit history as `readout_bias`. Replaces the centering that output
+  normalization used to provide.
 * Input preprocessing is documented: per-channel z-scoring (statistics over batch and time),
   then multiplication by `input_scaling`.
 * Prepared release metadata updates for `v2.1.0`.

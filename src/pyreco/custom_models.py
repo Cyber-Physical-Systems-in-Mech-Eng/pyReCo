@@ -361,6 +361,7 @@ class CustomModel(ABC):
         n_weights = np.zeros(
             (n_init, len(self.readout_layer.readout_nodes), n_states_out)
         )
+        n_bias = np.zeros((n_init, n_states_out))
         n_scores = np.zeros(n_init)
         n_res_states = [] if store_states else None
 
@@ -382,6 +383,7 @@ class CustomModel(ABC):
             # Tracking the variation of initial conditions
             n_R0[i] = self.reservoir_layer.initial_res_states
             n_weights[i] = self.readout_layer.weights
+            n_bias[i] = self.readout_layer.bias
             n_scores[i] = metric_fun(y, self.predict(x=x_raw))
             if store_states:
                 n_res_states.append(reservoir_states)
@@ -390,6 +392,7 @@ class CustomModel(ABC):
         idx_optimal = np.argmin(n_scores)
         self.reservoir_layer.set_initial_state(n_R0[idx_optimal])
         self.readout_layer.weights = n_weights[idx_optimal]
+        self.readout_layer.bias = n_bias[idx_optimal]
 
         # Update trainable weights count
         self.num_trainable_weights = self.reservoir_layer.weights.size
@@ -398,6 +401,7 @@ class CustomModel(ABC):
         history = {
             "init_res_states": n_R0,
             "readout_weights": n_weights,
+            "readout_bias": n_bias,
             "train_scores": n_scores,
         }
 
@@ -510,11 +514,11 @@ class CustomModel(ABC):
         # Masking non-readout nodes: if the user specified to not use all nodes for output, we can get rid of the non-readout node states
         reservoir_states = reservoir_states[:, :, self.readout_layer.readout_nodes]
 
-        # make predictions y = R * W_out, W_out has a shape of [n_out, N]
+        # make predictions y = R * W_out + b, W_out has a shape of [n_out, N]
         y_pred = np.einsum(
             "bik,jk->bij", reservoir_states, self.readout_layer.weights.T
         )
-        return y_pred
+        return y_pred + self.readout_layer.bias
     
 
     def _transform_x(self, x: np.ndarray, channels=None) -> np.ndarray:
@@ -643,8 +647,15 @@ class CustomModel(ABC):
         num_readout = len(self.readout_layer.readout_nodes)
         A = reservoir_states.reshape(n_batch * n_time_out, num_readout)
 
+        # Readout intercept (bias): center the states and the targets before solving, so
+        # that the offset of the targets is not forced through the reservoir states and
+        # is not shrunk by the ridge penalty. The intercept is recovered afterwards:
+        #   y = (R - R_mean) W + y_mean  =  R W + (y_mean - R_mean W)
+        A_mean = A.mean(axis=0)
+        b_mean = b.mean(axis=0)
+
         # Solve the regression problem b = Ax to find readout weights
-        self.readout_layer.weights = self.optimizer.solve(A=A, b=b)
+        self.readout_layer.weights = self.optimizer.solve(A=A - A_mean, b=b - b_mean)
 
         # is there is only a single system state to predict, we need to add that dim
         # TODO: move this to the sanity checks and add an artificial dimension prior to fitting!
@@ -652,6 +663,8 @@ class CustomModel(ABC):
             self.readout_layer.weights = np.expand_dims(
                 self.readout_layer.weights, axis=-1
             )
+
+        self.readout_layer.bias = b_mean - A_mean @ self.readout_layer.weights
 
         return reservoir_states, self.readout_layer.weights
 
@@ -1063,7 +1076,7 @@ class CustomModel(ABC):
                 
             
             #############################################          
-            y_pred_t = np.einsum("bik,jk->bij", states[:, t: t+1, self.readout_layer.readout_nodes], self.readout_layer.weights.T)
+            y_pred_t = np.einsum("bik,jk->bij", states[:, t: t+1, self.readout_layer.readout_nodes], self.readout_layer.weights.T) + self.readout_layer.bias
             
             ####feedback contribution
             if t >= 500:#input_contrib.shape[1]:

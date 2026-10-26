@@ -101,6 +101,7 @@ class ReadoutLayer(Layer):
         self.name = "readout_layer"
 
         self.readout_nodes = []  # list of nodes that are linked to output
+        self.bias = None  # readout intercept of shape (n_states,), set by fit
 
     def remove_nodes(self, nodes: list):
         # remove nodes from the readout layer, when the user wants to delete specific reservoir nodes
