@@ -22,9 +22,18 @@ class RidgeSK(Optimizer):
     # solves a linear regression model using sklearn's Ridge method,
     # see https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html
 
-    def __init__(self, name: str = "", alpha=1.0):
+    def __init__(self, name: str = "", alpha: float = 1.0):
+        """
+        Parameters
+        ----------
+        name : str
+            Name of the optimizer.
+        alpha : float, default=1.0
+            Strength of the L2 penalty on the readout weights (non-negative). It can be
+            changed later with set_alpha() or model.set_hp(alpha=...).
+        """
         super().__init__(name)
-        self.alpha = 1.0
+        self.set_alpha(alpha)
 
     def solve(self, A: np.ndarray, b: np.ndarray) -> np.ndarray:
         clf = Ridge(self.alpha, fit_intercept=False).fit(A, b)
@@ -32,9 +41,11 @@ class RidgeSK(Optimizer):
         return W_out
 
     def set_alpha(self, value: float):
-        if value < 0:
-            raise ValueError("Alpha must be non-negative.")
-        self.alpha = value
+        if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+            raise TypeError("Alpha must be a number.")
+        if not np.isfinite(value) or value < 0:
+            raise ValueError("Alpha must be non-negative and finite.")
+        self.alpha = float(value)
 
     def get_alpha(self) -> float:
         return self.alpha

@@ -134,6 +134,11 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Bugfixes
 
+* `RidgeSK(alpha=...)` ignored its argument (the constructor set `alpha = 1.0` regardless), so every
+  model compiled with e.g. `RidgeSK(alpha=0.5)` was trained with a penalty of 1.0. The argument is
+  used now and validated (a finite number >= 0; `set_alpha` checks the same). The default stays
+  1.0, and `model.set_hp(alpha=...)` worked before. The examples and tests that pass an explicit
+  `alpha` therefore use that value now.
 * `Tuner(verbose=True)` crashed with a `UnicodeEncodeError` on consoles with a legacy code page
   (Windows) because of an arrow in the trial log. The tuner now has tests.
 * The README examples failed with `TypeError` (they called `evaluate(X=...)`; the argument
