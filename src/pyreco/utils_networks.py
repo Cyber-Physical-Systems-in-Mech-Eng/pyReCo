@@ -7,9 +7,15 @@ import networkx as nx
 import numpy as np
 import warnings
 
+from pyreco.utils_random import RngLike, make_rng
+
 
 def gen_ER_graph(
-    nodes: int, density: float, spec_rad: float = 0.9, directed: bool = True, seed=None
+    nodes: int,
+    density: float,
+    spec_rad: float = 0.9,
+    directed: bool = True,
+    seed: RngLike = None,
 ):
     """Generate an Erdős-Rényi random graph with specified properties.
 
@@ -32,13 +38,22 @@ def gen_ER_graph(
         density (float): Desired connection density (0 to 1)
         spec_rad (float): Desired spectral radius
         directed (bool): Whether to create a directed graph
-        seed (int, optional): Random seed for reproducibility
+        seed (int, Generator or None): Random seed for reproducibility. Controls the
+            graph and the repair of isolated nodes; the global random state is not used.
 
     Returns:
         np.ndarray: Adjacency matrix with shape (nodes, nodes)
     """
-    # use networkx to generate a random graph
-    G = nx.erdos_renyi_graph(nodes, density, seed=seed, directed=directed)
+    # all randomness comes from this generator, never from the global state
+    rng = make_rng(seed)
+
+    # use networkx to generate a random graph. An integer seed is handed to networkx as
+    # is, otherwise a seed is drawn from the generator.
+    if isinstance(seed, (int, np.integer)) and not isinstance(seed, bool):
+        nx_seed = int(seed)
+    else:
+        nx_seed = int(rng.integers(2**31 - 1))
+    G = nx.erdos_renyi_graph(nodes, density, seed=nx_seed, directed=directed)
 
     # Instead of removing isolated nodes (old buggy behavior):
     # G.remove_nodes_from(list(nx.isolates(G)))
@@ -49,7 +64,7 @@ def gen_ER_graph(
         non_isolated = list(set(G.nodes()) - set(isolated_nodes))
         for node in isolated_nodes:
             if non_isolated:
-                target = np.random.choice(non_isolated)
+                target = rng.choice(non_isolated)
                 G.add_edge(node, target)
                 if directed:
                     G.add_edge(target, node)
@@ -171,15 +186,16 @@ def rename_nodes_after_removal(original_nodes: list, removed_nodes: list):
     return updated_nodes
 
 
-def gen_init_states(num_nodes: int, method: str = "random"):
+def gen_init_states(num_nodes: int, method: str = "random", rng: RngLike = None):
     # returns an array of length <num_nodes>
     # creates the entries based on different sampling methods
     # when not setting specific values, the range is normalized to abs(1)
 
+    rng = make_rng(rng)
     if method == "random":
-        init_states = np.random.random(num_nodes)
+        init_states = rng.random(num_nodes)
     elif method == "random_normal":
-        init_states = np.random.randn(num_nodes)
+        init_states = rng.standard_normal(num_nodes)
     elif method == "ones":
         init_states = np.ones(num_nodes)
     elif method == "zeros":

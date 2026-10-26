@@ -1,7 +1,8 @@
-import random
 import networkx as nx
 import numpy as np
 from typing import Union
+
+from pyreco.utils_random import RngLike, make_rng
 
 
 class NodeSelector:
@@ -24,6 +25,7 @@ class NodeSelector:
         strategy: str = "random_uniform_wo_repl",
         total_nodes: int = None,
         graph: nx.Graph | np.ndarray = None,
+        rng: RngLike = None,
     ):
         """
         Initializes the NodeSelector object.
@@ -32,6 +34,7 @@ class NodeSelector:
         - total_nodes (int, optional): The total number of nodes in the graph. Must be a positive integer.
         - graph (nx.Graph, optional): A NetworkX graph object. Either total_nodes or graph must be provided, not both.
         - strategy (str, optional): The strategy used for node selection. Currently implements "random_uniform_wo_repl".
+        - rng (Generator, int or None, optional): source of randomness. A Generator is used as is, an int seeds a new one, None draws fresh entropy. The global random state is never used.
 
         Raises:
         - ValueError: If both total_nodes and graph are provided, or if neither is provided.
@@ -70,6 +73,7 @@ class NodeSelector:
             )
 
         # Assign values to attributes
+        self.rng = make_rng(rng)
         self.num_total_nodes: int = total_nodes
         self.graph_shape = graph_shape
         self.num_select_nodes: int = 0
@@ -138,9 +142,9 @@ class NodeSelector:
         if self.strategy == "random_uniform_wo_repl":
             # random uniform WITHOUT replacement
 
-            self.selected_nodes = random.sample(
-                range(0, self.num_total_nodes), self.num_select_nodes
-            )
+            self.selected_nodes = self.rng.choice(
+                self.num_total_nodes, size=self.num_select_nodes, replace=False
+            ).tolist()
 
             if isinstance(self.graph_shape, int):
                 # input was list, output will be list

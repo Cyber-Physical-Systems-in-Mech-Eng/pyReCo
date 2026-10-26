@@ -27,6 +27,17 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
   `{"train_score": float}` (plus `"res_states"` with `store_states=True`); the readout
   weights, intercept and initial state are on the layers. `examples/effects_network_initialization.py`
   was removed with it.
+* Seeding was reworked. pyReCo no longer uses the global random state (`np.random.seed(...)`
+  and `random.seed(...)` have no effect on it); every random draw comes from an explicit
+  `numpy.random.Generator` created from a `seed` argument. `RC(seed=...)`, `AutoRC(seed=...)`
+  and `ReservoirComputer(seed=...)` seed the read-in weights, the initial reservoir state and
+  the choice of input and readout nodes, each from its own independent stream, so changing one
+  choice (e.g. `fraction_out`) does not shift the others. Compiling twice with the same seed
+  gives the same model; `seed=None` draws fresh entropy. `RandomReservoirLayer(seed=...)` now
+  controls the reservoir graph completely, including the repair of isolated nodes (which used
+  the global state before). `NetworkInitializer`, `NodeSelector` and `gen_ER_graph` take an
+  `rng`/`seed`. The same seed value yields different draws than in earlier versions. The unused
+  `seed=42` default of the `ReservoirLayer` base class was removed.
 * Input z-scoring and `input_scaling` are now arguments of `compile()` (defaults: z-scoring
   on, scaling `1.0`). `set_normalization()` only takes `normalize_inputs`.
 
@@ -46,6 +57,7 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Bugfixes
 
+* `NetworkInitializer` failed for 2D shapes with the methods `random`, `ones` and `zeros`.
 * `input_scaling` was applied in `fit()` but not in `predict()`, which made predictions
   inconsistent with training for any value other than 1. Training and inference now share
   one transform, and the preprocessing settings are frozen at fit time. `input_scaling`

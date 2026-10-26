@@ -19,6 +19,7 @@ from pyreco.metrics import assign_metric
 from pyreco.node_selector import NodeSelector
 from pyreco.initializer import NetworkInitializer
 from pyreco.utils_networks import rename_nodes_after_removal
+from pyreco.utils_random import check_seed
 
 
 # def sample_random_nodes(total_nodes: int, fraction: float):
@@ -56,10 +57,21 @@ class CustomModel(ABC):
     A model hast an input layer, a reservoir layer and a readout layer.
     """
 
-    def __init__(self):
+    def __init__(self, seed: int = None):
         """
         Initialize the CustomModel with empty layers and default values.
+
+        Args:
+        seed (int, optional): Seed for the random choices made when the model is
+            compiled: the read-in weights, the initial reservoir state, the nodes that
+            receive the input and the nodes that are read out. The global random state
+            (np.random, random) is never used. None draws fresh entropy at every
+            compile(). The reservoir graph has its own seed, see RandomReservoirLayer.
         """
+        check_seed(seed)
+        self.seed = seed
+        self._init_rngs()
+
         # Initialize layers
         self.input_layer: InputLayer
         self.reservoir_layer: ReservoirLayer
@@ -96,6 +108,21 @@ class CustomModel(ABC):
         # Preprocessing settings frozen at fit time
         self._normalize_inputs_fit: bool = None
         self._input_scaling_fit: Union[float, np.ndarray] = None
+
+    def _init_rngs(self):
+        """
+        (Re)create the random streams of the model from its seed. One independent stream
+        per random choice, so that e.g. changing the fraction of readout nodes does not
+        change the read-in weights. Called at construction and at every compile(), so
+        compiling twice with a fixed seed gives the same model.
+        """
+        children = np.random.SeedSequence(self.seed).spawn(4)
+        (
+            self._rng_readin_weights,
+            self._rng_init_state,
+            self._rng_input_nodes,
+            self._rng_readout_nodes,
+        ) = [np.random.default_rng(child) for child in children]
 
     def add(self, layer: Layer):
         """
@@ -164,6 +191,9 @@ class CustomModel(ABC):
         if input_scaling is not None:
             self.set_input_scaling(input_scaling)
 
+        # fresh random streams: compiling twice with the same seed gives the same model
+        self._init_rngs()
+
         # check consistency of layers, data shapes etc.
         # TODO: do we have input, reservoir and readout layer?
         # TODO: are all shapes correct on input and output side?
@@ -223,6 +253,9 @@ class CustomModel(ABC):
         self.set_normalization(normalize_inputs=normalize_inputs)
         if input_scaling is not None:
             self.set_input_scaling(input_scaling)
+
+        # fresh random streams: compiling twice with the same seed gives the same model
+        self._init_rngs()
 
         # check consistency of layers, data shapes etc.
         # TODO: do we have input, reservoir and readout layer?
@@ -766,6 +799,7 @@ class CustomModel(ABC):
             selector = NodeSelector(
                 total_nodes=self.reservoir_layer.nodes,
                 strategy="random_uniform_wo_repl",
+                rng=self._rng_readout_nodes,
             )
             nodes = selector.select_nodes(fraction=self.readout_layer.fraction_out)
 
@@ -820,7 +854,7 @@ class CustomModel(ABC):
         method (str, optional): Method for sampling initial states.
         """
         num_nodes = self.reservoir_layer.nodes
-        initializer = NetworkInitializer(method=method)
+        initializer = NetworkInitializer(method=method, rng=self._rng_init_state)
         init_states = initializer.gen_initial_states(num_nodes)
         self._set_init_states(init_states=init_states)
 
@@ -833,7 +867,9 @@ class CustomModel(ABC):
         """
 
         # generate random input connection matrix [nodes, n_states_in]
-        net_generator = NetworkInitializer(method="random_normal")
+        net_generator = NetworkInitializer(
+            method="random_normal", rng=self._rng_readin_weights
+        )
         full_input_weights = net_generator.gen_initial_states(
             shape=(self.num_nodes, self.num_states_in)
         )
@@ -842,6 +878,7 @@ class CustomModel(ABC):
         node_selector = NodeSelector(
             total_nodes=self.num_nodes,
             strategy="random_uniform_wo_repl",
+            rng=self._rng_input_nodes,
         )
 
         # select the fraction of nodes that are input nodes [nodes, n_states_in]
@@ -1201,9 +1238,8 @@ class RC(CustomModel):  # the non-auto version
     Non-autonomous version of the reservoir computer.
     """
 
-    def __init__(self):
-        # at the moment we do not have any arguments to pass
-        super().__init__()
+    def __init__(self, seed: int = None):
+        super().__init__(seed=seed)
 
 
 class AutoRC(CustomModel):
@@ -1211,9 +1247,8 @@ class AutoRC(CustomModel):
     Autonomous version of the reservoir computer.
     """
 
-    def __init__(self, FeedbackLayer=None):
-        # at the moment we do not have any arguments to pass
-        super().__init__()
+    def __init__(self, FeedbackLayer=None, seed: int = None):
+        super().__init__(seed=seed)
         self.feedback_layer = FeedbackLayer
         # if self.feedback_layer is None:
         #     raise ValueError("FeedbackLayer must be provided for AutoRC.")

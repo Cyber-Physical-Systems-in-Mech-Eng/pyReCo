@@ -183,7 +183,6 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         leakage_rate,
         fraction_input,
         init_res_sampling,
-        seed: int = 42,
     ):
         super().__init__()
         self.nodes: int = nodes  # number of reservoir nodes
@@ -340,6 +339,14 @@ class RandomReservoirLayer(ReservoirLayer):
         init_res_sampling="random_normal",
         seed=None,
     ):
+        """
+        Random (Erdős-Rényi) reservoir network.
+
+        seed (int, optional): seed of the reservoir graph. It fixes the adjacency matrix
+        completely, including the repair of isolated nodes. The global random state is
+        never used. The random choices made when a model is compiled (read-in weights,
+        initial state, input and readout nodes) are seeded by the model, see RC(seed=...).
+        """
 
         # Call the parent class's __init__ method
         super().__init__(
@@ -349,7 +356,6 @@ class RandomReservoirLayer(ReservoirLayer):
             leakage_rate=leakage_rate,
             fraction_input=fraction_input,
             init_res_sampling=init_res_sampling,
-            seed=seed,
         )
 
         # initialize subclass-specific attributes

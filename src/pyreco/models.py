@@ -96,6 +96,7 @@ class ReservoirComputer(Model):
         metrics: Union[str, list] = "mean_squared_error",
         optimizer: Union[str, Optimizer] = "ridge",
         init_res_sampling="random_normal",  # todo: implement a class for generating initial reservoir states
+        seed: int = None,  # seeds the reservoir graph and all random choices of the model
     ):
         # initialize parent class
         super().__init__(
@@ -117,11 +118,12 @@ class ReservoirComputer(Model):
         self.optimizer = optimizer
         self.metrics = metrics
         self.init_res_sampling = init_res_sampling
+        self.seed = seed
 
         self.trainable_weights: int  # number of trainable weights
 
         # create a RC from a random reservoir. We do not know about the shapes of input and output at this stage
-        self.model = RC()
+        self.model = RC(seed=seed)
 
     def fit(self, x: np.ndarray, y: np.ndarray, store_states: bool = False):
         # Computes the model weights (readout matrix) through fitting the training data.
@@ -159,6 +161,7 @@ class ReservoirComputer(Model):
                 spec_rad=self.spec_rad,
                 fraction_input=self.fraction_input,
                 init_res_sampling=self.init_res_sampling,
+                seed=self.seed,
             )
         )
         self.model.add(ReadoutLayer(output_shape, fraction_out=self.fraction_output))
