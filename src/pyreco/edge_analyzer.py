@@ -6,6 +6,8 @@ from pyreco.utils_networks import (
     convert_to_nx_graph,
     precompute_edge_metrics,
     extract_edge_weight,
+    extract_edge_abs_weight,
+    extract_edge_sign,
     extract_edge_is_reciprocal,
     extract_edge_in_scc,
     extract_edge_betweenness,
@@ -29,6 +31,8 @@ def available_extractors():
     """
     return {
         "weight": extract_edge_weight,
+        "abs_weight": extract_edge_abs_weight,
+        "sign": extract_edge_sign,
         "is_reciprocal": extract_edge_is_reciprocal,
         "in_scc": extract_edge_in_scc,
         "betweenness": extract_edge_betweenness,
@@ -154,6 +158,8 @@ class EdgeAnalyzer:
         #   from pre compute
         _cached = {
             "weight": lambda u, v: g[u][v].get("weight", 1.0),
+            "abs_weight": lambda u, v: abs(g[u][v].get("weight", 1.0)),
+            "sign": lambda u, v: -1 if g[u][v].get("weight", 1.0) < 0 else 1,
             "is_reciprocal": lambda u, v: int(g.has_edge(v, u)),
             "in_scc": lambda u, v: int(cache["scc_map"][u] == cache["scc_map"][v]),
             "betweenness": lambda u, v: cache["edge_betweenness"].get((u, v), 0.0),

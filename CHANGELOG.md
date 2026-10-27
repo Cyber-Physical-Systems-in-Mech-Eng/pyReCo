@@ -83,6 +83,16 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* `RandomReservoirLayer(weight_distribution=...)` (and `gen_ER_graph`) can draw signed weights on
+  the edges of the ER graph: `"positive"` (default, all weights equal, as before), `"sign"` (+1 or
+  -1), `"uniform"` (on [-1, 1]) or `"normal"`. The graph itself is the same for every distribution,
+  the weights are drawn after it and the network is scaled to the spectral radius as before. On the
+  NARMA10 setup of the literature the non-negative weights were the largest single reason for the
+  accuracy plateau. Along with it: `compute_density` counts negative weights (it counted only
+  weights > 0), the PageRank of a node ignores the weights, the edge properties `abs_weight` and
+  `sign` exist (the `EdgeAnalyzer` documentation named them), and a signed random graph whose
+  cycles cancel to a spectral radius of rounding noise is redrawn like an acyclic one.
+
 * New example `mwe_narma10_optimal_reservoir.py`: an optuna search over the size (up to 200 nodes),
   the density and the hyperparameters of a reservoir for NARMA10, on three independent NARMA
   sequences for training, validation and test. It reports the best reservoir, the smallest one within

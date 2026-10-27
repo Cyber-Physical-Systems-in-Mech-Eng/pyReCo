@@ -216,7 +216,7 @@ class TestAvailableExtractors:
         # available_extractors() advertises exactly these edge property names
         extractors = available_extractors()
         assert set(extractors.keys()) == {
-            "weight", "is_reciprocal", "in_scc", "betweenness",
+            "weight", "abs_weight", "sign", "is_reciprocal", "in_scc", "betweenness",
             "source_out_degree", "target_in_degree",
             "source_betweenness", "target_betweenness",
         }

@@ -376,6 +376,7 @@ class RandomReservoirLayer(ReservoirLayer):
         spec_rad: float = 0.9,
         init_res_sampling="zeros",
         seed=None,
+        weight_distribution: str = "positive",
     ):
         """
         Random (Erdős-Rényi) reservoir network.
@@ -397,6 +398,13 @@ class RandomReservoirLayer(ReservoirLayer):
         sample: "zeros" (default), "ones", "random" or "random_normal" (the last two are scaled
         to a maximum absolute value of 1). Explicit values can be set after compile() with
         set_initial_state().
+
+        weight_distribution (str): weights on the edges of the network (before it is scaled
+        to the spectral radius): "positive" (default, all weights equal, as before), "sign"
+        (+1 or -1 with equal probability), "uniform" (uniform on [-1, 1]) or "normal"
+        (standard normal). The graph (which edges exist) is the same for all of them. Signed
+        weights are common for echo state networks and matter for tasks with nonlinear memory
+        such as NARMA10.
         """
 
         # Call the parent class's __init__ method
@@ -411,6 +419,7 @@ class RandomReservoirLayer(ReservoirLayer):
 
         # initialize subclass-specific attributes
         self.seed = seed
+        self.weight_distribution = weight_distribution
         self.spec_rad = _check_number("spec_rad", spec_rad, low=0)
 
         # generate a random ER graph using networkx
@@ -420,6 +429,7 @@ class RandomReservoirLayer(ReservoirLayer):
             spec_rad=self.spec_rad,
             directed=True,
             seed=seed,
+            weight_distribution=weight_distribution,
         )
 
         # update the spectral radius and the density to the actual values. The density is

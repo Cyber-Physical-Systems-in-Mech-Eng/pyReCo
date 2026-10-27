@@ -13,6 +13,35 @@ from pyreco.utils_random import RngLike, make_rng
 # number of redraws of a graph without any directed cycle before giving up
 MAX_ER_ATTEMPTS = 100
 
+# a drawn graph whose spectral radius is below this fraction of its largest weight has no
+# usable cycle structure (see gen_ER_graph)
+MIN_SPEC_RAD = 1e-3
+
+# distributions of the weights on the existing edges of a random network
+WEIGHT_DISTRIBUTIONS = ("positive", "sign", "uniform", "normal")
+
+
+def draw_edge_weights(mask: np.ndarray, distribution: str, rng: np.random.Generator):
+    """Weights for the edges of a binary adjacency matrix.
+
+    "positive": all edges 1 (no random numbers are drawn), "sign": +1 or -1 with equal
+    probability, "uniform": uniform on [-1, 1], "normal": standard normal. Entries
+    without an edge stay 0.
+    """
+    if distribution == "positive":
+        return mask.astype(float)
+    if distribution == "sign":
+        weights = rng.choice([-1.0, 1.0], size=mask.shape)
+    elif distribution == "uniform":
+        weights = rng.uniform(-1.0, 1.0, size=mask.shape)
+    elif distribution == "normal":
+        weights = rng.standard_normal(size=mask.shape)
+    else:
+        raise ValueError(
+            f"unknown weight_distribution {distribution!r}, use one of {WEIGHT_DISTRIBUTIONS}."
+        )
+    return np.where(mask, weights, 0.0)
+
 
 def gen_ER_graph(
     nodes: int,
@@ -20,6 +49,7 @@ def gen_ER_graph(
     spec_rad: float = 0.9,
     directed: bool = True,
     seed: RngLike = None,
+    weight_distribution: str = "positive",
 ):
     """Generate an Erdős-Rényi random graph with specified properties.
 
@@ -44,6 +74,10 @@ def gen_ER_graph(
         directed (bool): Whether to create a directed graph
         seed (int, Generator or None): Random seed for reproducibility. Controls the
             graph and the repair of isolated nodes; the global random state is not used.
+        weight_distribution (str): weights of the edges, see WEIGHT_DISTRIBUTIONS. The
+            default "positive" gives the binary adjacency matrix (all weights 1). The
+            others give signed weights; they are drawn after the graph, so the support is
+            the same ER graph for every distribution and seed.
 
     Returns:
         np.ndarray: Adjacency matrix with shape (nodes, nodes)
@@ -60,6 +94,11 @@ def gen_ER_graph(
     """
     # all randomness comes from this generator, never from the global state
     rng = make_rng(seed)
+    if weight_distribution not in WEIGHT_DISTRIBUTIONS:
+        raise ValueError(
+            f"unknown weight_distribution {weight_distribution!r}, use one of "
+            f"{WEIGHT_DISTRIBUTIONS}."
+        )
 
     # A graph without a directed cycle (e.g. a sparse or small graph) has spectral radius
     # 0 and cannot be rescaled to a target spectral radius. Such graphs are redrawn.
@@ -90,9 +129,14 @@ def gen_ER_graph(
                     if directed:
                         G.add_edge(target, node)
 
-        GNet = nx.to_numpy_array(G)
+        GNet = draw_edge_weights(nx.to_numpy_array(G) > 0, weight_distribution, rng)
         curr_spec_rad = max(abs(np.linalg.eigvals(GNet)))
-        if curr_spec_rad > 0:
+        # A binary graph has spectral radius >= 1 if it has a cycle. With signed weights the
+        # cycles can cancel (e.g. +1 -1) and leave a spectral radius of rounding noise, which
+        # would be blown up by the rescaling; such draws are redrawn as well.
+        if curr_spec_rad > MIN_SPEC_RAD * np.max(np.abs(GNet), initial=0.0) and not (
+            nx.is_directed_acyclic_graph(nx.from_numpy_array(GNet != 0, create_using=nx.DiGraph))
+        ):
             return GNet * spec_rad / curr_spec_rad
 
     raise ValueError(
@@ -108,7 +152,7 @@ def compute_density(network: np.ndarray) -> float:
     if network.shape[0] != network.shape[1]:
         raise ValueError("adjacency matrix must be square")
     N = len(network)
-    num_links = np.sum(network.flatten() > 0)
+    num_links = np.count_nonzero(network)  # signed weights count as links as well
     return num_links / (N**2)
 
 
@@ -349,7 +393,8 @@ def extract_node_pagerank(
     graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
 ) -> float:
     graph = convert_to_nx_graph(graph)
-    return nx.pagerank(graph)[node]
+    # the structure counts, not the (possibly negative) weights
+    return nx.pagerank(graph, weight=None)[node]
 
 
 def extract_edge_weight(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
@@ -373,6 +418,18 @@ def extract_edge_weight(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
     graph = convert_to_nx_graph(graph)
     u, v = edge
     return graph[u][v].get("weight", 1.0)
+
+
+def extract_edge_abs_weight(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
+                            edge: tuple) -> float:
+    """Magnitude |w| of the edge weight (1.0 if the edge has no explicit weight)."""
+    return abs(extract_edge_weight(graph, edge))
+
+
+def extract_edge_sign(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
+                      edge: tuple) -> int:
+    """Sign of the edge weight: +1 (excitatory) or -1 (inhibitory)."""
+    return -1 if extract_edge_weight(graph, edge) < 0 else 1
 
 
 def extract_edge_is_reciprocal(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
