@@ -83,6 +83,13 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* New example `mwe_narma10_optimal_reservoir.py`: an optuna search over the size (up to 200 nodes),
+  the density and the hyperparameters of a reservoir for NARMA10, on three independent NARMA
+  sequences for training, validation and test. It reports the best reservoir, the smallest one within
+  5% of it, the importances of the parameters and a note if an optimum sits at the edge of its search
+  range. With the units in the nearly linear regime (small input scaling) the reservoir reaches the
+  level of a linear model on the last 20 inputs (test NRMSE 0.36 vs 0.38); a quadratic model reaches
+  0.15.
 * `Tuner` is quiet by default: Optuna only logs warnings while it runs (the logging level of the
   caller is restored afterwards, also if a trial fails), the hyperparameter importances are printed
   only with `verbose=True`, Optuna's warnings about small studies are not shown, a single trial gives

@@ -293,6 +293,7 @@ The folder `examples/` contains minimal working examples (`mwe_*.py`) that you c
 | `mwe_set_readin_weights.py`, `setting_reservoir_matrix.py` | use your own read-in weights or reservoir matrix |
 | `mwe_remove_nodes.py`, `mwe_remove_edges.py` | remove nodes or edges of a trained model |
 | `mwe_node_pruning.py`, `mwe_edge_pruning.py` | pruning |
+| `mwe_narma10_optimal_reservoir.py` | NARMA10: search for the best reservoir with at most 200 nodes (size, density and hyperparameters) |
 | `effects_network_structure.py` | variation of the performance across random reservoir networks |
 | `compare_tensorflow_recopy.py`, `RC_vs_ANN.py` | comparison with feed-forward networks (needs `pyreco[benchmarks]`) |
 | `testing_autoRC.py`, `testing_Hybrid-RC.py` | experimental closed-loop (auto-regressive) prediction |
