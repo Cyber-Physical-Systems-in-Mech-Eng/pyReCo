@@ -142,11 +142,11 @@ class ReadoutLayer(Layer):
         # self.update_layer_properties()
         raise NotImplementedError("This method is not yet implemented.")
 
-    def update_layer_properties(self):
-
-        # updates the properties of the readout layer
-        self.fraction_out = len(self.readout_nodes) / self.weights.shape[0]
-        pass
+    def update_layer_properties(self, n_reservoir_nodes: int = None):
+        # updates the properties of the readout layer: the fraction of the reservoir nodes
+        # that are read out (unchanged if the number of reservoir nodes is not given)
+        if n_reservoir_nodes is not None:
+            self.fraction_out = len(self.readout_nodes) / n_reservoir_nodes
 
 
 class FeedbackLayer(Layer):

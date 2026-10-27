@@ -357,6 +357,20 @@ class CustomModel(ABC):
         if not isinstance(store_states, bool):
             raise TypeError("store_states must be a boolean.")
 
+        # the model has to be compiled, and the input has to reach the reservoir and the
+        # readout has to see it (nodes can be removed after compiling)
+        if getattr(self, "input_layer", None) is None or self.input_layer.weights is None:
+            raise RuntimeError("The model is not compiled. Call compile() before fit().")
+        if not np.any(self.input_layer.weights):
+            raise ValueError(
+                "No reservoir node receives the input: all read-in weights are zero (were all "
+                "nodes that receive the input removed?)."
+            )
+        if len(self.readout_layer.readout_nodes) == 0:
+            raise ValueError(
+                "No reservoir node is read out (were all readout nodes removed?)."
+            )
+
         # Extract shapes of inputs and outputs, expected to be 3D arrays
         # of shape [n_batch, n_timesteps, n_features]
         n_batch, n_time_in = x.shape[0], x.shape[1]
@@ -728,7 +742,7 @@ class CustomModel(ABC):
         self.readout_layer.readout_nodes = rename_nodes_after_removal(
             original_nodes=self.readout_layer.readout_nodes, removed_nodes=nodes
         )
-        self.readout_layer.update_layer_properties()
+        self.readout_layer.update_layer_properties(self.reservoir_layer.nodes)
 
         # TODO: any more attributes to change here?
 
@@ -822,6 +836,14 @@ class CustomModel(ABC):
                 rng=self._rng_readout_nodes,
             )
             nodes = selector.select_nodes(fraction=self.readout_layer.fraction_out)
+            if len(nodes) == 0:
+                raise ValueError(
+                    f"fraction_out={self.readout_layer.fraction_out} selects 0 of the "
+                    f"{self.reservoir_layer.nodes} reservoir nodes to be read out. Use a larger "
+                    "fraction_out or more nodes."
+                )
+        elif len(nodes) == 0:
+            raise ValueError("At least one reservoir node has to be read out.")
 
         # set the readout nodes in the readout layer
         self.readout_layer.readout_nodes = nodes  # sorted(nodes)
@@ -908,6 +930,13 @@ class CustomModel(ABC):
         input_receiving_nodes = node_selector.select_nodes(
             fraction=self.reservoir_layer.fraction_input
         )
+
+        if len(input_receiving_nodes) == 0:
+            raise ValueError(
+                f"fraction_input={self.reservoir_layer.fraction_input} selects 0 of the "
+                f"{self.num_nodes} reservoir nodes to receive the input. Use a larger "
+                "fraction_input or more nodes."
+            )
 
         self.reservoir_layer.input_receiving_nodes = input_receiving_nodes
         node_mask = np.zeros_like(full_input_weights)

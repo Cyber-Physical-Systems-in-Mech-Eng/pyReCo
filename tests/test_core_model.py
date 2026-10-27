@@ -242,3 +242,91 @@ def test_set_normalization_validates_its_argument():
     assert model.normalize_inputs is False
     with pytest.raises(TypeError, match="boolean"):
         model.set_normalization(normalize_inputs="yes")
+
+
+# ------------------------------------------------- no input nodes, no readout nodes, no compile
+
+
+def test_a_fraction_that_selects_no_input_node_is_an_error():
+    model = RC(seed=0)
+    model.add(InputLayer((20, 2)))
+    model.add(RandomReservoirLayer(nodes=5, density=0.5, fraction_input=0.1, seed=0))
+    model.add(ReadoutLayer((20, 1)))
+    with pytest.raises(ValueError, match="selects 0 of the 5 reservoir nodes to receive the input"):
+        model.compile()
+
+
+def test_a_fraction_that_selects_no_readout_node_is_an_error():
+    model = RC(seed=0)
+    model.add(InputLayer((20, 2)))
+    model.add(RandomReservoirLayer(nodes=5, density=0.5, seed=0))
+    model.add(ReadoutLayer((20, 1), fraction_out=0.1))
+    with pytest.raises(ValueError, match="selects 0 of the 5 reservoir nodes to be read out"):
+        model.compile()
+
+
+def test_the_smallest_fractions_that_select_a_node_work():
+    model = RC(seed=0)
+    model.add(InputLayer((20, 2)))
+    model.add(RandomReservoirLayer(nodes=5, density=0.5, fraction_input=0.3, seed=0))
+    model.add(ReadoutLayer((20, 1), fraction_out=0.3))
+    model.compile()
+    assert len(model.reservoir_layer.input_receiving_nodes) == 2
+    assert len(model.readout_layer.readout_nodes) == 2
+
+
+def test_explicitly_empty_readout_nodes_are_rejected():
+    model = _model()
+    with pytest.raises(ValueError, match="At least one"):
+        model._set_readout_nodes([])
+
+
+def test_removing_all_input_nodes_is_caught_at_fit():
+    x, y = _data()
+    model = RC(seed=0)
+    model.add(InputLayer((30, 2)))
+    model.add(RandomReservoirLayer(nodes=10, density=0.3, fraction_input=0.2, seed=0))
+    model.add(ReadoutLayer((30, 1)))
+    model.compile()
+    model.remove_reservoir_nodes(list(model.reservoir_layer.input_receiving_nodes))
+    with pytest.raises(ValueError, match="No reservoir node receives the input"):
+        model.fit(x, y)
+
+
+def test_removing_all_readout_nodes_is_caught_at_fit():
+    x, y = _data()
+    model = RC(seed=0)
+    model.add(InputLayer((30, 2)))
+    model.add(RandomReservoirLayer(nodes=10, density=0.3, seed=0))
+    model.add(ReadoutLayer((30, 1), fraction_out=0.2))
+    model.compile()
+    model.remove_reservoir_nodes(list(model.readout_layer.readout_nodes))
+    with pytest.raises(ValueError, match="No reservoir node is read out"):
+        model.fit(x, y)
+
+
+def test_fit_before_compile_asks_for_compile():
+    x, y = _data()
+    model = RC()
+    model.add(InputLayer((30, 2)))
+    model.add(RandomReservoirLayer(nodes=10, density=0.3, seed=0))
+    model.add(ReadoutLayer((30, 1)))
+    with pytest.raises(RuntimeError, match="compile"):
+        model.fit(x, y)
+    with pytest.raises(RuntimeError, match="compile"):
+        RC().fit(x, y)  # not even layers
+
+
+def test_nodes_can_be_removed_before_the_first_fit_and_the_fraction_follows():
+    model = RC(seed=0)
+    model.add(InputLayer((30, 2)))
+    model.add(RandomReservoirLayer(nodes=20, density=0.3, seed=0))
+    model.add(ReadoutLayer((30, 1), fraction_out=0.5))
+    model.compile()
+    assert len(model.readout_layer.readout_nodes) == 10
+    model.remove_reservoir_nodes([0, 1, 2, 3])
+    n_readout = len(model.readout_layer.readout_nodes)
+    assert np.isclose(model.readout_layer.fraction_out, n_readout / 16)
+    x, y = _data()
+    model.fit(x, y)
+    assert model.predict(x).shape == (8, 30, 1)

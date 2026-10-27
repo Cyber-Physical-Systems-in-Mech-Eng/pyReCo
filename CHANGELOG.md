@@ -154,6 +154,15 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Bugfixes
 
+* A reservoir where `fraction_input` or `fraction_out` selects no node (e.g. `fraction_input=0.1` on 5
+  nodes) is an error at `compile()` with the numbers in the message. Before, no node received the input
+  (the model trained and predicted a constant, silently) or no node was read out (`fit()` failed with a
+  scikit-learn message about 0 features). `fit()` also checks that the input reaches the reservoir and
+  that a readout node is left, which matters after `remove_reservoir_nodes`, and says "call compile()
+  first" for a model that is not compiled (it was a cryptic `einsum` error).
+* `remove_reservoir_nodes` crashed for a model that was not fitted yet, and updated `fraction_out` of
+  the readout layer with the wrong denominator (the old number of readout nodes); it is the fraction of
+  the remaining reservoir nodes that are read out now.
 * `Tuner` no longer modifies the model that is passed in. It used to set the hyperparameters of
   the trials on that very object and retrain it, so the caller's model ended up in the state of
   the last trial. Every optimization now runs on a copy; the best copy is `tuner.best_model`.
