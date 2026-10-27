@@ -169,3 +169,47 @@ def test_without_a_seed_runs_differ(data):
 def test_invalid_seed_is_rejected(data, bad):
     with pytest.raises((TypeError, ValueError)):
         _tuner(data, seed=bad)
+
+
+# --------------------------------------------------------- the model of the caller is left alone
+
+
+def test_the_model_that_is_passed_in_is_not_modified(data):
+    X_train, X_test, y_train, y_test = data
+    model = _model(data)
+    model.fit(X_train, y_train)
+    hp_before, prediction_before = model.get_hp(), model.predict(X_test)
+    weights_before = model.reservoir_layer.weights.copy()
+
+    tuner = Tuner(model, SEARCH_SPACE, X_train, y_train, x_val=X_test, y_val=y_test, n_trials=5, seed=0)
+    tuner.optimize()
+
+    assert model.get_hp() == hp_before
+    assert np.array_equal(model.predict(X_test), prediction_before)
+    assert np.array_equal(model.reservoir_layer.weights, weights_before)
+    assert tuner.best_model is not model
+    assert tuner.best_model.get_hp() != hp_before
+
+
+def test_the_best_model_is_independent_of_later_trials(data):
+    # the stored best model must not change when later trials retrain the working copy
+    _, X_test, _, y_test = data
+    tuner = _tuner(data, n_trials=6, seed=1)
+    tuner.optimize()
+    assert np.isclose(tuner.best_model.evaluate(X_test, y_test)[0], tuner.best_score)
+
+
+def test_optimizing_twice_starts_from_the_original_model(data):
+    first = _tuner(data, n_trials=4, seed=5)
+    first_values = _trial_values(first.optimize())
+    # a second optimization of the same tuner proposes the same hyperparameters again with a
+    # fresh sampler and gives the same scores, because nothing carries over from the first run
+    first.best_score, first.best_model = float("inf"), None
+    assert _trial_values(first.optimize()) == first_values
+
+
+def test_the_evaluator_receives_the_working_copy(data):
+    seen = []
+    tuner = _tuner(data, n_trials=2, evaluator=lambda model, trial: seen.append(model) or 1.0)
+    tuner.optimize()
+    assert all(m is not tuner.model for m in seen)

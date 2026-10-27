@@ -142,6 +142,9 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Bugfixes
 
+* `Tuner` no longer modifies the model that is passed in. It used to set the hyperparameters of
+  the trials on that very object and retrain it, so the caller's model ended up in the state of
+  the last trial. Every optimization now runs on a copy; the best copy is `tuner.best_model`.
 * `RidgeSK(alpha=...)` ignored its argument (the constructor set `alpha = 1.0` regardless), so every
   model compiled with e.g. `RidgeSK(alpha=0.5)` was trained with a penalty of 1.0. The argument is
   used now and validated (a finite number >= 0; `set_alpha` checks the same). The default stays

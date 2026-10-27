@@ -18,6 +18,9 @@ class Tuner:
     Optuna-based samplers (TPE, random, grid), custom evaluation loops, and
     immediate persistence of the best-performing model during optimization.
 
+    The model that is passed to the tuner is never modified: every trial runs on a copy of it, and
+    the best copy is available as `best_model`.
+
     The tuner is designed to work seamlessly with pyReCo models that expose
     a scikit-learn–like API (`fit`, `predict`, `evaluate`) and support dynamic
     hyperparameter updates via `model.set_hp()`.
@@ -149,6 +152,7 @@ class Tuner:
 
         self.study = None
         self.best_model = None
+        self._working_model = None  # the copy of `model` that the trials set up and train
 
         if self.direction == "minimize":
             self.best_score = float("inf")
@@ -165,6 +169,7 @@ class Tuner:
 
     def set_model(self, model):
         self.model = model
+        self._working_model = None
         self.best_model = None
         self.study = None
         self.importances = None
@@ -213,23 +218,28 @@ class Tuner:
     def objective(self, trial):
         params = self.suggest_parameters(trial)
 
-        self.model.set_hp(**params)
-        self.model.fit(self.x_train, self.y_train)
+        # the trials run on a copy: the model of the caller stays as it is
+        if self._working_model is None:
+            self._working_model = copy.deepcopy(self.model)
+        model = self._working_model
+
+        model.set_hp(**params)
+        model.fit(self.x_train, self.y_train)
 
         # -------------------------
         # Scoring logic (with default model.evaluate)
         # -------------------------
         if self.evaluator is not None:
-            score = self.evaluator(self.model, trial)
+            score = self.evaluator(model, trial)
 
         elif self.x_val is not None and self.y_val is not None:
             # If user provided a metric function, compute it from predictions
             if self.metric is not None:
-                y_pred = self.model.predict(self.x_val)
+                y_pred = model.predict(self.x_val)
                 score = self.metric(self.y_val, y_pred)
             else:
                 # DEFAULT: use model.evaluate directly
-                score = self.model.evaluate(self.x_val, self.y_val)
+                score = model.evaluate(self.x_val, self.y_val)
 
                 # normalize possible return types
                 if isinstance(score, (list, tuple)):
@@ -250,13 +260,15 @@ class Tuner:
         # save best model immediately
         if self._is_better(float(score)):
             self.best_score = float(score)
-            self.best_model = copy.deepcopy(self.model)
+            self.best_model = copy.deepcopy(model)
             if self.verbose:
                 print(f"[Tuner] New best model saved at trial {trial.number:02} with score {float(score):.6f}")
 
         return float(score)
 
     def optimize(self, save_importance_path: str | None = None):
+        # every optimization starts from a fresh copy of the model that was passed in
+        self._working_model = copy.deepcopy(self.model)
         self.study = optuna.create_study(
             direction=self.direction,
             sampler=self.get_sampler()
