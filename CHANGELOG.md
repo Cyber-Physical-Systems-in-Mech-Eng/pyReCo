@@ -91,7 +91,7 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 * `Tuner(seed=...)` seeds the Optuna sampler (TPE, random and grid), so a seeded tuning of a seeded
   model and data finds the same hyperparameters on every run. The samplers were unseeded before and
   every run was different. Without a seed the search is still random.
-* New example `mwe_smallest_reservoir.py`: tunes the hyperparameters of reservoirs of increasing size
+* New example `mwe_narma10_size_sweep_edge_pruning.py`: tunes the hyperparameters of reservoirs of increasing size
   for NARMA10, picks the smallest size that is within 10% of the best validation error, prunes
   its edges, and compares with a linear and a quadratic model on the lagged inputs. Every stage
   is guarded and a report lists the errors, warnings, checks that failed (reproducibility, pruner

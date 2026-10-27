@@ -1,5 +1,6 @@
 """
-Minimal working example: how small can a reservoir computer for NARMA10 be?
+Minimal working example: how small can a reservoir computer for NARMA10 be? Size sweep with tuned
+hyperparameters, then edge pruning.
 
 The script answers the question in two ways:
 
@@ -50,8 +51,9 @@ N_IN = 30  # input window; the target belongs to the last input step (warm-up N_
 SEARCH_SPACE = {
     "spec_rad": ("float", 0.3, 1.0),
     "leakage_rate": ("float", 0.1, 1.0),
-    "input_scaling": ("float", 0.1, 3.0),
-    "alpha": ("float", 1e-9, 1.0, "log"),  # ridge penalty of the readout
+    # NARMA10 is best solved in the nearly linear regime of the units: small input scaling
+    "input_scaling": ("float", 1e-3, 3.0, "log"),
+    "alpha": ("float", 1e-12, 1.0, "log"),  # ridge penalty of the readout
 }
 
 

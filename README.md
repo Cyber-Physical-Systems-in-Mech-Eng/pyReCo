@@ -289,7 +289,7 @@ The folder `examples/` contains minimal working examples (`mwe_*.py`) that you c
 | `mwe_chaotic_datasets.py`, `mwe_narma.py` | Lorenz, Mackey-Glass and NARMA benchmarks |
 | `mwe_cross_validation.py` | k-fold cross-validation, drawing the reservoir network |
 | `mwe_hyperparameter_tuning.py` | hyperparameter search with `Tuner` |
-| `mwe_smallest_reservoir.py` | the smallest (and sparsest) reservoir that still solves NARMA10; also an extended smoke test that reports unexpected behavior |
+| `mwe_narma10_size_sweep_edge_pruning.py` | NARMA10: how many nodes are needed (size sweep with tuned hyperparameters), then how many edges (edge pruning); also an extended smoke test that reports unexpected behavior |
 | `mwe_set_readin_weights.py`, `setting_reservoir_matrix.py` | use your own read-in weights or reservoir matrix |
 | `mwe_remove_nodes.py`, `mwe_remove_edges.py` | remove nodes or edges of a trained model |
 | `mwe_node_pruning.py`, `mwe_edge_pruning.py` | pruning |
