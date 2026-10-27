@@ -24,6 +24,37 @@ from pyreco.utils_networks import (
 )
 
 
+ACTIVATIONS = ("tanh", "sigmoid")
+
+
+def _check_number(name, value, low=None, high=None):
+    """
+    Return `value` as a float if it is a finite number in the interval (low, high]; a missing
+    bound is not checked. Booleans are not numbers here.
+    """
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, float, np.integer, np.floating)):
+        raise TypeError(f"{name} must be a number, got {value!r}.")
+    if not np.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value!r}.")
+    too_low = low is not None and not value > low
+    too_high = high is not None and value > high
+    if too_low or too_high:
+        interval = f"in ({low}, {high}]" if high is not None else f"larger than {low}"
+        raise ValueError(f"{name} must be {interval}, got {value!r}.")
+    return float(value)
+
+
+def _check_nodes(nodes):
+    if isinstance(nodes, (bool, np.bool_)) or not isinstance(nodes, (int, np.integer)):
+        raise TypeError(f"nodes must be an integer, got {nodes!r}.")
+    if nodes < 2:
+        raise ValueError(
+            f"nodes must be at least 2, got {nodes!r}: a reservoir without self-loops needs two "
+            "nodes to contain a directed cycle."
+        )
+    return int(nodes)
+
+
 # implements the abstract base class
 class Layer(ABC):
 
@@ -95,9 +126,8 @@ class ReadoutLayer(Layer):
         self.n_time = output_shape[0]
         self.n_states = output_shape[1]
         self.type = "output"
-        self.fraction_out: float = (
-            fraction_out  # fraction of connections to the reservoir
-        )
+        # fraction of the reservoir nodes that are read out
+        self.fraction_out: float = _check_number("fraction_out", fraction_out, low=0, high=1)
         self.name = "readout_layer"
 
         self.readout_nodes = []  # list of nodes that are linked to output
@@ -185,14 +215,17 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         init_res_sampling,
     ):
         super().__init__()
-        self.nodes: int = nodes  # number of reservoir nodes
-        self.density: float = density
+        self.nodes: int = _check_nodes(nodes)  # number of reservoir nodes
+        self.density: float = _check_number("density", density, low=0, high=1)
         self.spec_rad = None
+        if activation not in ACTIVATIONS:
+            raise ValueError(f"activation must be one of {ACTIVATIONS}, got {activation!r}.")
         self.activation = activation
-        self.leakage_rate = leakage_rate
+        self.leakage_rate = _check_number("leakage_rate", leakage_rate, low=0, high=1)
         self.name = "reservoir_layer"
         self.type = "reservoir"
-        self.fraction_input = fraction_input
+        # fraction of the nodes that receive the input
+        self.fraction_input = _check_number("fraction_input", fraction_input, low=0, high=1)
         self.weights = None  # the adjacency matrix / reservoir network
         self.input_receiving_nodes = None
 
@@ -327,7 +360,7 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         return self.activation
 
     def set_activation(self, value):
-        if value not in ["tanh", "sigmoid"]:
+        if value not in ACTIVATIONS:
             raise ValueError("Activation must be 'tanh' or 'sigmoid'")
         self.activation = value
 
@@ -346,6 +379,14 @@ class RandomReservoirLayer(ReservoirLayer):
     ):
         """
         Random (Erdős-Rényi) reservoir network.
+
+        nodes (int): number of nodes, at least 2.
+        density (float): probability of an edge between two nodes, in (0, 1]. The density of
+        the generated network varies around it.
+        activation (str): "tanh" or "sigmoid".
+        leakage_rate (float): in (0, 1].
+        fraction_input (float): fraction of the nodes that receive the input, in (0, 1].
+        spec_rad (float): spectral radius the network is scaled to, larger than 0.
 
         seed (int, optional): seed of the reservoir graph. It fixes the adjacency matrix
         completely, including the repair of isolated nodes. The global random state is
@@ -370,7 +411,7 @@ class RandomReservoirLayer(ReservoirLayer):
 
         # initialize subclass-specific attributes
         self.seed = seed
-        self.spec_rad = spec_rad
+        self.spec_rad = _check_number("spec_rad", spec_rad, low=0)
 
         # generate a random ER graph using networkx
         self.weights = gen_ER_graph(

@@ -8,6 +8,13 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Breaking Changes
 
+* Layers check their arguments when they are created and raise a `TypeError`/`ValueError` with a clear
+  message instead of building a model that silently does something else: `nodes` an integer >= 2,
+  `density` in (0, 1], `spec_rad` > 0 (0 gave a reservoir without recurrence), `leakage_rate` in
+  (0, 1] (0 froze the reservoir, values above 1 made it unstable), `activation` in
+  `{"tanh", "sigmoid"}` (an unknown name used to fail only at `fit()`), `fraction_input` and
+  `fraction_out` in (0, 1]. Integers are accepted where a number is meant (`fraction_out=1`);
+  `density=1.5` and a non-integer `nodes` were accepted or failed with a cryptic error before.
 * The reservoir now starts from the zero state by default (it used to be a random normal vector).
   Other initial states can be requested with `RandomReservoirLayer(init_res_sampling="ones" |
   "random" | "random_normal")`, or set explicitly after `compile()` with
