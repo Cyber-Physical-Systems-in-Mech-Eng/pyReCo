@@ -249,7 +249,7 @@ Edges are directed: `weights[u, v]` is the edge from node `u` to node `v`. Note 
 
 ### Hyperparameter tuning
 
-`Tuner` searches hyperparameters of a compiled model with [optuna](https://optuna.org): the spectral radius, the leakage rate, the activation function, the input scaling and the regularization strength of the readout.
+`Tuner` searches hyperparameters of a compiled model with [optuna](https://optuna.org): the spectral radius, the leakage rate, the activation function, the input scaling and the regularization strength of the readout. Your model is not modified: the trials run on copies, and the best one is `tuner.best_model`. With a `seed` the search is reproducible; the tuner is quiet unless `verbose=True`.
 
 ```python
 from pyreco.custom_models import RC
@@ -271,7 +271,7 @@ search_space = {
     'input_scaling': ('float', 0.1, 3.0),
     'alpha': ('float', 1e-8, 1.0, 'log'),  # strength of the ridge regularization of the readout
 }
-tuner = Tuner(model, search_space, X_train, y_train, x_val=X_test, y_val=y_test, n_trials=10)
+tuner = Tuner(model, search_space, X_train, y_train, x_val=X_test, y_val=y_test, n_trials=10, seed=0)
 tuner.optimize()
 tuner.report()
 print(f"scores: {tuner.best_model.evaluate(X_test, y_test)}")  # the tuned model

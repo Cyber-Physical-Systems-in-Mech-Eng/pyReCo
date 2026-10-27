@@ -29,7 +29,6 @@ import warnings
 from collections import Counter
 
 import numpy as np
-import optuna
 from sklearn.linear_model import Ridge
 
 from pyreco.custom_models import RC
@@ -54,8 +53,6 @@ SEARCH_SPACE = {
     "input_scaling": ("float", 0.1, 3.0),
     "alpha": ("float", 1e-9, 1.0, "log"),  # ridge penalty of the readout
 }
-
-optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 
 # ------------------------------------------------------------------------- smoke test tools
@@ -112,7 +109,9 @@ def build(nodes, seed):
 
 def tune(nodes, seed, n_trials=N_TRIALS):
     model = build(nodes, seed)
-    tuner = Tuner(model, SEARCH_SPACE, x_train, y_train, x_val=x_val, y_val=y_val, n_trials=n_trials)
+    tuner = Tuner(
+        model, SEARCH_SPACE, x_train, y_train, x_val=x_val, y_val=y_val, n_trials=n_trials, seed=seed
+    )
     tuner.optimize()
     return tuner.best_model, model
 
@@ -245,7 +244,7 @@ with smoke.stage("reproducibility"):
     b, _ = tune(SIZES[0], 0, n_trials=6)
     smoke.check(
         a.get_hp() == b.get_hp(),
-        "two tuning runs with identical seeds find different hyperparameters (the Tuner has no seed)",
+        "two tuning runs with identical seeds find different hyperparameters",
     )
 
 # -------------------------------------------------------------------------------- results
