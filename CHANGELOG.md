@@ -76,6 +76,11 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* New example `mwe_smallest_reservoir.py`: tunes the hyperparameters of reservoirs of increasing size
+  for NARMA10, picks the smallest size that is within 10% of the best validation error, prunes
+  its edges, and compares with a linear and a quadratic model on the lagged inputs. Every stage
+  is guarded and a report lists the errors, warnings, checks that failed (reproducibility, pruner
+  bookkeeping, the Tuner leaving the model alone, ...) and the amount of text printed.
 * The README was brought up to date: installation first, the capabilities (pruning, benchmark data
   sets, tuning, seeds), data shapes and warm-up, initial state and reproducibility, benchmark data
   sets, edge pruning, hyperparameter tuning, an overview of the examples and how to run the tests.
