@@ -25,6 +25,7 @@ from pyreco.utils_networks import (
 
 
 ACTIVATIONS = ("tanh", "sigmoid")
+INPUT_WEIGHT_DISTRIBUTIONS = ("normal", "uniform", "sign")
 
 
 def _check_number(name, value, low=None, high=None):
@@ -75,9 +76,23 @@ class InputLayer(Layer):
     # the state dimension of the input (irrespective if a time series or a vector was put in)
     # the actual read-in layer matrix will be created by model.compile()!
 
-    def __init__(self, input_shape):
-        # input shape is (n_timesteps, n_states)
+    def __init__(self, input_shape, weight_distribution: str = "normal"):
+        """
+        input_shape (tuple): (n_timesteps, n_states)
+        weight_distribution (str): distribution of the read-in weights W_in, drawn by
+        model.compile() before the weights of the nodes that do not receive the input are set
+        to 0: "normal" (default, standard normal scaled to a maximum absolute value of 1),
+        "uniform" (uniform on [-1, 1]) or "sign" (+1 or -1 with equal probability, equal
+        magnitude as in many echo state networks).
+        """
         super().__init__()
+        if weight_distribution not in INPUT_WEIGHT_DISTRIBUTIONS:
+            raise ValueError(
+                f"unknown weight_distribution {weight_distribution!r}, use one of "
+                f"{INPUT_WEIGHT_DISTRIBUTIONS}."
+            )
+        self.weight_distribution = weight_distribution
+        self.bias = None  # signs of the input bias, shape (n_reservoir_nodes,), set by compile
         self.shape = input_shape
         self.n_time = input_shape[0]
         self.n_states = input_shape[1]
@@ -105,6 +120,8 @@ class InputLayer(Layer):
 
         # remove nodes from [n_reservoir_nodes, n_states] matrix
         self.weights = np.delete(self.weights, nodes, axis=0)
+        if self.bias is not None:
+            self.bias = np.delete(self.bias, nodes)
 
         # update the properties of the input layer
         self.update_layer_properties()

@@ -83,6 +83,15 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* New input bias: `model.compile(input_bias=b)` (also `set_input_bias`, `set_hp(input_bias=...)`,
+  `get_hp`) adds a constant input `b * s` to every reservoir node, `s` being a vector of random signs
+  (+1/-1, fixed at compile, `model.input_layer.bias`). Default 0, i.e. no change for existing code.
+  Like the input scaling it is frozen at `fit()`. Without a bias and with a zero-mean input the
+  states of a tanh reservoir are odd in the input, so even functions such as x^2 cannot be learned;
+  most echo state networks of the literature have a bias. Not used by `AutoRC`.
+* `InputLayer(weight_distribution=...)` chooses the read-in weights: `"normal"` (default, as before),
+  `"uniform"` on [-1, 1] or `"sign"` (+1/-1, equal magnitude). The model seed keeps them reproducible
+  and the bias uses its own random stream, so existing seeds give the same models as before.
 * `RandomReservoirLayer(weight_distribution=...)` (and `gen_ER_graph`) can draw signed weights on
   the edges of the ER graph: `"positive"` (default, all weights equal, as before), `"sign"` (+1 or
   -1), `"uniform"` (on [-1, 1]) or `"normal"`. The graph itself is the same for every distribution,

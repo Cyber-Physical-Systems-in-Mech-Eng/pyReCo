@@ -101,6 +101,10 @@ class CustomModel(ABC):
         self.normalize_inputs: bool = True  # z-score the inputs
         self.input_scaling: Union[float, np.ndarray] = 1.0  # scalar or (d,) vector
 
+        # Input bias: a constant input to every reservoir node, input_bias * b with b a
+        # fixed vector of random signs (input_layer.bias, drawn at compile). 0 = none.
+        self.input_bias: float = 0.0
+
         # Statistics learned during fit (z-scoring), shape (d,)
         self.input_mean: np.ndarray = None
         self.input_std: np.ndarray = None
@@ -108,6 +112,7 @@ class CustomModel(ABC):
         # Preprocessing settings frozen at fit time
         self._normalize_inputs_fit: bool = None
         self._input_scaling_fit: Union[float, np.ndarray] = None
+        self._input_bias_fit: float = None
 
     def _init_rngs(self):
         """
@@ -116,12 +121,13 @@ class CustomModel(ABC):
         change the read-in weights. Called at construction and at every compile(), so
         compiling twice with a fixed seed gives the same model.
         """
-        children = np.random.SeedSequence(self.seed).spawn(4)
+        children = np.random.SeedSequence(self.seed).spawn(5)
         (
             self._rng_readin_weights,
             self._rng_init_state,
             self._rng_input_nodes,
             self._rng_readout_nodes,
+            self._rng_bias,
         ) = [np.random.default_rng(child) for child in children]
 
     def add(self, layer: Layer):
@@ -161,6 +167,7 @@ class CustomModel(ABC):
         discard_transients: int = 0,
         normalize_inputs: bool = None,
         input_scaling: Union[float, np.ndarray] = None,
+        input_bias: float = None,
     ):
         """
         Configure the model for training.
@@ -182,6 +189,12 @@ class CustomModel(ABC):
         input_scaling (float or np.ndarray, optional): positive gain applied to the
             z-scored inputs, a scalar or one value per input channel. Default: 1.0
             (no additional scaling). If None, the current setting is kept.
+        input_bias (float, optional): gain of a constant input to every reservoir node, >= 0.
+            Each node gets input_bias * b, b being +1 or -1 (drawn once at compile, equal
+            probability), so r(t+1) = (1 - a) r(t) + a g(r(t) A + W_in x_tilde(t) + input_bias b).
+            Default 0 (no bias). A bias lets the units work away from the symmetric point of
+            tanh and is part of most echo state networks in the literature. If None, the
+            current setting is kept. Not used by AutoRC.
 
         The reservoir starts every sample from the same initial state r(0), which is zero by
         default. Choose another sampling method with
@@ -202,6 +215,8 @@ class CustomModel(ABC):
         self.set_normalization(normalize_inputs=normalize_inputs)
         if input_scaling is not None:
             self.set_input_scaling(input_scaling)
+        if input_bias is not None:
+            self.set_input_bias(input_bias)
 
         # fresh random streams: compiling twice with the same seed gives the same model
         self._init_rngs()
@@ -385,6 +400,7 @@ class CustomModel(ABC):
         )
         self._normalize_inputs_fit = bool(self.normalize_inputs)
         self._input_scaling_fit = self.input_scaling
+        self._input_bias_fit = self.input_bias
         if self._normalize_inputs_fit:
             self.input_mean = x.mean(axis=(0, 1))
             self.input_std = x.std(axis=(0, 1))
@@ -912,12 +928,21 @@ class CustomModel(ABC):
         """
 
         # generate random input connection matrix [nodes, n_states_in]
-        net_generator = NetworkInitializer(
-            method="random_normal", rng=self._rng_readin_weights
-        )
-        full_input_weights = net_generator.gen_initial_states(
-            shape=(self.num_nodes, self.num_states_in)
-        )
+        shape = (self.num_nodes, self.num_states_in)
+        distribution = self.input_layer.weight_distribution
+        if distribution == "normal":
+            net_generator = NetworkInitializer(
+                method="random_normal", rng=self._rng_readin_weights
+            )
+            full_input_weights = net_generator.gen_initial_states(shape=shape)
+        elif distribution == "uniform":
+            full_input_weights = self._rng_readin_weights.uniform(-1.0, 1.0, size=shape)
+        else:  # "sign": equal magnitude, random sign
+            full_input_weights = self._rng_readin_weights.choice([-1.0, 1.0], size=shape)
+
+        # signs of the input bias, always drawn so that the input weights and the bias do not
+        # depend on whether the bias gain is switched on
+        self.input_layer.bias = self._rng_bias.choice([-1.0, 1.0], size=self.num_nodes)
 
         # select read-in node indices according to the fraction specified by the user
         node_selector = NodeSelector(
@@ -1021,7 +1046,7 @@ class CustomModel(ABC):
         input_contrib = np.einsum(
             "ij,btj->bti", W_in, x
         )  # shape [n_batch, n_time, n_nodes]
-
+        input_contrib = input_contrib + self._bias_contribution()
 
         # 2. now step through time to compute reservoir states
         for t in range(n_time):
@@ -1244,12 +1269,37 @@ class CustomModel(ABC):
         """
         self.input_scaling = self._validate_input_scaling(input_scaling)
 
+    def set_input_bias(self, input_bias: float):
+        """
+        Set the gain of the constant input to the reservoir nodes (0 = no bias). Takes effect
+        at the next fit().
+        """
+        self.input_bias = self._validate_input_bias(input_bias)
+
+    @staticmethod
+    def _validate_input_bias(input_bias) -> float:
+        if isinstance(input_bias, bool) or not isinstance(input_bias, (int, float, np.number)):
+            raise TypeError("input_bias must be a number.")
+        if not np.isfinite(input_bias) or input_bias < 0:
+            raise ValueError("input_bias must be finite and >= 0 (0 = no bias).")
+        return float(input_bias)
+
+    def _bias_contribution(self):
+        """Constant input to the reservoir nodes, shape (n_nodes,): input_bias * b (or 0)."""
+        gain = self._input_bias_fit if self._input_bias_fit is not None else self.input_bias
+        bias = getattr(self.input_layer, "bias", None)
+        if gain == 0 or bias is None:
+            return 0.0
+        return gain * bias
+
     def set_hp(self, **kwargs):
         """
         Set one or more reservoir hyperparameters.
         Supported kwargs: spec_rad, leakage_rate, activation
         """
-        supported_hps = {"spec_rad", "leakage_rate", "activation", "input_scaling", "alpha"}
+        supported_hps = {
+            "spec_rad", "leakage_rate", "activation", "input_scaling", "input_bias", "alpha"
+        }
         unsupported = set(kwargs) - supported_hps
         if unsupported:
             raise ValueError(f"Unsupported hyperparameter(s): {', '.join(unsupported)}")
@@ -1262,6 +1312,8 @@ class CustomModel(ABC):
             self.reservoir_layer.set_activation(kwargs['activation'])
         if "input_scaling" in kwargs:
             self.set_input_scaling(kwargs['input_scaling'])
+        if "input_bias" in kwargs:
+            self.set_input_bias(kwargs["input_bias"])
         if "alpha" in kwargs:
             self.optimizer.set_alpha(kwargs['alpha'])
         # Add more as needed
@@ -1276,6 +1328,7 @@ class CustomModel(ABC):
             'leakage_rate': self.reservoir_layer.get_leakage_rate(),
             'activation': self.reservoir_layer.get_activation(),
             "input_scaling": self.input_scaling,
+            "input_bias": self.input_bias,
             "alpha": self.optimizer.get_alpha()
             # Add more as needed
         }
