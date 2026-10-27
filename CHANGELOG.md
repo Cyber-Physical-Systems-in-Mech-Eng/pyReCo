@@ -102,6 +102,9 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
   `sign` exist (the `EdgeAnalyzer` documentation named them), and a signed random graph whose
   cycles cancel to a spectral radius of rounding noise is redrawn like an acyclic one.
 
+* `mwe_narma10_optimal_reservoir.py` also searches the weight distributions and the input bias. The best
+  reservoir (144 nodes, signed weights) reaches a test NRMSE of 0.153 instead of 0.358, the level of a
+  quadratic model on the last 20 inputs (0.150).
 * New example `mwe_narma10_optimal_reservoir.py`: an optuna search over the size (up to 200 nodes),
   the density and the hyperparameters of a reservoir for NARMA10, on three independent NARMA
   sequences for training, validation and test. It reports the best reservoir, the smallest one within

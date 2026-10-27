@@ -177,6 +177,33 @@ model.compile(optimizer='ridge', normalize_inputs=True, input_scaling=1.0)  # th
 The targets are **not** transformed: predictions are returned in the units of `y`.
 
 
+### Signed weights and the input bias
+
+By default all edges of a `RandomReservoirLayer` have the same, positive weight (a binary Erdős-Rényi graph that is scaled to the spectral radius). Many echo state networks use random weights of both signs, which helps on tasks with nonlinear memory such as NARMA10. `weight_distribution` draws the weight of every existing edge after the graph, so the graph itself is the same for all choices: `'positive'` (default), `'sign'` (+1 or -1), `'uniform'` (on [-1, 1]) or `'normal'`. The read-in weights have the same option in `InputLayer(weight_distribution='normal' | 'uniform' | 'sign')`.
+
+`compile(input_bias=b)` adds a constant input to every reservoir node, `b` times a fixed random sign per node (default `0`, no bias). Without a bias, and with the zero-mean inputs of the z-scoring, the states of a `tanh` reservoir are odd functions of the input, so even functions such as `x**2` cannot be learned. The bias, like `input_scaling`, can be tuned as a hyperparameter (`model.set_hp(input_bias=0.5)`).
+
+```python
+import numpy as np
+
+from pyreco.custom_models import RC
+from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
+
+# learn y = x^2, an even function of the input
+rng = np.random.default_rng(0)
+x = rng.uniform(-1, 1, size=(20, 60, 1))
+y = x**2
+
+model = RC(seed=1)
+model.add(InputLayer(input_shape=x.shape[1:], weight_distribution='sign'))
+model.add(RandomReservoirLayer(nodes=30, density=0.2, seed=1, weight_distribution='uniform'))
+model.add(ReadoutLayer(y.shape[1:]))
+model.compile(normalize_inputs=False, input_bias=1.0)
+model.fit(x, y)
+print(f'scores:{model.evaluate(x, y, metrics=["nrmse"])}')  # NRMSE 1 = predicting the mean
+```
+
+
 ### Initial state and reproducibility
 
 The reservoir starts every sample from the zero state. Other initial states can be requested with `RandomReservoirLayer(init_res_sampling='ones' | 'random' | 'random_normal')`, or set explicitly after compiling the model with `model.reservoir_layer.set_initial_state(r0)`.

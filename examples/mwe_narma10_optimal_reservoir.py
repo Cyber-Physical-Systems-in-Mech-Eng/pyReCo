@@ -9,10 +9,14 @@ builds, trains and validates one reservoir.
 NARMA10 has a random input, so a new seed is a new sequence. The training, validation and test
 windows come from three independent sequences and nothing leaks between them.
 
-Result: a near-linear regime of the units (small input scaling) and a sparse network are best.
-NARMA10 contains products of inputs, which a reservoir without a bias cannot represent well (see
-the references: a quadratic model on the last 20 inputs is much better than a linear one), so the
-reservoir ends up at about the level of the linear model.
+NARMA10 contains products of inputs. A reservoir with all-positive weights and no bias stays at about
+the level of a linear model on the last 20 inputs (see the references). The search therefore also
+chooses the distribution of the reservoir weights and of the read-in weights (signed weights) and the
+gain of an input bias, as the echo state networks of the literature have. On the literature setup this
+is the difference between NMSE 0.38 and 0.05 (NRMSE 0.62 and 0.22) for 100 nodes.
+
+Result (80 trials, seed 0): about 140 nodes with signed reservoir weights reach a test NRMSE of 0.15, the
+level of the quadratic model on 20 lags; with all-positive weights and no bias it was 0.36.
 """
 
 import itertools
@@ -40,7 +44,11 @@ SPACE = {
     "input_scaling": (1e-3, 10.0, True),
     "alpha": (1e-12, 1.0, True),  # ridge penalty of the readout
     "fraction_input": (0.2, 1.0, False),  # fraction of the nodes that receive the input
+    "input_bias": (1e-3, 2.0, True),  # gain of the constant input to every node
 }
+# categorical choices: the distribution of the weights on the edges, and of the read-in weights
+RESERVOIR_WEIGHTS = ["positive", "sign", "uniform", "normal"]
+READIN_WEIGHTS = ["normal", "sign", "uniform"]
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -67,7 +75,7 @@ for name, quadratic in [("linear model, 20 lags", False), ("quadratic model, 20 
 # ----------------------------------------------------------------------------- search
 def build(params, seed=0):
     model = RC(seed=seed)
-    model.add(InputLayer(input_shape=x_train.shape[1:]))
+    model.add(InputLayer(input_shape=x_train.shape[1:], weight_distribution=params["readin_weights"]))
     model.add(
         RandomReservoirLayer(
             nodes=params["nodes"],
@@ -76,17 +84,23 @@ def build(params, seed=0):
             spec_rad=params["spec_rad"],
             leakage_rate=params["leakage_rate"],
             fraction_input=params["fraction_input"],
+            weight_distribution=params["reservoir_weights"],
             seed=seed,
         )
     )
     model.add(ReadoutLayer(output_shape=y_train.shape[1:]))
-    model.compile(discard_transients=N_IN - 1, input_scaling=params["input_scaling"], metrics=["nrmse"])
+    model.compile(discard_transients=N_IN - 1, input_scaling=params["input_scaling"],
+                   input_bias=params["input_bias"], metrics=["nrmse"])
     model.set_hp(alpha=params["alpha"])  # ridge penalty of the readout
     return model
 
 
 def objective(trial):
-    params = {"nodes": trial.suggest_int("nodes", 20, MAX_NODES)}
+    params = {
+        "nodes": trial.suggest_int("nodes", 20, MAX_NODES),
+        "reservoir_weights": trial.suggest_categorical("reservoir_weights", RESERVOIR_WEIGHTS),
+        "readin_weights": trial.suggest_categorical("readin_weights", READIN_WEIGHTS),
+    }
     for name, (low, high, log) in SPACE.items():
         params[name] = trial.suggest_float(name, low, high, log=log)
     try:
