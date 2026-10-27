@@ -213,3 +213,69 @@ def test_the_evaluator_receives_the_working_copy(data):
     tuner = _tuner(data, n_trials=2, evaluator=lambda model, trial: seen.append(model) or 1.0)
     tuner.optimize()
     assert all(m is not tuner.model for m in seen)
+
+
+# ------------------------------------------------------------------------------ quiet output
+
+
+def test_a_quiet_tuner_prints_nothing_and_restores_the_logging_level(data, capsys):
+    import optuna
+
+    levels = []
+    optuna.logging.set_verbosity(optuna.logging.INFO)
+    tuner = _tuner(data, n_trials=3, evaluator=lambda model, trial: levels.append(optuna.logging.get_verbosity()) or 1.0)
+    tuner.optimize()
+
+    assert levels == [optuna.logging.WARNING] * 3  # during the trials
+    assert optuna.logging.get_verbosity() == optuna.logging.INFO  # restored
+    assert capsys.readouterr().out == ""
+    assert tuner.importances is not None
+
+
+def test_the_logging_level_is_restored_when_a_trial_fails(data):
+    import optuna
+
+    optuna.logging.set_verbosity(optuna.logging.INFO)
+    with pytest.raises(ValueError):
+        _tuner(data, search_space={"nodes": ("int", 5, 20)}, n_trials=1).optimize()
+    assert optuna.logging.get_verbosity() == optuna.logging.INFO
+
+
+def test_a_verbose_tuner_prints_the_trials_and_the_importances(data, capsys):
+    import optuna
+
+    levels = []
+    tuner = _tuner(
+        data, n_trials=3, verbose=True,
+        evaluator=lambda model, trial: levels.append(optuna.logging.get_verbosity()) or 1.0,
+    )
+    tuner.optimize()
+    out = capsys.readouterr().out
+    assert "Trial 00" in out and "Hyperparameter importances" in out
+    assert levels == [optuna.logging.get_verbosity()] * 3  # the level of the caller is kept
+
+
+def test_a_single_trial_gives_no_importances_and_no_warning(data):
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        tuner = _tuner(data, n_trials=1)
+        tuner.optimize()
+    assert tuner.importances == {}
+
+
+def test_saving_the_best_model_is_quiet_unless_verbose(data, tmp_path, capsys):
+    import joblib
+
+    tuner = _tuner(data, n_trials=2)
+    tuner.optimize()
+    tuner.save_best_model(tmp_path / "best.joblib")
+    assert capsys.readouterr().out == ""
+    assert joblib.load(tmp_path / "best.joblib").get_hp() == tuner.best_model.get_hp()
+
+
+def test_saving_without_a_best_model_warns(data, tmp_path):
+    with pytest.warns(UserWarning, match="No best model"):
+        _tuner(data).save_best_model(tmp_path / "none.joblib")
+    assert not (tmp_path / "none.joblib").exists()

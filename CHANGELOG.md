@@ -76,6 +76,11 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* `Tuner` is quiet by default: Optuna only logs warnings while it runs (the logging level of the
+  caller is restored afterwards, also if a trial fails), the hyperparameter importances are printed
+  only with `verbose=True`, Optuna's warnings about small studies are not shown, a single trial gives
+  empty importances instead of a warning, and `save_best_model` only prints with `verbose=True`
+  (it warns if there is no best model, instead of printing).
 * `Tuner(seed=...)` seeds the Optuna sampler (TPE, random and grid), so a seeded tuning of a seeded
   model and data finds the same hyperparameters on every run. The samplers were unseeded before and
   every run was different. Without a seed the search is still random.

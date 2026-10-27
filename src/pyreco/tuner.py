@@ -1,5 +1,6 @@
 import copy
 import json
+import warnings
 
 import joblib
 import numpy as np
@@ -87,7 +88,10 @@ class Tuner:
         Optimization direction. Must be either "minimize" or "maximize".
 
     verbose : bool, default=False
-        If True, prints per-trial progress and best-model updates.
+        If True, prints per-trial progress, best-model updates and the hyperparameter
+        importances, and leaves the logging of Optuna as it is. If False, the tuner is quiet:
+        Optuna only logs warnings while the optimization runs (the logging level of the caller
+        is restored afterwards).
 
     run_id : int, default=0
         Optional identifier for experiment tracking.
@@ -269,18 +273,36 @@ class Tuner:
     def optimize(self, save_importance_path: str | None = None):
         # every optimization starts from a fresh copy of the model that was passed in
         self._working_model = copy.deepcopy(self.model)
-        self.study = optuna.create_study(
-            direction=self.direction,
-            sampler=self.get_sampler()
-        )
-        self.study.optimize(self.objective, n_trials=self.n_trials)
+        # quiet unless asked otherwise: restore the logging level of the caller afterwards
+        previous_level = optuna.logging.get_verbosity()
+        if not self.verbose:
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+        try:
+            self.study = optuna.create_study(
+                direction=self.direction,
+                sampler=self.get_sampler()
+            )
+            self.study.optimize(self.objective, n_trials=self.n_trials)
+        finally:
+            optuna.logging.set_verbosity(previous_level)
 
-        from optuna.importance import get_param_importances
-        self.importances = get_param_importances(self.study)
+        # importances need at least two trials
+        if len(self.study.trials) >= 2:
+            from optuna.importance import get_param_importances
 
-        print("\n[Optuna] Hyperparameter importances:")
-        for k, v in self.importances.items():
-            print(f"  {k:>20s}: {v:.6f}")
+            # Optuna warns for small studies that the importances are not reliable; show
+            # that only to a verbose tuner
+            with warnings.catch_warnings():
+                if not self.verbose:
+                    warnings.simplefilter("ignore", UserWarning)
+                self.importances = get_param_importances(self.study)
+        else:
+            self.importances = {}
+
+        if self.verbose:
+            print("\n[Optuna] Hyperparameter importances:")
+            for k, v in self.importances.items():
+                print(f"  {k:>20s}: {v:.6f}")
 
         if save_importance_path is not None:
             with open(save_importance_path, "w", encoding="utf-8") as f:
@@ -291,9 +313,10 @@ class Tuner:
     def save_best_model(self, path):
         if self.best_model is not None:
             joblib.dump(self.best_model, path)
-            print(f"[Tuner] Best model saved to: {path}")
+            if self.verbose:
+                print(f"[Tuner] Best model saved to: {path}")
         else:
-            print("[Tuner] No best model to save. Did you run optimize()?")
+            warnings.warn("No best model to save. Did you run optimize()?", UserWarning)
 
     def report(self):
         if self.study is None:
