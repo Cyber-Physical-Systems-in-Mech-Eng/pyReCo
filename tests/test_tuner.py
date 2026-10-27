@@ -129,3 +129,43 @@ def test_invalid_arguments_raise(data):
         _tuner(data, search_space={"spec_rad": ("complex", 0, 1)}, n_trials=1).optimize()
     with pytest.raises(ValueError, match="evaluator or"):
         _tuner(data, x_val=None, y_val=None, n_trials=1).optimize()
+
+
+# ----------------------------------------------------------------------------------- seed
+
+
+def _trial_values(study):
+    return [(t.params, t.value) for t in study.trials]
+
+
+@pytest.mark.parametrize("sampler", ["tpe", "random"])
+def test_same_seed_gives_the_same_search(data, sampler):
+    runs = []
+    for _ in range(2):
+        tuner = _tuner(data, sampler_type=sampler, n_trials=5, seed=7)
+        runs.append((_trial_values(tuner.optimize()), tuner.best_score, tuner.best_model.get_hp()))
+    assert runs[0] == runs[1]
+
+
+def test_different_seeds_propose_different_hyperparameters(data):
+    first = _trial_values(_tuner(data, n_trials=4, seed=1).optimize())
+    second = _trial_values(_tuner(data, n_trials=4, seed=2).optimize())
+    assert [p for p, _ in first] != [p for p, _ in second]
+
+
+def test_grid_sampler_accepts_a_seed(data):
+    space = {"activation": ("categorical", ["tanh", "sigmoid"])}
+    study = _tuner(data, search_space=space, sampler_type="grid", n_trials=2, seed=3).optimize()
+    assert {t.params["activation"] for t in study.trials} == {"tanh", "sigmoid"}
+
+
+def test_without_a_seed_runs_differ(data):
+    first = _trial_values(_tuner(data, n_trials=4).optimize())
+    second = _trial_values(_tuner(data, n_trials=4).optimize())
+    assert [p for p, _ in first] != [p for p, _ in second]
+
+
+@pytest.mark.parametrize("bad", [1.5, "3", -1, True])
+def test_invalid_seed_is_rejected(data, bad):
+    with pytest.raises((TypeError, ValueError)):
+        _tuner(data, seed=bad)

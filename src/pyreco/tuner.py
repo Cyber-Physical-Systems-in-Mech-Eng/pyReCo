@@ -6,6 +6,7 @@ import numpy as np
 import optuna
 
 from pyreco.metrics import assign_metric
+from pyreco.utils_random import check_seed
 
 
 class Tuner:
@@ -88,6 +89,12 @@ class Tuner:
     run_id : int, default=0
         Optional identifier for experiment tracking.
 
+    seed : int, optional
+        Seed of the Optuna sampler, which draws the hyperparameters of the trials. With a seed,
+        two tuning runs of the same (seeded) model and data propose the same hyperparameters
+        and find the same best model. With seed=None the search is different on every run.
+        The seed of the model itself is set separately, see `RC(seed=...)`.
+
     Attributes
     ----------
     study : optuna.Study
@@ -118,7 +125,10 @@ class Tuner:
         direction="minimize",
         verbose=False,
         run_id: int = 0,
+        seed: int = None,
     ):
+        check_seed(seed)
+        self.seed = seed
         self.model = model
         self.search_space = search_space
         self.x_train = x_train
@@ -176,11 +186,11 @@ class Tuner:
 
     def get_sampler(self):
         if self.sampler_type == "tpe":
-            return optuna.samplers.TPESampler()
+            return optuna.samplers.TPESampler(seed=self.seed)
         elif self.sampler_type == "random":
-            return optuna.samplers.RandomSampler()
+            return optuna.samplers.RandomSampler(seed=self.seed)
         elif self.sampler_type == "grid":
-            return optuna.samplers.GridSampler(self.make_grid())
+            return optuna.samplers.GridSampler(self.make_grid(), seed=self.seed)
         else:
             raise ValueError(f"Unknown sampler_type: {self.sampler_type}")
 
