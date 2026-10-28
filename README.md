@@ -246,6 +246,7 @@ from pyreco.datasets import generate_lorenz, generate_mackey_glass
 
 lorenz = generate_lorenz(5000, dt=0.01, washout=1000)  # (5000, 3), columns x, y, z
 mackey_glass = generate_mackey_glass(5000, tau=17, washout=1000, seed=1)  # (5000, 1)
+print(f"scores: shapes {lorenz.shape} and {mackey_glass.shape}")
 ```
 
 Simple periodic signals (a sine with a different frequency per state, sine to cosine, ...) for quick tests are in `pyreco.utils_data`.
