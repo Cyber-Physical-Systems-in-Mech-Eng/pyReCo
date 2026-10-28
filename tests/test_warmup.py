@@ -45,6 +45,7 @@ def _reference_states(model, x):
     [(30, 30, 0), (30, 23, 7), (30, 1, 29), (30, 1, 0), (30, 5, 3), (30, 10, 20), (30, 29, 1), (30, 25, 5)],
 )
 def test_target_j_is_paired_with_state_d_plus_j_plus_1(T, K, d):
+    """The readout is trained on r(d + j + 1) for target j: the states of an independent implementation of the update give the same fit."""
     rng = np.random.default_rng(0)
     x, y = rng.normal(size=(6, T, 2)), rng.normal(size=(6, K, 1))
     model = _model(T, K, d)
@@ -67,6 +68,7 @@ def test_target_j_is_paired_with_state_d_plus_j_plus_1(T, K, d):
 
 
 def test_default_warm_up_is_zero_and_all_inputs_are_used():
+    """Without discard_transients the predictions cover all input steps."""
     model = _model(30, 30)
     assert model.discard_transients == 0
     x = np.random.default_rng(0).normal(size=(4, 30, 2))
@@ -76,6 +78,7 @@ def test_default_warm_up_is_zero_and_all_inputs_are_used():
 
 @pytest.mark.parametrize("T, K, d", [(30, 30, 1), (30, 23, 8), (30, 1, 30), (30, 10, 21)])
 def test_warm_up_larger_than_the_extra_inputs_is_rejected(T, K, d):
+    """The warm-up d must satisfy d <= T - K, otherwise there are not enough states for the targets."""
     rng = np.random.default_rng(0)
     model = _model(T, K, d)
     with pytest.raises(ValueError, match="must not exceed"):
@@ -83,7 +86,10 @@ def test_warm_up_larger_than_the_extra_inputs_is_rejected(T, K, d):
 
 
 def test_largest_possible_warm_up_pairs_the_last_states():
-    # sequence to scalar: warm-up T - 1 pairs the only target with the state after all T inputs
+    """For d = T - K the targets are paired with the last K states.
+
+    sequence to scalar: warm-up T - 1 pairs the only target with the state after all T inputs
+    """
     T = 25
     rng = np.random.default_rng(2)
     x, y = rng.normal(size=(8, T, 2)), rng.normal(size=(8, 1, 1))
@@ -96,6 +102,7 @@ def test_largest_possible_warm_up_pairs_the_last_states():
 
 
 def test_evaluate_compares_the_predictions_with_the_targets_of_the_same_time_steps():
+    """evaluate aligns the first n_out predictions after the warm-up with the targets."""
     rng = np.random.default_rng(0)
     x, y = rng.normal(size=(6, 30, 2)), rng.normal(size=(6, 20, 1))
     model = _model(30, 20, 4)
@@ -114,12 +121,14 @@ def test_invalid_discard_transients_in_compile(bad, error):
 
 
 def test_initial_state_is_zero_by_default():
+    """r(0) = 0 unless another initial state is requested."""
     model = _model(20, 20)
     assert np.array_equal(model.reservoir_layer.initial_res_states, np.zeros(40))
 
 
 @pytest.mark.parametrize("method", ["ones", "random", "random_normal"])
 def test_other_initial_states_can_be_requested(method):
+    """init_res_sampling selects ones / random / random_normal initial states."""
     state = _model(20, 20, init_res_sampling=method).reservoir_layer.initial_res_states
     assert state.shape == (40,)
     assert np.isclose(np.abs(state).max(), 1.0)  # scaled to a maximum absolute value of 1
@@ -133,6 +142,7 @@ def test_unknown_initial_state_method_is_rejected():
 
 
 def test_explicit_initial_state_is_used_in_training_and_prediction():
+    """A state set by hand is the start of every sequence in fit and predict."""
     rng = np.random.default_rng(0)
     x, y = rng.normal(size=(5, 25, 2)), rng.normal(size=(5, 25, 1))
     model = _model(25, 25)
@@ -149,6 +159,7 @@ def test_explicit_initial_state_is_used_in_training_and_prediction():
 
 
 def test_a_nonzero_start_changes_the_first_states_but_the_effect_fades():
+    """The influence of r(0) decays with time (echo state property)."""
     x = np.random.default_rng(0).normal(size=(3, 120, 2))
     differences = []
     for r0 in (np.zeros(40), np.full(40, 0.8)):
@@ -164,7 +175,10 @@ def test_a_nonzero_start_changes_the_first_states_but_the_effect_fades():
 
 
 def test_one_step_of_the_reservoir_update_by_hand():
-    # two nodes, leakage 0.5, tanh: r(1) = 0.5 r(0) + 0.5 tanh(r(0) A + W_in x(0))
+    """r(1) = (1 - a) r(0) + a tanh(r(0) A + W_in x~(0)) computed by hand equals the model state.
+
+    two nodes, leakage 0.5, tanh: r(1) = 0.5 r(0) + 0.5 tanh(r(0) A + W_in x(0))
+    """
     model = _model(5, 5, nodes=4)
     A = np.zeros((4, 4))
     A[0, 1], A[1, 0], A[2, 3] = 0.5, -0.25, 0.3
@@ -187,6 +201,7 @@ def test_one_step_of_the_reservoir_update_by_hand():
 
 
 def test_without_input_a_contracting_reservoir_returns_to_zero():
+    """With zero input and spectral radius below 1 every state decays to 0."""
     model = _model(60, 60, nodes=30)
     model.reservoir_layer.set_spec_rad(0.5)
     model.reservoir_layer.leakage_rate = 1.0

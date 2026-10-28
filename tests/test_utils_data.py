@@ -42,7 +42,10 @@ def test_aliases_give_the_same_data_as_the_canonical_names():
 
 
 def test_shapes_of_the_four_cases():
-    # 80/20 split of n_batch windows
+    """vector-to-vector, sequence-to-scalar, sequence-to-sequence and x_to_x return (samples, time, states) with the requested sizes.
+
+    80/20 split of n_batch windows
+    """
     X_train, X_test, y_train, y_test = ud.vector_to_vector("sine_pred", n_batch=50, n_states=3)
     assert X_train.shape == (40, 1, 3) and y_train.shape == (40, 1, 3) and X_test.shape == (10, 1, 3)
 
@@ -59,12 +62,16 @@ def test_shapes_of_the_four_cases():
 
 
 def test_at_least_one_test_sample_even_for_tiny_n_batch():
+    """Small n_batch is raised so that the 80/20 split leaves a test sample."""
     _, X_test, _, _ = ud.sequence_to_sequence("sine_pred", n_batch=1)
     assert X_test.shape[0] >= 1
 
 
 def test_sine_pred_targets_follow_the_inputs():
-    # window i: inputs are signal[i:i+n_in], targets signal[i+n_in:i+n_in+n_out]
+    """The targets are the values that follow the input window.
+
+    window i: inputs are signal[i:i+n_in], targets signal[i+n_in:i+n_in+n_out]
+    """
     n_in, n_out = 6, 3
     X_train, X_test, y_train, y_test = ud.sine_pred(
         n_batch=30, n_time_in=n_in, n_time_out=n_out, n_states=1, seed=0

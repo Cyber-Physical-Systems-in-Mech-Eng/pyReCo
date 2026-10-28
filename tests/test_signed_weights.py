@@ -23,6 +23,7 @@ SIGNED = ("sign", "uniform", "normal")
 
 
 def test_default_is_the_binary_graph_of_before():
+    """weight_distribution="positive" gives the same 0/1 graph as before signed weights existed."""
     a = gen_ER_graph(nodes=30, density=0.2, seed=4)
     assert set(np.unique(a)) <= {0.0, a.max()}
     assert (a >= 0).all()
@@ -31,6 +32,7 @@ def test_default_is_the_binary_graph_of_before():
 
 @pytest.mark.parametrize("distribution", WEIGHT_DISTRIBUTIONS)
 def test_every_distribution_has_the_same_er_support_and_the_requested_spectral_radius(distribution):
+    """The edge positions come from the same ER graph; only the weights differ and are rescaled to rho(A) = spec_rad."""
     reference = gen_ER_graph(nodes=40, density=0.15, seed=7)
     w = gen_ER_graph(nodes=40, density=0.15, spec_rad=0.8, seed=7, weight_distribution=distribution)
     assert np.array_equal(w != 0, reference != 0)
@@ -40,6 +42,7 @@ def test_every_distribution_has_the_same_er_support_and_the_requested_spectral_r
 
 @pytest.mark.parametrize("distribution", SIGNED)
 def test_signed_distributions_have_both_signs_in_equal_parts(distribution):
+    """About half of the weights are negative for "sign", "uniform" and "normal"."""
     w = gen_ER_graph(nodes=100, density=0.2, seed=1, weight_distribution=distribution)
     positive, negative = (w > 0).sum(), (w < 0).sum()
     assert positive > 0 and negative > 0
@@ -47,18 +50,21 @@ def test_signed_distributions_have_both_signs_in_equal_parts(distribution):
 
 
 def test_sign_distribution_has_equal_magnitudes():
+    """For "sign" all non-zero weights are +-c with the same c."""
     w = gen_ER_graph(nodes=50, density=0.2, seed=1, weight_distribution="sign")
     assert np.allclose(np.unique(np.abs(w[w != 0])), np.abs(w[w != 0])[0])
 
 
 @pytest.mark.parametrize("distribution", SIGNED)
 def test_weights_are_reproducible_from_the_seed(distribution):
+    """The same layer seed gives the same signed weights."""
     kw = dict(nodes=30, density=0.2, weight_distribution=distribution)
     assert np.array_equal(gen_ER_graph(seed=3, **kw), gen_ER_graph(seed=3, **kw))
     assert not np.array_equal(gen_ER_graph(seed=3, **kw), gen_ER_graph(seed=4, **kw))
 
 
 def test_small_sparse_signed_graphs_still_have_a_cycle():
+    """Cancelling signs must not produce a (numerically) zero spectral radius; such graphs are redrawn."""
     for seed in range(100):
         w = gen_ER_graph(nodes=5, density=0.1, spec_rad=0.9, seed=seed, weight_distribution="sign")
         assert np.isfinite(w).all()
@@ -74,6 +80,7 @@ def test_unknown_distribution_is_rejected():
 
 @pytest.mark.parametrize("distribution", WEIGHT_DISTRIBUTIONS)
 def test_layer_density_counts_negative_weights(distribution):
+    """Density counts non-zero weights of either sign."""
     layer = RandomReservoirLayer(nodes=50, density=0.2, seed=2, weight_distribution=distribution)
     assert layer.weight_distribution == distribution
     assert np.isclose(layer.density, np.count_nonzero(layer.weights) / 50**2)
@@ -85,6 +92,7 @@ def test_compute_density_counts_negative_entries():
 
 
 def test_pagerank_ignores_the_sign_of_the_weights():
+    """The PageRank of a signed graph is a probability vector and equals the one of |w|."""
     w = gen_ER_graph(nodes=20, density=0.3, seed=1, weight_distribution="normal")
     ranks = [extract_node_pagerank(w, n) for n in range(20)]
     assert np.isclose(sum(ranks), 1.0)
@@ -92,6 +100,7 @@ def test_pagerank_ignores_the_sign_of_the_weights():
 
 
 def test_edge_properties_abs_weight_and_sign():
+    """The edge analyzer reports |w| and sign(w)."""
     g = nx.DiGraph()
     g.add_edge(0, 1, weight=-2.5)
     g.add_edge(1, 0, weight=0.5)
@@ -105,6 +114,7 @@ def test_edge_properties_abs_weight_and_sign():
 
 @pytest.mark.parametrize("distribution", SIGNED)
 def test_signed_reservoir_trains_and_edges_can_be_pruned(distribution):
+    """A signed reservoir trains and EdgePruner removes edges from it."""
     rng = np.random.default_rng(0)
     x = rng.normal(size=(6, 30, 1))
     y = np.tanh(x) * 0.5

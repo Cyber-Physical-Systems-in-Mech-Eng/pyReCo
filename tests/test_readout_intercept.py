@@ -7,30 +7,20 @@ import copy
 
 import numpy as np
 
+from helpers import build_rc, make_xy
 from pyreco.custom_models import RC
-from pyreco.layers import InputLayer, ReadoutLayer, RandomReservoirLayer
 
 
-def _data(n_out=1, n_batch=6, n_time=40, seed=0):
-    rng = np.random.default_rng(seed)
-    x = rng.normal(size=(n_batch, n_time, 2))
-    y = np.concatenate([np.tanh(x[:, :, :1]) + 0.3 * x[:, :, 1:2]] * n_out, axis=-1)
-    y = y * np.linspace(1.0, 2.0, n_out)
-    return x, y
+_data = make_xy
 
 
 def _model(n_out=1) -> RC:
-    model = RC()
-    model.add(InputLayer(input_shape=(40, 2)))
-    model.add(RandomReservoirLayer(nodes=40, density=0.3))
-    model.add(ReadoutLayer(output_shape=(40, n_out)))
-    model.compile()
-    return model
+    return build_rc(T=40, n_out=n_out, nodes=40, density=0.3)
 
 
 def test_bias_is_fitted_with_one_entry_per_output():
     for n_out in (1, 3):
-        x, y = _data(n_out)
+        x, y = _data(n_out=n_out)
         model = _model(n_out)
         model.fit(x, y)
         assert model.readout_layer.bias.shape == (n_out,)

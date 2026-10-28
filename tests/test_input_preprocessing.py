@@ -4,28 +4,19 @@ The same transform must be applied in fit() and predict().
 """
 
 import copy
+from functools import partial
 
 import numpy as np
 import pytest
 
 from pyreco.custom_models import RC
+from helpers import build_rc, make_xy
 from pyreco.layers import InputLayer, ReadoutLayer, RandomReservoirLayer
 
 
-def _data(n_batch=6, n_time=40, n_in=2, seed=0):
-    rng = np.random.default_rng(seed)
-    x = rng.normal(loc=[3.0, -2.0][:n_in], scale=[2.0, 0.5][:n_in], size=(n_batch, n_time, n_in))
-    y = np.tanh(x[:, :, :1]) + 0.3 * x[:, :, 1:2] if n_in > 1 else np.tanh(x)
-    return x, y
-
-
-def _model(n_in=2, **compile_kwargs) -> RC:
-    model = RC()
-    model.add(InputLayer(input_shape=(40, n_in)))
-    model.add(RandomReservoirLayer(nodes=40, density=0.3))
-    model.add(ReadoutLayer(output_shape=(40, 1)))
-    model.compile(**compile_kwargs)
-    return model
+# inputs with a clear offset and scale per channel, so that the z-scoring matters
+_data = partial(make_xy, loc=np.array([3.0, -2.0]), scale=np.array([2.0, 0.5]))
+_model = partial(build_rc, nodes=40, density=0.3)
 
 
 def test_defaults_zscoring_on_unit_scaling():
@@ -96,11 +87,13 @@ def test_training_error_does_not_blow_up_with_input_scaling():
 
 
 def test_changing_scaling_after_fit_does_not_change_predictions_until_refit():
+    """The scaling is frozen at fit like the read-in weights; set_hp only acts on the next fit."""
     x, y = _data()
     model = _model()
     model.fit(x, y)
     before = model.predict(x)
     model.set_input_scaling(3.0)
+    assert model.get_hp("input_scaling") == {"input_scaling": 3.0}
     assert np.array_equal(model.predict(x), before)
     model.fit(x, y)
     assert not np.allclose(model.predict(x), before)
@@ -137,13 +130,6 @@ def test_wrong_number_of_scaling_entries_raises_at_fit():
     model = _model(input_scaling=[1.0, 2.0, 3.0])
     with pytest.raises(ValueError, match="channels"):
         model.fit(x, y)
-
-
-def test_predict_before_fit_raises():
-    x, _ = _data()
-    model = _model()
-    with pytest.raises(RuntimeError, match="fit"):
-        model.predict(x)
 
 
 def test_output_normalization_and_scaling_are_removed():

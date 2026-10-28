@@ -1,24 +1,21 @@
 """
-fit, predict and evaluate reject data that does not fit the model with a message that says what is
-wrong (they used to fail with a broadcast or index error, or to return NaN or the wrong shape).
+Data checks: fit, predict and evaluate reject data that does not fit the model with a message that
+says what is wrong (they used to fail with a broadcast or index error, return NaN or the wrong
+shape, or train a model with other outputs than the layer declares).
 """
 
 import numpy as np
 import pytest
 
+from helpers import build_rc
 from pyreco.custom_models import RC
 from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
 
-T, WARMUP = 50, 5
+T, WARMUP = 50, 5  # inputs have T time steps, the targets T - WARMUP
 
 
 def _model():
-    model = RC(seed=0)
-    model.add(InputLayer(input_shape=(T, 2)))
-    model.add(RandomReservoirLayer(nodes=10, density=0.3, seed=0))
-    model.add(ReadoutLayer((T - WARMUP, 1)))
-    model.compile(discard_transients=WARMUP)
-    return model
+    return build_rc(T=T, K=T - WARMUP, nodes=10, density=0.3, seed=0, layer_seed=0, discard_transients=WARMUP)
 
 
 @pytest.fixture
@@ -32,6 +29,42 @@ def fitted(data):
     model = _model()
     model.fit(*data)
     return model
+
+
+# ------------------------------------------------------------------ type, dimension, length
+
+
+@pytest.mark.parametrize(
+    "x, y, error, match",
+    [
+        ([[1.0]], np.zeros((8, 30, 1)), TypeError, "numpy arrays"),
+        (np.zeros((8, 30, 2)), [[1.0]], TypeError, "numpy arrays"),
+        (np.zeros((8, 30)), np.zeros((8, 30, 1)), ValueError, "3 dimensions"),
+        (np.zeros((8, 30, 2)), np.zeros((8, 30)), ValueError, "3 dimensions"),
+        (np.zeros((8, 30, 2)), np.zeros((7, 30, 1)), ValueError, "same number of samples"),
+        (np.zeros((8, 10, 2)), np.zeros((8, 30, 1)), ValueError, "at least as many timesteps"),
+    ],
+)
+def test_fit_rejects_data_of_the_wrong_type_or_shape(x, y, error, match):
+    """x and y must be 3D numpy arrays (samples, time, channels) with matching sample counts."""
+    with pytest.raises(error, match=match):
+        build_rc(T=30, nodes=30, seed=1, layer_seed=2).fit(x, y)
+
+
+def test_fit_rejects_a_non_boolean_store_states_flag(data):
+    with pytest.raises(TypeError, match="store_states"):
+        _model().fit(*data, store_states="yes")
+
+
+def test_sequences_not_longer_than_the_warm_up_are_rejected(fitted, data):
+    """After the warm-up of 5 steps at least one state has to be left to predict from."""
+    x = data[0]
+    with pytest.raises(ValueError, match="warm-up is 5"):
+        fitted.predict(x[:, :WARMUP])
+    assert fitted.predict(x[:, : WARMUP + 1]).shape == (2, 1, 1)
+
+
+# -------------------------------------------------------------- finite values and channels
 
 
 @pytest.mark.parametrize("which", ["x", "y"])
@@ -67,18 +100,23 @@ def test_wrong_number_of_target_channels_is_named(data):
         _model().fit(data[0], y2)
 
 
-def test_sequences_not_longer_than_the_warm_up_are_rejected(fitted, data):
-    x = data[0]
-    with pytest.raises(ValueError, match="warm-up is 5"):
-        fitted.predict(x[:, :WARMUP])
-    assert fitted.predict(x[:, : WARMUP + 1]).shape == (2, 1, 1)
+# --------------------------------------------------------------------- order of the calls
 
 
-def test_prediction_before_fit_says_so(data):
+def test_predict_before_fit_says_so(data):
     with pytest.raises(RuntimeError, match="not fitted"):
         _model().predict(data[0])
 
 
+def test_fit_before_compile_asks_for_compile(data):
+    model = build_rc(T=T, K=T - WARMUP, nodes=10, compiled=False)
+    with pytest.raises(RuntimeError, match="compile"):
+        model.fit(*data)
+    with pytest.raises(RuntimeError, match="compile"):
+        RC().fit(*data)  # not even layers
+
+
 def test_valid_data_is_unaffected(fitted, data):
+    """The checks do not change the result for correct data."""
     assert fitted.predict(data[0]).shape == (2, T - WARMUP, 1)
-    assert np.isfinite(fitted.evaluate(*data[:1], data[1])).all()
+    assert np.isfinite(fitted.evaluate(data[0], data[1])).all()

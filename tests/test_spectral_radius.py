@@ -44,7 +44,8 @@ def _upper_triangular(n, density=0.4, seed=0):
 
 
 def test_small_sparse_graphs_are_always_finite_with_the_requested_spectral_radius():
-    # without redrawing, ~40% of these graphs have spectral radius 0 and give NaN weights
+    """ER graphs of few nodes and low density have a cycle after construction, so rescaling to rho(A) = spec_rad
+    is finite (without redrawing, about 40 % of these graphs have rho = 0 and give NaN weights)."""
     for seed in range(200):
         g = gen_ER_graph(nodes=5, density=0.05, spec_rad=0.9, seed=seed)
         assert np.isfinite(g).all()
@@ -52,6 +53,7 @@ def test_small_sparse_graphs_are_always_finite_with_the_requested_spectral_radiu
 
 
 def test_redrawing_is_deterministic():
+    """The redraw of graphs without cycle depends on the seed only."""
     a = gen_ER_graph(nodes=5, density=0.05, seed=3)
     b = gen_ER_graph(nodes=5, density=0.05, seed=3)
     assert np.array_equal(a, b)
@@ -62,6 +64,7 @@ def test_redrawing_is_deterministic():
 
 @pytest.mark.parametrize("kwargs", [dict(nodes=10, density=0.0), dict(nodes=1, density=0.5)])
 def test_impossible_graphs_raise(kwargs):
+    """If no graph with a cycle can be drawn, a clear error is raised."""
     with pytest.raises(ValueError, match="directed cycle"):
         gen_ER_graph(**kwargs)
 
@@ -78,6 +81,7 @@ def test_reservoir_layer_construction_succeeds_for_small_sparse_reservoirs():
 
 
 def test_set_spec_rad_scales_exactly_when_there_is_a_cycle():
+    """A -> A * target / rho(A) gives rho = target."""
     A = np.zeros((4, 4))
     A[0, 1] = A[1, 2] = A[2, 0] = 2.0
     scaled = set_spec_rad(A, 0.5)
@@ -86,6 +90,7 @@ def test_set_spec_rad_scales_exactly_when_there_is_a_cycle():
 
 
 def test_set_spec_rad_on_a_network_without_cycle_raises():
+    """rho(A) = 0 (no directed cycle) cannot be rescaled."""
     A = _upper_triangular(10)
     assert compute_spec_rad(A) == 0.0
     with pytest.raises(ValueError, match="spectral radius 0"):
@@ -93,6 +98,7 @@ def test_set_spec_rad_on_a_network_without_cycle_raises():
 
 
 def test_layer_set_spec_rad_failure_leaves_the_layer_untouched():
+    """A failed rescaling does not modify weights or properties."""
     model, _, _ = _model()
     layer = model.reservoir_layer
     layer.set_weights(_upper_triangular(10))
@@ -130,6 +136,7 @@ def test_remove_reservoir_edges_keeps_layer_properties_in_sync():
 
 
 def test_removing_the_last_cycle_gives_spectral_radius_zero_without_error():
+    """Pruning may remove the last cycle; the layer then reports rho = 0."""
     model, _, _ = _model()
     A = np.zeros((10, 10))
     A[0, 1] = A[1, 2] = A[2, 0] = 0.5
@@ -143,7 +150,8 @@ def test_removing_the_last_cycle_gives_spectral_radius_zero_without_error():
 
 
 def test_edge_pruner_warns_when_spectral_radius_reaches_zero():
-    # a single directed cycle: removing any edge removes the last cycle
+    """EdgePruner warns when the pruned reservoir has no cycle left (a single directed cycle: removing any edge
+    removes the last one)."""
     model, x, y = _model(nodes=6, seed=4)
     A = np.zeros((6, 6))
     for i in range(6):

@@ -1,3 +1,7 @@
+"""
+NetworkPruner: construction with valid and invalid arguments.
+"""
+
 import pytest
 from pyreco.pruning import NetworkPruner
 
@@ -31,9 +35,3 @@ def test_network_pruner_initialization():
     # Test invalid patience type
     with pytest.raises(TypeError):
         NetworkPruner(patience="5")
-
-    # Test conflicting min_num_nodes and stop_at_minimum
-
-
-if __name__ == "__main__":
-    pytest.main()

@@ -1,3 +1,7 @@
+"""
+model_visualize: only the validation of the file type is tested (plotting itself is patched out).
+"""
+
 import pytest
 import numpy as np
 from unittest.mock import patch, MagicMock
@@ -43,12 +47,8 @@ def test_model_visualize_invalid_file_type():
     for file_type in valid_types:
         with patch('matplotlib.pyplot.show'), \
              patch('matplotlib.pyplot.savefig'):
-            try:
-                model.model_visualize(save=True, file_type=file_type)
-                # If we get here, no error was raised (good!)
-            except RuntimeError:
-                pytest.fail
-                (f"Valid file type '{file_type}' should not raise RuntimeError")
+            # a supported type must not raise
+            model.model_visualize(save=True, file_type=file_type)
 
 
 def test_model_visualize_edge_cases():
@@ -59,11 +59,7 @@ def test_model_visualize_edge_cases():
 
     # Test: When save=False, file_type validation shouldn't happen
     # (invalid file type shouldn't raise error if not saving)
-    try:
-        model.model_visualize(save=False, file_type="bmp")
-        # Should not raise error
-    except RuntimeError:
-        pytest.fail("Should not validate file type when save=False")
+    model.model_visualize(save=False, file_type="bmp")  # must not raise
 
     # Test: Whitespace handling
     with pytest.raises(RuntimeError):

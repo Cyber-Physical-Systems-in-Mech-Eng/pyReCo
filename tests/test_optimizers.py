@@ -35,6 +35,7 @@ def test_constructor_alpha_is_used(alpha):
 
 
 def test_alpha_changes_the_solution():
+    """A larger ridge penalty alpha in min |R W - y|^2 + alpha |W|^2 changes (shrinks) the solution."""
     A, b = _regression()
     weak, strong = RidgeSK(alpha=1e-6).solve(A, b), RidgeSK(alpha=1e3).solve(A, b)
     assert np.linalg.norm(strong) < 0.5 * np.linalg.norm(weak)

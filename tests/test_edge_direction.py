@@ -37,7 +37,10 @@ def _model(weights: np.ndarray, r0: np.ndarray) -> RC:
 
 
 def test_edge_u_to_v_drives_node_v():
-    # single edge 0 -> 1 in the networkx sense, node 0 active
+    """With A[u, v] the edge u -> v, an active node u drives v and nothing flows back to u.
+
+    single edge 0 -> 1 in the networkx sense, node 0 active
+    """
     A = np.zeros((3, 3))
     A[0, 1] = 1.0
     model = _model(A, r0=np.array([1.0, 0.0, 0.0]))
@@ -50,7 +53,10 @@ def test_edge_u_to_v_drives_node_v():
 
 
 def test_edge_u_to_v_does_not_drive_node_u():
-    # same edge, but only the receiver is active: nothing may flow backwards
+    """Activity of the receiver v does not reach the sender u.
+
+    same edge, but only the receiver is active: nothing may flow backwards
+    """
     A = np.zeros((3, 3))
     A[0, 1] = 1.0
     model = _model(A, r0=np.array([0.0, 1.0, 0.0]))
@@ -61,7 +67,10 @@ def test_edge_u_to_v_does_not_drive_node_u():
 
 
 def test_removing_edge_cuts_exactly_that_signal_path():
-    # directed 3-cycle 0 -> 1 -> 2 -> 0
+    """Zeroing A[u, v] stops the signal u -> v and leaves the others.
+
+    directed 3-cycle 0 -> 1 -> 2 -> 0
+    """
     A = np.zeros((3, 3))
     A[0, 1] = A[1, 2] = A[2, 0] = 1.0
     r0 = np.array([1.0, 0.0, 0.0])
@@ -79,7 +88,10 @@ def test_removing_edge_cuts_exactly_that_signal_path():
 
 
 def test_dynamics_agree_with_networkx_graph_view():
-    # the nodes that receive activity from node s are exactly the successors of s
+    """The edges of the networkx view of A are the signal paths of the dynamics.
+
+    the nodes that receive activity from node s are exactly the successors of s
+    """
     ref = RC()
     ref.add(InputLayer(input_shape=(1, 1)))
     ref.add(RandomReservoirLayer(nodes=N, density=0.1))

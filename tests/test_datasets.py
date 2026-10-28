@@ -12,6 +12,7 @@ from pyreco import datasets as ds
 
 
 def test_lorenz_satisfies_its_equations():
+    """Central differences of the sampled trajectory match the right-hand side sigma (y - x), x (rho - z) - y, x y - beta z within 5 %."""
     h = 0.01
     x = ds.generate_lorenz(2000, dt=h)
     assert x.shape == (2000, 3)
@@ -30,6 +31,7 @@ def test_lorenz_satisfies_its_equations():
 
 
 def test_lorenz_lives_on_the_attractor():
+    """After the start-up transient the state stays inside the known bounds of the attractor and visits both lobes (std of x > 5)."""
     x = ds.generate_lorenz(5000)
     settled = x[500:]  # after the start-up transient
     assert np.isfinite(x).all()
@@ -39,6 +41,7 @@ def test_lorenz_lives_on_the_attractor():
 
 
 def test_lorenz_starts_at_the_initial_condition_and_is_deterministic():
+    """The first sample is x0 and the same call gives the same series."""
     a = ds.generate_lorenz(200, x0=[2.0, 1.0, 0.5])
     assert np.allclose(a[0], [2.0, 1.0, 0.5])
     assert np.array_equal(a, ds.generate_lorenz(200, x0=[2.0, 1.0, 0.5]))
@@ -48,20 +51,25 @@ def test_lorenz_starts_at_the_initial_condition_and_is_deterministic():
 
 
 def test_mackey_glass_range_and_shape():
+    """The series has shape (n, 1) and stays in the known range 0.3 < x < 1.5."""
     x = ds.generate_mackey_glass(2000)
     assert x.shape == (2000, 1) and np.isfinite(x).all()
     assert 0.3 < x[300:].min() and x[300:].max() < 1.5
 
 
 def test_mackey_glass_is_converged_in_the_integration_step():
+    """Refining the internal step from 0.1 to 0.02 changes the series by less than 5e-3: the Heun integration is converged."""
     coarse = ds.generate_mackey_glass(500, dt_int=0.1)
     fine = ds.generate_mackey_glass(500, dt_int=0.02)
     assert np.abs(coarse - fine).max() < 5e-3
 
 
 def test_mackey_glass_satisfies_the_delay_equation():
-    # sampled with h=1 and an exact delay of 17 samples:
-    # x'(t) = a x(t-tau)/(1+x(t-tau)^n) - b x(t)
+    """With the exact delay of 17 samples, central differences of x(t) match a x(t - tau) / (1 + x(t - tau)^n) - b x(t).
+
+    sampled with h=1 and an exact delay of 17 samples:
+    x'(t) = a x(t-tau)/(1+x(t-tau)^n) - b x(t)
+    """
     x = ds.generate_mackey_glass(800).ravel()
     t = np.arange(40, 780)
     dxdt = (x[t + 1] - x[t - 1]) / 2.0
@@ -70,6 +78,7 @@ def test_mackey_glass_satisfies_the_delay_equation():
 
 
 def test_mackey_glass_seed():
+    """A seed perturbs the initial history reproducibly; without a seed the series is deterministic."""
     same = [ds.generate_mackey_glass(300, seed=1) for _ in range(2)]
     assert np.array_equal(same[0], same[1])
     assert not np.array_equal(same[0], ds.generate_mackey_glass(300, seed=2))
@@ -78,6 +87,7 @@ def test_mackey_glass_seed():
 
 @pytest.mark.parametrize("kwargs", [dict(dt_int=0.3), dict(dt=0.25, dt_int=0.1), dict(tau=17.55)])
 def test_mackey_glass_requires_commensurable_steps(kwargs):
+    """tau / dt_int and dt / dt_int must be integers, otherwise the delayed value would be misaligned."""
     with pytest.raises(ValueError, match="integer"):
         ds.generate_mackey_glass(100, **kwargs)
 
@@ -87,6 +97,7 @@ def test_mackey_glass_requires_commensurable_steps(kwargs):
 
 @pytest.mark.parametrize("name, n_features", [("lorenz", 3), ("mackey_glass", 1)])
 def test_load_windows_are_aligned_and_chronological(name, n_features):
+    """Input window i is raw[i : i + n_in], its target the next n_out values; test windows come from the part of the series after the training segment."""
     n_in, n_out, n = 20, 3, 1000
     x_train, y_train, x_test, y_test = ds.load(name, n_samples=n, n_in=n_in, n_out=n_out)
     raw = (ds.generate_lorenz if name == "lorenz" else ds.generate_mackey_glass)(n)
@@ -104,12 +115,14 @@ def test_load_windows_are_aligned_and_chronological(name, n_features):
 
 
 def test_load_return_arity():
+    """load returns 4 items, 5 with standardize (scaler) and 7 with a validation split."""
     assert len(ds.load("lorenz", n_samples=800, n_in=10)) == 4
     assert len(ds.load("lorenz", n_samples=800, n_in=10, standardize=True)) == 5
     assert len(ds.load("lorenz", n_samples=800, n_in=10, val_fraction=0.2)) == 7
 
 
 def test_standardization_uses_training_statistics_only():
+    """The scaler is fitted on the training segment only (also with a validation split), so no statistics of validation or test data leak into the preprocessing."""
     n, n_in = 1000, 10
     raw = ds.generate_lorenz(n)
     n_train = int(n * 0.7)
@@ -128,6 +141,7 @@ def test_standardization_uses_training_statistics_only():
 
 
 def test_dataset_names_are_case_and_separator_insensitive():
+    """Aliases, case, hyphens and spaces in the dataset name select the same system."""
     ref = ds.load("lorenz", n_samples=600, n_in=10)[0]
     for name in ["lorentz69", "Lorenz63", "LORENZ"]:
         assert np.array_equal(ds.load(name, n_samples=600, n_in=10)[0], ref)
@@ -138,6 +152,7 @@ def test_dataset_names_are_case_and_separator_insensitive():
 
 @pytest.mark.parametrize("name", ["lorenz", "mg", "narma10"])
 def test_load_seed_is_reproducible_and_matters(name):
+    """The same seed gives the same windows, another seed other ones, for every system."""
     first = ds.load(name, n_samples=600, n_in=10, seed=1)[0]
     assert np.array_equal(first, ds.load(name, n_samples=600, n_in=10, seed=1)[0])
     assert not np.array_equal(first, ds.load(name, n_samples=600, n_in=10, seed=2)[0])
@@ -154,6 +169,7 @@ def test_load_seed_is_reproducible_and_matters(name):
     ],
 )
 def test_load_validates_its_arguments(kwargs, match):
+    """Unknown names, fractions outside (0, 1) and too short series raise a ValueError."""
     with pytest.raises(ValueError, match=match):
         ds.load(**{**dict(n_samples=1000, n_in=20), **kwargs})
 
@@ -168,6 +184,7 @@ def test_load_does_not_print(capsys):
 
 @pytest.mark.parametrize("order", [5, 10])
 def test_narma_satisfies_its_recursion(order):
+    """y(t+1) = alpha y(t) + beta y(t) sum_i y(t - i) + gamma u(t - order + 1) u(t) + delta holds sample by sample, and the first order - 1 outputs are 0."""
     data = ds.generate_narma(400, order=order, seed=0, washout=0)
     u, target = data[:, 0], data[:, 1]  # target[t] = y(t+1)
     y = np.concatenate([[0.0], target])  # y[t] with y(0) = 0
@@ -188,12 +205,14 @@ def test_narma_satisfies_its_recursion(order):
 
 @pytest.mark.parametrize("order", [5, 10])
 def test_narma_statistics(order):
+    """Mean, spread and range of the output are those of the benchmark (mean about 0.3 to 0.4)."""
     target = ds.generate_narma(3000, order=order, seed=1, washout=100)[:, 1]
     assert np.isfinite(target).all() and 0.1 < target.min() and target.max() < 1.5
     assert 0.25 < target.mean() < 0.45 and 0.05 < target.std() < 0.2
 
 
 def test_narma_seed_and_washout():
+    """The seed fixes the input; generating w more samples and dropping them equals washout=w."""
     a = ds.generate_narma(300, seed=4)
     assert np.array_equal(a, ds.generate_narma(300, seed=4))
     assert not np.array_equal(a, ds.generate_narma(300, seed=5))
@@ -205,7 +224,10 @@ def test_narma_seed_and_washout():
 
 
 def test_narma10_diverging_sequences_are_redrawn():
-    # seed 75 gives a diverging output for NARMA10 with 5000 steps
+    """Inputs that make the output diverge are redrawn deterministically for a seed; one attempt only raises.
+
+    seed 75 gives a diverging output for NARMA10 with 5000 steps
+    """
     with pytest.raises(RuntimeError, match="diverged"):
         ds.generate_narma(5000, order=10, seed=75, washout=0, max_attempts=1)
     data = ds.generate_narma(5000, order=10, seed=75, washout=0)
@@ -214,6 +236,7 @@ def test_narma10_diverging_sequences_are_redrawn():
 
 
 def test_narma_gives_up_if_the_system_cannot_be_stable():
+    """If every attempt diverges (u_max too large), a RuntimeError names the problem."""
     with pytest.raises(RuntimeError, match="diverged"):
         ds.generate_narma(1000, order=10, u_max=3.0, seed=0, max_attempts=3)
 
@@ -226,6 +249,7 @@ def test_narma_validates_the_order(order):
 
 @pytest.mark.parametrize("name, order", [("narma5", 5), ("narma10", 10)])
 def test_load_narma_windows_are_input_output_windows(name, order):
+    """The input window is a window of u and the targets belong to its last n_out steps (not to the following ones)."""
     n_in, n_out, n = 30, 4, 1000
     x_train, y_train, x_test, y_test = ds.load(name, n_samples=n, n_in=n_in, n_out=n_out, seed=2)
     raw = ds.generate_narma(n, order=order, seed=2, washout=100)
@@ -257,6 +281,7 @@ def test_load_narma_names_and_options():
 
 
 def test_load_narma_standardization_covers_input_and_target():
+    """The scaler is fitted on the two columns [u, y], inputs and targets are scaled with their own statistics."""
     n, n_in = 1000, 20
     raw = ds.generate_narma(n, order=10, seed=1, washout=100)
     x_train, y_train, x_test, y_test, scaler = ds.load("narma10", n_samples=n, n_in=n_in, seed=1, standardize=True)
@@ -269,8 +294,11 @@ def test_load_narma_standardization_covers_input_and_target():
 
 
 def test_narma_is_learnable_from_lagged_inputs():
-    # sanity check of the alignment of inputs and targets: a quadratic model on the last 10
-    # inputs (the system contains the product u(t-4) u(t) for NARMA5) explains the target
+    """Alignment check: a quadratic model of the last 10 inputs explains the NARMA5 target (NRMSE < 0.1), which is impossible if inputs and targets were shifted against each other.
+
+    sanity check of the alignment of inputs and targets: a quadratic model on the last 10
+    inputs (the system contains the product u(t-4) u(t) for NARMA5) explains the target
+    """
     import itertools
 
     from sklearn.linear_model import Ridge
@@ -302,6 +330,7 @@ GENERATORS = {
 
 @pytest.mark.parametrize("name", GENERATORS)
 def test_generators_share_one_signature(name):
+    """n_timesteps first, everything else keyword-only, washout and seed last; continuous systems and sines are sampled with dt."""
     import inspect
 
     function, _ = GENERATORS[name]
@@ -319,6 +348,7 @@ def test_generators_share_one_signature(name):
 
 @pytest.mark.parametrize("name", GENERATORS)
 def test_generators_return_float_arrays_of_the_same_layout(name):
+    """Every generator returns finite float64 data of shape (n_timesteps, n_features)."""
     function, n_features = GENERATORS[name]
     data = function(120, seed=0)
     assert data.shape == (120, n_features) and data.dtype == np.float64
@@ -328,6 +358,7 @@ def test_generators_return_float_arrays_of_the_same_layout(name):
 
 @pytest.mark.parametrize("name", GENERATORS)
 def test_washout_drops_leading_samples(name):
+    """Generating w more samples and dropping them equals washout=w."""
     function, _ = GENERATORS[name]
     full = function(230, seed=3)
     assert np.allclose(function(200, washout=30, seed=3), full[30:], rtol=1e-6, atol=1e-8)
@@ -335,6 +366,7 @@ def test_washout_drops_leading_samples(name):
 
 @pytest.mark.parametrize("name", GENERATORS)
 def test_generators_are_reproducible_and_seed_matters(name):
+    """The same seed gives the same series, another seed another one."""
     function, _ = GENERATORS[name]
     assert np.array_equal(function(150, seed=7), function(150, seed=7))
     assert not np.array_equal(function(150, seed=7), function(150, seed=8))
@@ -342,6 +374,7 @@ def test_generators_are_reproducible_and_seed_matters(name):
 
 @pytest.mark.parametrize("name", ["lorenz", "mackey_glass"])
 def test_deterministic_systems_without_seed_are_deterministic(name):
+    """Without a seed Lorenz and Mackey-Glass are deterministic; a seed is only a small perturbation of the same trajectory."""
     function, _ = GENERATORS[name]
     assert np.array_equal(function(100), function(100))
     # a seed is a small perturbation of the same trajectory, not another system
@@ -351,6 +384,7 @@ def test_deterministic_systems_without_seed_are_deterministic(name):
 @pytest.mark.parametrize("name", GENERATORS)
 @pytest.mark.parametrize("kwargs", [dict(n_timesteps=0), dict(n_timesteps=2.5), dict(n_timesteps=True), dict(washout=-1), dict(washout=1.5)])
 def test_generators_validate_the_common_arguments(name, kwargs):
+    """n_timesteps and washout have to be integers (n_timesteps >= 1, washout >= 0)."""
     function, _ = GENERATORS[name]
     with pytest.raises(ValueError, match="integer"):
         function(**{**dict(n_timesteps=50), **kwargs})
@@ -369,11 +403,13 @@ def test_generators_validate_the_common_arguments(name, kwargs):
     ],
 )
 def test_generators_validate_the_system_parameters(function, kwargs):
+    """Non-positive step sizes, a wrong initial condition and a negative delay are rejected."""
     with pytest.raises(ValueError):
         function(50, **kwargs)
 
 
 def test_generate_calls_the_generators_by_name():
+    """generate(name, ...) equals the generator with the benchmark parameters; unknown parameters raise instead of being ignored."""
     assert np.array_equal(ds.generate("Lorenz63", 100, dt=0.02), ds.generate_lorenz(100, dt=0.02))
     assert np.array_equal(ds.generate("mg", 100, tau=20, seed=1), ds.generate_mackey_glass(100, tau=20, seed=1))
     # NARMA: the benchmark fixes the order, and the washout defaults to the recommended 100
@@ -388,6 +424,7 @@ def test_generate_calls_the_generators_by_name():
 
 
 def test_old_parameter_names_still_work_with_a_warning():
+    """h and h_int were renamed to dt and dt_int and are still accepted with a DeprecationWarning."""
     with pytest.warns(DeprecationWarning, match="dt"):
         old = ds.load("lorenz", n_samples=300, n_in=10, h=0.02)[0]
     assert np.array_equal(old, ds.load("lorenz", n_samples=300, n_in=10, dt=0.02)[0])
@@ -407,6 +444,7 @@ def test_load_passes_washout_and_rejects_unknown_parameters():
 
 
 def test_sine_has_its_own_frequency_per_state():
+    """State k is sin((omega + k domega) t) on the grid t = i dt."""
     x = ds.generate_sine(400, n_states=3, omega=2.0, domega=0.5, dt=0.01)
     t = np.arange(400) * 0.01
     for k, omega in enumerate([2.0, 2.5, 3.0]):
@@ -414,17 +452,20 @@ def test_sine_has_its_own_frequency_per_state():
 
 
 def test_sine_seed_draws_a_phase_per_state():
+    """With a seed every state starts at its own random phase."""
     x = ds.generate_sine(50, n_states=2, seed=1)
     assert not np.allclose(x[0], 0.0) and x[0, 0] != x[0, 1]
 
 
 def test_sine_to_cosine_is_the_quadrature_of_the_input():
+    """sin^2 + cos^2 = 1 between the input and the target columns of the same state."""
     data = ds.generate_sine_to_cosine(300, n_states=2, seed=2)
     assert data.shape == (300, 4)
     assert np.allclose(data[:, :2] ** 2 + data[:, 2:] ** 2, 1.0)
 
 
 def test_sincos2_target_formula():
+    """The target is a sin(phi)^p + b cos(phi)^p of the input phase phi."""
     data = ds.generate_sincos2(200, a=2.0, b=0.5, power=2, seed=0)
     s = data[:, 0]
     quadrature = ds.generate_sine_to_cosine(200, omega=1.0, seed=0)[:, 1]
@@ -435,6 +476,7 @@ def test_sincos2_target_formula():
 
 @pytest.mark.parametrize("name", ["sine", "sine_pred", "sine_to_cosine", "sincos2", "sin_to_cos2"])
 def test_load_the_sine_tasks(name):
+    """The sine tasks load as forecasting (next values) or input/output windows (targets of the last steps) with n_states channels."""
     n_in, n_out, n = 20, 2, 600
     x_train, y_train, x_test, y_test = ds.load(name, n_samples=n, n_in=n_in, n_out=n_out, n_states=2)
     assert x_train.shape[1:] == (n_in, 2) and y_train.shape[1:] == (n_out, 2)

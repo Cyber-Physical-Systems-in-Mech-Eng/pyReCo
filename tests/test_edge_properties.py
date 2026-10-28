@@ -1,3 +1,8 @@
+"""
+Edge properties (weight, reciprocity, strongly connected components, betweenness, degrees) of
+reservoir graphs: the standalone extractors and the EdgeAnalyzer that bundles them.
+"""
+
 import pytest
 import numpy as np
 import networkx as nx
@@ -54,6 +59,7 @@ def adjacency_matrix():
 
 class TestConvertToNxGraph:
 
+    """Adjacency matrices and networkx graphs are converted to a DiGraph."""
     def test_numpy_array_converted_to_digraph(self, adjacency_matrix):
         # Converted numpy adjacency matrix into an equivalent nx.DiGraph
         g = convert_to_nx_graph(adjacency_matrix)
@@ -75,6 +81,7 @@ class TestConvertToNxGraph:
 
 class TestExtractEdgeWeight:
 
+    """The weight of an edge is read from the graph or the matrix."""
     def test_explicit_weight(self, digraph):
         # Edge with weight attribute returns that value
         assert extract_edge_weight(digraph, (0, 1)) == pytest.approx(2.5)
@@ -92,6 +99,7 @@ class TestExtractEdgeWeight:
 
 class TestExtractEdgeIsReciprocal:
 
+    """An edge u -> v is reciprocal if v -> u exists."""
     def test_reciprocal_edge(self, digraph):
         # Edges that exist in both directions are flagged as reciprocal
         assert extract_edge_is_reciprocal(digraph, (0, 1)) == 1
@@ -107,6 +115,7 @@ class TestExtractEdgeIsReciprocal:
 
 class TestExtractEdgeInScc:
 
+    """An edge lies in a strongly connected component if both ends are in the same one."""
     def test_edge_within_scc(self, digraph):
         # Edges whose endpoints are mutually reachable (0-1-2 cycle) are
         #   flagged as being within same strongly connected component
@@ -123,6 +132,7 @@ class TestExtractEdgeInScc:
 
 class TestExtractEdgeBetweenness:
 
+    """Edge betweenness equals the networkx value (0 for missing edges)."""
     def test_matches_networkx_directly(self, digraph):
         # Edge betweenness centrality matches networkx's own computation
         #   for every edge in the graph
@@ -140,6 +150,7 @@ class TestExtractEdgeBetweenness:
 
 class TestExtractEdgeDegrees:
 
+    """Out-degree of the source node and in-degree of the target node."""
     def test_source_out_degree(self, digraph):
         # Returns out-degree of edge's source node
         assert extract_edge_source_out_degree(digraph, (0, 1)) == digraph.out_degree(0)
@@ -155,6 +166,7 @@ class TestExtractEdgeDegrees:
 
 class TestExtractEdgeNodeBetweenness:
 
+    """Betweenness of the end points equals the networkx value."""
     def test_source_and_target_betweenness_match_networkx(self, digraph):
         # Source/target node betweenness centrality (not edge betweenness)
         #   matches networkx's own per-node computation for every edge
@@ -170,6 +182,7 @@ class TestExtractEdgeNodeBetweenness:
 
 class TestPrecomputeEdgeMetrics:
 
+    """The shared graph quantities that the extractors reuse."""
     def test_returns_expected_keys(self, digraph):
         # Precomputed cache always has these four keys
         #   "graph", "node_betweenness", "edge_betweenness", "scc_map"
@@ -212,6 +225,7 @@ class TestPrecomputeEdgeMetrics:
 
 class TestAvailableExtractors:
 
+    """The registry of edge property extractors."""
     def test_expected_keys(self):
         # available_extractors() advertises exactly these edge property names
         extractors = available_extractors()
@@ -229,6 +243,7 @@ class TestAvailableExtractors:
 
 class TestMapExtractorNames:
 
+    """Property names are mapped to extractors, unknown names are dropped."""
     def test_known_properties(self):
         # Recognized property names are mapped to their extractor functions
         extractor_dict, extractor_funs = map_extractor_names(["weight", "betweenness"])
@@ -249,6 +264,7 @@ class TestMapExtractorNames:
 
 class TestEdgeAnalyzerInit:
 
+    """EdgeAnalyzer chooses all or the requested quantities."""
     def test_default_quantities_include_all(self):
         # No properties specified -> every available extractor is used
         analyzer = EdgeAnalyzer()
@@ -265,6 +281,7 @@ class TestEdgeAnalyzerInit:
 
 class TestEdgeAnalyzerExtractProperties:
 
+    """Properties of a single edge match the standalone extractors."""
     def test_returns_requested_quantities(self, digraph):
         # Only requested properties are returned, with correct values
         analyzer = EdgeAnalyzer(quantities=["weight", "is_reciprocal", "in_scc"])
@@ -311,6 +328,7 @@ class TestEdgeAnalyzerExtractProperties:
 
 class TestEdgeAnalyzerExtractPropertiesBatch:
 
+    """The batch extraction equals the single-edge extraction, in input order."""
     def test_same_order_as_input_edges(self, digraph):
         # Batch results are returned in same order as input edges
         analyzer = EdgeAnalyzer(quantities=["weight"])
@@ -349,6 +367,7 @@ class TestEdgeAnalyzerExtractPropertiesBatch:
 
 class TestEdgeAnalyzerListProperties:
 
+    """list_properties reports the registry."""
     def test_matches_available_extractors(self):
         # list_properties() reports available_extractors() keys
         analyzer = EdgeAnalyzer()

@@ -38,12 +38,14 @@ def _two_channels(seed=0, n=10, t=50):
 
 
 def test_perfect_prediction():
+    """All losses are 0 and R^2 = 1 for y_pred = y."""
     y, _ = _two_channels()
     assert mse(y, y) == mae(y, y) == rmse(y, y) == nrmse(y, y) == 0.0
     assert r2(y, y) == 1.0
 
 
 def test_mean_predictor_gives_nrmse_one_and_r2_zero():
+    """Predicting the target mean gives NRMSE = 1 and R^2 = 0."""
     y, _ = _two_channels()
     mean = np.broadcast_to(y.reshape(-1, 2).mean(axis=0), y.shape)
     assert np.isclose(nrmse(y, mean), 1.0)
@@ -51,19 +53,24 @@ def test_mean_predictor_gives_nrmse_one_and_r2_zero():
 
 
 def test_rmse_is_sqrt_of_mse():
+    """RMSE = sqrt(MSE)."""
     y, rng = _two_channels()
     pred = y + rng.normal(size=y.shape)
     assert np.isclose(rmse(y, pred), np.sqrt(mse(y, pred)))
 
 
 def test_nrmse_and_r2_are_linked_for_per_channel_data():
+    """R^2 = 1 - NRMSE^2 per channel."""
     y, rng = _two_channels()
     pred = y + rng.normal(size=y.shape) * np.array([1.0, 40.0])
     assert np.isclose(nrmse(y, pred) ** 2, 1.0 - r2(y, pred))
 
 
 def test_failing_channel_is_not_hidden_by_a_large_channel():
-    # perfect on the large channel, noise on the small one
+    """NRMSE normalizes per channel, so a channel with a small variance still counts.
+
+    perfect on the large channel, noise on the small one
+    """
     y, rng = _two_channels()
     pred = y.copy()
     pred[:, :, 0] = rng.normal(size=y.shape[:2])
@@ -76,6 +83,7 @@ def test_failing_channel_is_not_hidden_by_a_large_channel():
 
 
 def test_nrmse_is_invariant_to_the_scale_of_the_data():
+    """NRMSE(a y, a y_pred) = NRMSE(y, y_pred)."""
     y, rng = _two_channels()
     pred = y + rng.normal(size=y.shape)
     scale = np.array([1e-3, 1e4])
@@ -101,6 +109,7 @@ def test_mismatched_shapes_raise(metric):
 
 
 def test_constant_channel_is_left_out_with_a_warning():
+    """A constant target channel has no variance to normalize by and is skipped with a warning."""
     y, rng = _two_channels()
     y[:, :, 0] = 3.0
     pred = y + rng.normal(size=y.shape)
@@ -111,6 +120,7 @@ def test_constant_channel_is_left_out_with_a_warning():
 
 
 def test_all_constant_target_raises():
+    """If every channel is constant, NRMSE is undefined and raises."""
     y = np.full((4, 5, 2), 2.0)
     with pytest.raises(ValueError, match="constant"):
         nrmse(y, y + 1.0)

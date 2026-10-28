@@ -1,3 +1,7 @@
+"""
+NodeSelector: construction from a graph or a node count, and the selection of unique nodes by fraction or number.
+"""
+
 import pytest
 import networkx as nx
 import numpy as np
@@ -71,7 +75,3 @@ def test_node_selection():
     # Test invalid num value
     with pytest.raises(ValueError):
         selector.select_nodes(num=-1)
-
-
-if __name__ == "__main__":
-    pytest.main()

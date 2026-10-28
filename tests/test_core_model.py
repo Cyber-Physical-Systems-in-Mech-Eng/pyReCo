@@ -1,31 +1,23 @@
 """
-Core model API: building, compiling, fitting with invalid input, hyperparameters, node and
-edge removal, and the common task shapes (vector, sequence to scalar, sequence to sequence).
+Core model API: building and compiling, the common task shapes (vector, sequence to scalar, sequence to
+sequence), hyperparameters, node and edge removal, and the selection of input and readout nodes.
+Invalid data is covered in test_data_checks.py, the warm-up in test_warmup.py.
 """
+
+from functools import partial
 
 import numpy as np
 import pytest
 
+from helpers import build_rc, make_xy
 from pyreco.custom_models import RC
 from pyreco.layers import FeedbackLayer, InputLayer, RandomReservoirLayer, ReadoutLayer
 from pyreco.optimizers import RidgeSK
+from pyreco.utils_networks import compute_spec_rad
 
-
-def _data(n=8, T=30, n_in=2, K=None, seed=0):
-    K = T if K is None else K
-    rng = np.random.default_rng(seed)
-    x = rng.normal(size=(n, T, n_in))
-    y = np.tanh(x[:, -K:, :1]) + 0.3 * x[:, -K:, 1:2]
-    return x, y
-
-
-def _model(T=30, K=30, n_in=2, n_out=1, nodes=30, **compile_kwargs):
-    model = RC(seed=1)
-    model.add(InputLayer(input_shape=(T, n_in)))
-    model.add(RandomReservoirLayer(nodes=nodes, density=0.2, seed=2))
-    model.add(ReadoutLayer(output_shape=(K, n_out), fraction_out=0.8))
-    model.compile(**compile_kwargs)
-    return model
+# 8 sequences of 30 steps with 2 input channels and a 30 node reservoir; K, n_in, n_out can be overridden
+_data = partial(make_xy, n=8, T=30)
+_model = partial(build_rc, T=30, nodes=30, density=0.2, seed=1, layer_seed=2, readout=dict(fraction_out=0.8))
 
 
 # ------------------------------------------------------------------------------- building
@@ -51,36 +43,6 @@ def test_compile_flags_the_layers_and_sets_the_model_dimensions():
     assert all(l._is_compiled for l in (model.input_layer, model.reservoir_layer, model.readout_layer))
     assert model.num_nodes == 25 and model.num_states_in == 3 and model.num_states_out == 2
     assert model.input_layer.weights.shape == (25, 3)
-
-
-# ----------------------------------------------------------------------------- fit input
-
-
-@pytest.mark.parametrize(
-    "x, y, error, match",
-    [
-        ([[1.0]], np.zeros((8, 30, 1)), TypeError, "numpy arrays"),
-        (np.zeros((8, 30, 2)), [[1.0]], TypeError, "numpy arrays"),
-        (np.zeros((8, 30)), np.zeros((8, 30, 1)), ValueError, "3 dimensions"),
-        (np.zeros((8, 30, 2)), np.zeros((8, 30)), ValueError, "3 dimensions"),
-        (np.zeros((8, 30, 2)), np.zeros((7, 30, 1)), ValueError, "same number of samples"),
-        (np.zeros((8, 10, 2)), np.zeros((8, 30, 1)), ValueError, "at least as many timesteps"),
-    ],
-)
-def test_fit_rejects_invalid_data(x, y, error, match):
-    with pytest.raises(error, match=match):
-        _model().fit(x, y)
-
-
-def test_fit_rejects_a_non_boolean_store_states_flag():
-    x, y = _data()
-    with pytest.raises(TypeError, match="store_states"):
-        _model().fit(x, y, store_states="yes")
-
-
-def test_predict_before_fit_asks_for_fit():
-    with pytest.raises(RuntimeError, match="fit"):
-        _model().predict(_data()[0])
 
 
 # ---------------------------------------------------------------------------------- shapes
@@ -122,19 +84,8 @@ def test_sequence_to_scalar_learns_a_function_of_the_last_input():
 # ---------------------------------------------------------------------- hyperparameters
 
 
-def test_set_hp_input_scaling_takes_effect_at_the_next_fit():
-    x, y = _data()
-    model = _model()
-    model.fit(x, y)
-    before = model.predict(x)
-    model.set_hp(input_scaling=3.0)
-    assert model.get_hp("input_scaling") == {"input_scaling": 3.0}
-    assert np.array_equal(model.predict(x), before)  # the fitted model is frozen
-    model.fit(x, y)
-    assert not np.allclose(model.predict(x), before)
-
-
 def test_set_hp_and_get_hp_round_trip():
+    """Every hyperparameter that is set can be read back unchanged."""
     model = _model()
     model.set_hp(spec_rad=0.7, leakage_rate=0.3, activation="sigmoid", alpha=0.01, input_scaling=[0.5, 2.0])
     hp = model.get_hp()
@@ -144,7 +95,36 @@ def test_set_hp_and_get_hp_round_trip():
     assert set(model.get_hp("spec_rad", "alpha")) == {"spec_rad", "alpha"}
 
 
+def test_set_hp_changes_the_reservoir_and_the_readout():
+    """spec_rad rescales the weights to rho(A) = spec_rad, the activation is the named function, and the
+    ridge penalty alpha changes the fitted readout (a strong penalty shrinks the weights)."""
+    x, y = _data()
+    model = _model()
+    model.fit(x, y)
+
+    model.set_hp(spec_rad=0.9)
+    assert np.isclose(compute_spec_rad(model.reservoir_layer.weights), 0.9)
+
+    model.set_hp(leakage_rate=0.15)
+    assert np.isclose(model.get_hp()["leakage_rate"], 0.15)
+
+    v = np.array([0.5, -1.0, 0.0])
+    model.set_hp(activation="tanh")
+    assert np.allclose(model.reservoir_layer.activation_fun(v), np.tanh(v))
+    model.set_hp(activation="sigmoid")  # 1 / (1 + exp(-v))
+    assert np.allclose(model.reservoir_layer.activation_fun(v), 1 / (1 + np.exp(-v)))
+
+    norms = {}
+    for alpha in (1e-4, 1e1):
+        model.set_hp(alpha=alpha)
+        assert np.isclose(model.get_hp("alpha")["alpha"], alpha)
+        model.fit(x, y)
+        norms[alpha] = np.linalg.norm(model.readout_layer.weights)
+    assert norms[1e1] < norms[1e-4]
+
+
 def test_set_hp_rejects_unknown_or_invalid_values():
+    """Unknown names and values outside the valid range are errors, not ignored."""
     model = _model()
     with pytest.raises(ValueError, match="Unsupported"):
         model.set_hp(learning_rate=0.1)
@@ -303,18 +283,6 @@ def test_removing_all_readout_nodes_is_caught_at_fit():
     model.remove_reservoir_nodes(list(model.readout_layer.readout_nodes))
     with pytest.raises(ValueError, match="No reservoir node is read out"):
         model.fit(x, y)
-
-
-def test_fit_before_compile_asks_for_compile():
-    x, y = _data()
-    model = RC()
-    model.add(InputLayer((30, 2)))
-    model.add(RandomReservoirLayer(nodes=10, density=0.3, seed=0))
-    model.add(ReadoutLayer((30, 1)))
-    with pytest.raises(RuntimeError, match="compile"):
-        model.fit(x, y)
-    with pytest.raises(RuntimeError, match="compile"):
-        RC().fit(x, y)  # not even layers
 
 
 def test_nodes_can_be_removed_before_the_first_fit_and_the_fraction_follows():

@@ -5,21 +5,13 @@ Tests for the return value of fit() (there is a single fit per call).
 import numpy as np
 import pytest
 
-from pyreco.custom_models import RC
-from pyreco.layers import InputLayer, ReadoutLayer, RandomReservoirLayer
+from helpers import build_rc, make_xy
 
 
 def _setup(discard_transients=0):
-    rng = np.random.default_rng(0)
-    x = rng.normal(size=(5, 40, 2))
     # the targets are shorter than the inputs by the warm-up
-    y = (np.tanh(x[:, :, :1]) + 0.3 * x[:, :, 1:2] + 7.0)[:, : 40 - discard_transients]
-    model = RC()
-    model.add(InputLayer(input_shape=(40, 2)))
-    model.add(RandomReservoirLayer(nodes=40, density=0.3))
-    model.add(ReadoutLayer(output_shape=(40, 1)))
-    model.compile(discard_transients=discard_transients)
-    return model, x, y
+    x, y = make_xy(n=5, T=40, K=40 - discard_transients)
+    return build_rc(T=40, K=40 - discard_transients, nodes=40, discard_transients=discard_transients), x, y + 7.0
 
 
 @pytest.mark.parametrize("discard_transients", [0, 10])

@@ -1,12 +1,18 @@
 """
-Layers refuse invalid arguments when they are created, instead of building a model that silently
-does something else (no recurrence, a frozen or unstable reservoir, an unknown activation, ...).
+Layers: arguments are checked when a layer is created (no silent models without recurrence, with a
+frozen or unstable reservoir, or an unknown activation), and the reservoir weights can be replaced
+from outside.
 """
 
 import numpy as np
 import pytest
 
-from pyreco.layers import RandomReservoirLayer, ReadoutLayer
+from pyreco.custom_models import RC
+from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
+from pyreco.utils_networks import compute_density, compute_spec_rad
+
+
+# ------------------------------------------------------------------------- validation
 
 
 def _layer(**kwargs):
@@ -34,6 +40,7 @@ def _layer(**kwargs):
     ],
 )
 def test_valid_arguments_are_accepted(kwargs):
+    """Boundary values and numpy / integer numbers are valid arguments."""
     _layer(**kwargs)
 
 
@@ -67,6 +74,7 @@ def test_valid_arguments_are_accepted(kwargs):
     ],
 )
 def test_invalid_arguments_are_rejected(kwargs, error, match):
+    """Each invalid argument raises at construction, with the name of the argument in the message."""
     with pytest.raises(error, match=match):
         _layer(**kwargs)
 
@@ -79,7 +87,8 @@ def test_readout_fraction_must_be_in_the_unit_interval(fraction):
         ReadoutLayer((10, 1), fraction_out="half")
 
 
-def test_readout_fractions_are_stored_as_floats():
+def test_numbers_are_stored_as_python_numbers():
+    """Integers and numpy scalars are converted, so that later arithmetic and saving behave."""
     assert ReadoutLayer((10, 1), fraction_out=1).fraction_out == 1.0
     assert isinstance(ReadoutLayer((10, 1), fraction_out=np.float32(0.5)).fraction_out, float)
     layer = _layer(fraction_input=1, density=1, leakage_rate=1)
@@ -102,3 +111,47 @@ def test_the_setters_use_the_same_activations():
         layer.set_activation("relu")
     with pytest.raises(ValueError):
         layer.set_leakage_rate(0.0)
+
+
+
+# --------------------------------------------------------------------- set_weights
+
+
+def _compiled_model(nodes=100):
+    model = RC()
+    model.add(InputLayer(input_shape=(1, nodes)))
+    model.add(RandomReservoirLayer(nodes=nodes, density=0.1))
+    model.add(ReadoutLayer(output_shape=(1, nodes)))
+    model.compile()
+    return model
+
+
+def test_set_weights_updates_the_layer_properties():
+    """density and spectral radius of the layer always describe the current weight matrix."""
+    layer = _compiled_model().reservoir_layer
+    assert layer._is_compiled is True
+    assert np.isclose(layer.density, compute_density(layer.weights))
+    assert np.isclose(layer.spec_rad, compute_spec_rad(layer.weights))
+
+    new_weights = np.ones_like(layer.weights)  # fully connected: density 1
+    layer.set_weights(new_weights)
+    assert np.array_equal(layer.weights, new_weights)
+    assert np.isclose(layer.density, 1.0)
+    assert np.isclose(layer.spec_rad, compute_spec_rad(new_weights))
+
+
+@pytest.mark.parametrize(
+    "weights, error",
+    [
+        (np.ones((50, 50)), ValueError),  # other size than the 100 nodes
+        (np.ones((100, 50)), ValueError),  # not square
+        (np.ones((200, 200)), ValueError),
+        ([1.0, 2.0, 3.0], TypeError),  # not an array
+    ],
+)
+def test_set_weights_rejects_other_shapes_and_types(weights, error):
+    layer = _compiled_model().reservoir_layer
+    before = layer.weights.copy()
+    with pytest.raises(error):
+        layer.set_weights(weights)
+    assert np.array_equal(layer.weights, before)

@@ -29,6 +29,7 @@ def _data(n=10, t=40, seed=0):
 
 
 def test_default_is_no_bias_and_nothing_changes():
+    """input_bias = 0 reproduces the model without a bias exactly."""
     x, y = _data()
     a, b = _model(), _model(input_bias=0)
     assert a.input_bias == 0.0 and a.get_hp("input_bias") == {"input_bias": 0.0}
@@ -38,6 +39,7 @@ def test_default_is_no_bias_and_nothing_changes():
 
 
 def test_bias_signs_are_plus_minus_one_for_every_node_and_do_not_depend_on_the_gain():
+    """The bias vector b has entries +-1; the gain scales it (b_eff = gain * b)."""
     off, on = _model(input_bias=0.0), _model(input_bias=2.0)
     assert off.input_layer.bias.shape == (20,)
     assert set(np.unique(off.input_layer.bias)) == {-1.0, 1.0}
@@ -49,6 +51,7 @@ def test_bias_signs_are_plus_minus_one_for_every_node_and_do_not_depend_on_the_g
 
 
 def test_bias_reaches_every_node_even_if_only_some_receive_the_input():
+    """The constant bias goes to all nodes, the input only to the fraction_input nodes."""
     model = _model(fraction_input=0.3, input_bias=1.0, normalize_inputs=False)
     x = np.zeros((2, 15, 1))
     states = model.compute_reservoir_state(x)
@@ -59,6 +62,7 @@ def test_bias_reaches_every_node_even_if_only_some_receive_the_input():
 
 
 def test_bias_moves_the_states_by_the_gain_times_the_signs_for_one_step():
+    """For zero input and r(0) = 0 the first state is a tanh(gain * b), with the leakage rate a."""
     model = _model(input_bias=0.7, normalize_inputs=False)
     alpha = model.reservoir_layer.leakage_rate
     states = model.compute_reservoir_state(np.zeros((1, 1, 1)))
@@ -67,6 +71,7 @@ def test_bias_moves_the_states_by_the_gain_times_the_signs_for_one_step():
 
 
 def test_bias_is_frozen_at_fit_like_the_input_scaling():
+    """Changing the gain after fit does not change predictions until the next fit."""
     x, y = _data()
     model = _model(input_bias=1.0)
     model.fit(x, y)
@@ -78,8 +83,8 @@ def test_bias_is_frozen_at_fit_like_the_input_scaling():
 
 
 def test_a_bias_lets_the_reservoir_learn_an_even_function():
-    # tanh is odd, so without a bias (and without a mean in the input) the states are odd functions
-    # of the input and cannot represent y = x^2 well
+    """tanh is odd, so without a bias (and with an input without mean) the states are odd functions of the
+    input and cannot represent y = x^2 (NRMSE about 1); with a bias they can."""
     rng = np.random.default_rng(0)
     x = rng.uniform(-1, 1, size=(20, 60, 1))
     y = x**2
@@ -93,6 +98,7 @@ def test_a_bias_lets_the_reservoir_learn_an_even_function():
 
 
 def test_input_bias_is_a_hyperparameter():
+    """input_bias is set and read with set_hp / get_hp."""
     model = _model()
     model.set_hp(input_bias=0.5)
     assert model.get_hp("input_bias") == {"input_bias": 0.5}
@@ -112,6 +118,7 @@ def test_non_numeric_bias_is_rejected(bad):
 
 
 def test_removing_nodes_removes_their_bias_and_the_model_still_trains():
+    """The bias vector shrinks together with the reservoir."""
     x, y = _data()
     model = _model(input_bias=1.0)
     model.fit(x, y)
@@ -123,6 +130,7 @@ def test_removing_nodes_removes_their_bias_and_the_model_still_trains():
 
 
 def test_bias_is_seeded_by_the_model_seed():
+    """The signs are drawn from the model seed."""
     x, y = _data()
     runs = []
     for _ in range(2):
