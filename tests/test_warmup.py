@@ -195,3 +195,19 @@ def test_without_input_a_contracting_reservoir_returns_to_zero():
     states = model.compute_reservoir_state(np.zeros((1, 60, 2)))
     assert np.abs(states[0, -1]).max() < 1e-6
     assert np.abs(states[0, 0]).max() > 0.1
+
+
+def test_evaluate_rejects_targets_that_are_longer_than_the_predictions():
+    # targets that still contain the warm-up used to be compared with the wrong predictions
+    # without any message (prediction j was paired with target j instead of d + j)
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(1, 80, 2))
+    y = rng.normal(size=(1, 80, 1))
+    model = _model(80, 70, d=10)
+    model.fit(x, y[:, 10:])
+    assert model.predict(x).shape == (1, 70, 1)
+    with pytest.raises(ValueError, match="leave out the first 10 targets"):
+        model.evaluate(x, y)
+    assert np.isfinite(model.evaluate(x, y[:, 10:])).all()
+    # shorter targets (e.g. the first few steps, or a single target) stay valid
+    assert np.isfinite(model.evaluate(x, y[:, 10:20])).all()

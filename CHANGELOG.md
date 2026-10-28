@@ -183,6 +183,9 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Bugfixes
 
+* `evaluate(x, y)` raises a `ValueError` if `y` has more time steps than there are predictions. With a
+  warm-up, a target sequence that was given in full (including the first `discard_transients` steps) was
+  compared with the wrong predictions without any message (e.g. an NRMSE of 1.58 instead of 0.009).
 * A reservoir where `fraction_input` or `fraction_out` selects no node (e.g. `fraction_input=0.1` on 5
   nodes) is an error at `compile()` with the numbers in the message. Before, no node received the input
   (the model trained and predicted a constant, silently) or no node was read out (`fit()` failed with a

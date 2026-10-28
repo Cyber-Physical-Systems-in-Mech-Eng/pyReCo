@@ -643,6 +643,14 @@ class CustomModel(ABC):
 
         # prediction j belongs to target j. The predictions cover all input steps after the
         # warm-up, the targets may be shorter (e.g. a single target of a sequence)
+        if y.shape[1] > y_pred.shape[1]:
+            raise ValueError(
+                f"The targets have {y.shape[1]} time steps but there are only "
+                f"{y_pred.shape[1]} predictions (inputs: {x.shape[1]} time steps, warm-up: "
+                f"{self.discard_transients}). Prediction j belongs to the target at time step j "
+                f"after the warm-up, so leave out the first {self.discard_transients} targets "
+                f"of a sequence that was given in full."
+            )
         n_compare = min(y.shape[1], y_pred.shape[1])
         y, y_pred = y[:, :n_compare, :], y_pred[:, :n_compare, :]
 
