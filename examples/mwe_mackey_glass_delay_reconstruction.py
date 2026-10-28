@@ -36,7 +36,7 @@ from scipy.linalg import LinAlgWarning
 from sklearn.linear_model import Ridge
 
 from pyreco.custom_models import RC
-from pyreco.datasets import _generate_mackey_glass
+from pyreco.datasets import generate_mackey_glass
 from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
 from pyreco.metrics import nrmse
 
@@ -52,7 +52,7 @@ HP = dict(spec_rad=1.017, leakage_rate=0.773, input_scaling=0.0749, input_bias=0
 RESERVOIR = dict(density=0.284, weight_distribution="uniform")
 
 # ------------------------------------------------------------------------------- data
-series = _generate_mackey_glass(N_BURN_IN + N_TRAIN + N_VAL + N_TEST)[N_BURN_IN:, 0]
+series = generate_mackey_glass(N_TRAIN + N_VAL + N_TEST, washout=N_BURN_IN)[:, 0]
 train = series[:N_TRAIN]
 val = series[N_TRAIN : N_TRAIN + N_VAL]
 test = series[N_TRAIN + N_VAL :]

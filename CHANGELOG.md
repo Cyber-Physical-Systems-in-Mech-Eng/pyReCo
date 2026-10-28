@@ -8,6 +8,13 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Breaking Changes
 
+* Parameters of the data generators: the sampling interval of Lorenz and Mackey-Glass is `dt` (was
+  `h`) and the internal step of Mackey-Glass `dt_int` (was `h_int`); the old names still work in
+  `load` / `generate` with a `DeprecationWarning`. `load` raises a `TypeError` for a parameter that
+  the system does not have (it ignored it silently, e.g. a misspelled `tua=17`). A `seed` now also
+  perturbs the initial condition of the Lorenz system (std 1e-3, like Mackey-Glass already did),
+  `load('lorenz', seed=...)` used to ignore it; without a seed the series is unchanged.
+
 * Layers check their arguments when they are created and raise a `TypeError`/`ValueError` with a clear
   message instead of building a model that silently does something else: `nodes` an integer >= 2,
   `density` in (0, 1], `spec_rad` > 0 (0 gave a reservoir without recurrence), `leakage_rate` in
@@ -82,6 +89,14 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 
 ### Minor Improvements
+
+* The data generators of `pyreco.datasets` are public and share one interface:
+  `generate_lorenz`, `generate_mackey_glass` and `generate_narma` take `n_timesteps` and keyword-only
+  system parameters, then `washout` (leading samples that are generated and dropped, default 0 for
+  all) and `seed`, and return a float array of shape `(n_timesteps, n_features)`.
+  `generate(name, n_timesteps, ...)` calls them by name, `load` is built on it. Arguments are
+  checked (counts, positive step sizes, the initial condition of Lorenz). The examples use the
+  public functions instead of the private `_generate_*` ones, which are gone.
 
 * New example `mwe_mackey_glass_delay_reconstruction.py`: a reservoir observer for the Mackey-Glass delay
   equation that infers the hidden delayed state x(t - tau) and the production term from x(t) (test NRMSE

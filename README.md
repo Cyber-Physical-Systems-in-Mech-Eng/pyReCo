@@ -239,6 +239,15 @@ model.fit(x_train, y_train)
 print(f"scores: {model.evaluate(x_test, y_test, metrics=['nrmse'])}")  # 1 = predicting the mean
 ```
 
+The raw series are available without windowing through generators with one interface, `generate_lorenz`, `generate_mackey_glass` and `generate_narma` (or `generate(name, n_timesteps, ...)`): `n_timesteps`, the keyword-only parameters of the system (`dt` for the sampling interval of the continuous systems), `washout` (leading samples that are generated and dropped, to get onto the attractor) and `seed`. They return an array of shape `(n_timesteps, n_features)`.
+
+```python
+from pyreco.datasets import generate_lorenz, generate_mackey_glass
+
+lorenz = generate_lorenz(5000, dt=0.01, washout=1000)  # (5000, 3), columns x, y, z
+mackey_glass = generate_mackey_glass(5000, tau=17, washout=1000, seed=1)  # (5000, 1)
+```
+
 Simple periodic signals (a sine with a different frequency per state, sine to cosine, ...) for quick tests are in `pyreco.utils_data`.
 
 

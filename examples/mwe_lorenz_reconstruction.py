@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from pyreco.custom_models import RC
-from pyreco.datasets import _generate_lorenz
+from pyreco.datasets import generate_lorenz
 from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
 
 DT = 0.01  # integration and sampling time step of the Lorenz system
@@ -42,7 +42,7 @@ RESERVOIR = dict(density=0.05, weight_distribution="sign")
 
 # ------------------------------------------------------------------------------- data
 # one trajectory, the first steps are the transient from the initial condition to the attractor
-trajectory = _generate_lorenz(N_BURN_IN + N_TRAIN + N_VAL + N_TEST, h=DT)[N_BURN_IN:]
+trajectory = generate_lorenz(N_TRAIN + N_VAL + N_TEST, dt=DT, washout=N_BURN_IN)
 train = trajectory[:N_TRAIN]
 val = trajectory[N_TRAIN : N_TRAIN + N_VAL]
 test = trajectory[N_TRAIN + N_VAL :]

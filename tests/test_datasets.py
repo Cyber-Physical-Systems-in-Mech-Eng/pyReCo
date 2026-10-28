@@ -13,7 +13,7 @@ from pyreco import datasets as ds
 
 def test_lorenz_satisfies_its_equations():
     h = 0.01
-    x = ds._generate_lorenz(2000, h=h)
+    x = ds.generate_lorenz(2000, dt=h)
     assert x.shape == (2000, 3)
     # central finite differences of the trajectory against the right-hand side
     dxdt = (x[2:] - x[:-2]) / (2 * h)
@@ -30,7 +30,7 @@ def test_lorenz_satisfies_its_equations():
 
 
 def test_lorenz_lives_on_the_attractor():
-    x = ds._generate_lorenz(5000)
+    x = ds.generate_lorenz(5000)
     settled = x[500:]  # after the start-up transient
     assert np.isfinite(x).all()
     assert np.abs(settled[:, 0]).max() < 25 and np.abs(settled[:, 1]).max() < 30
@@ -39,30 +39,30 @@ def test_lorenz_lives_on_the_attractor():
 
 
 def test_lorenz_starts_at_the_initial_condition_and_is_deterministic():
-    a = ds._generate_lorenz(200, x0=[2.0, 1.0, 0.5])
+    a = ds.generate_lorenz(200, x0=[2.0, 1.0, 0.5])
     assert np.allclose(a[0], [2.0, 1.0, 0.5])
-    assert np.array_equal(a, ds._generate_lorenz(200, x0=[2.0, 1.0, 0.5]))
+    assert np.array_equal(a, ds.generate_lorenz(200, x0=[2.0, 1.0, 0.5]))
 
 
 # ------------------------------------------------------------ Mackey-Glass
 
 
 def test_mackey_glass_range_and_shape():
-    x = ds._generate_mackey_glass(2000)
+    x = ds.generate_mackey_glass(2000)
     assert x.shape == (2000, 1) and np.isfinite(x).all()
     assert 0.3 < x[300:].min() and x[300:].max() < 1.5
 
 
 def test_mackey_glass_is_converged_in_the_integration_step():
-    coarse = ds._generate_mackey_glass(500, h_int=0.1)
-    fine = ds._generate_mackey_glass(500, h_int=0.02)
+    coarse = ds.generate_mackey_glass(500, dt_int=0.1)
+    fine = ds.generate_mackey_glass(500, dt_int=0.02)
     assert np.abs(coarse - fine).max() < 5e-3
 
 
 def test_mackey_glass_satisfies_the_delay_equation():
     # sampled with h=1 and an exact delay of 17 samples:
     # x'(t) = a x(t-tau)/(1+x(t-tau)^n) - b x(t)
-    x = ds._generate_mackey_glass(800).ravel()
+    x = ds.generate_mackey_glass(800).ravel()
     t = np.arange(40, 780)
     dxdt = (x[t + 1] - x[t - 1]) / 2.0
     rhs = 0.2 * x[t - 17] / (1 + x[t - 17] ** 10) - 0.1 * x[t]
@@ -70,16 +70,16 @@ def test_mackey_glass_satisfies_the_delay_equation():
 
 
 def test_mackey_glass_seed():
-    same = [ds._generate_mackey_glass(300, seed=1) for _ in range(2)]
+    same = [ds.generate_mackey_glass(300, seed=1) for _ in range(2)]
     assert np.array_equal(same[0], same[1])
-    assert not np.array_equal(same[0], ds._generate_mackey_glass(300, seed=2))
-    assert np.array_equal(ds._generate_mackey_glass(300), ds._generate_mackey_glass(300))
+    assert not np.array_equal(same[0], ds.generate_mackey_glass(300, seed=2))
+    assert np.array_equal(ds.generate_mackey_glass(300), ds.generate_mackey_glass(300))
 
 
-@pytest.mark.parametrize("kwargs", [dict(h_int=0.3), dict(h=0.25, h_int=0.1), dict(tau=17.55)])
+@pytest.mark.parametrize("kwargs", [dict(dt_int=0.3), dict(dt=0.25, dt_int=0.1), dict(tau=17.55)])
 def test_mackey_glass_requires_commensurable_steps(kwargs):
     with pytest.raises(ValueError, match="integer"):
-        ds._generate_mackey_glass(100, **kwargs)
+        ds.generate_mackey_glass(100, **kwargs)
 
 
 # --------------------------------------------------------------------- load
@@ -89,7 +89,7 @@ def test_mackey_glass_requires_commensurable_steps(kwargs):
 def test_load_windows_are_aligned_and_chronological(name, n_features):
     n_in, n_out, n = 20, 3, 1000
     x_train, y_train, x_test, y_test = ds.load(name, n_samples=n, n_in=n_in, n_out=n_out)
-    raw = (ds._generate_lorenz if name == "lorenz" else ds._generate_mackey_glass)(n)
+    raw = (ds.generate_lorenz if name == "lorenz" else ds.generate_mackey_glass)(n)
     n_train = int(n * 0.7)
 
     assert x_train.shape == (n_train - n_in - n_out + 1, n_in, n_features)
@@ -111,7 +111,7 @@ def test_load_return_arity():
 
 def test_standardization_uses_training_statistics_only():
     n, n_in = 1000, 10
-    raw = ds._generate_lorenz(n)
+    raw = ds.generate_lorenz(n)
     n_train = int(n * 0.7)
     *_, scaler = ds.load("lorenz", n_samples=n, n_in=n_in, standardize=True)
     assert np.allclose(scaler.mean_, raw[:n_train].mean(axis=0))
@@ -136,13 +136,11 @@ def test_dataset_names_are_case_and_separator_insensitive():
         assert np.array_equal(ds.load(name, n_samples=600, n_in=10)[0], ref)
 
 
-def test_seed_only_affects_mackey_glass():
-    a = ds.load("lorenz", n_samples=600, n_in=10, seed=1)[0]
-    b = ds.load("lorenz", n_samples=600, n_in=10, seed=2)[0]
-    assert np.array_equal(a, b)
-    c = ds.load("mg", n_samples=600, n_in=10, seed=1)[0]
-    assert np.array_equal(c, ds.load("mg", n_samples=600, n_in=10, seed=1)[0])
-    assert not np.array_equal(c, ds.load("mg", n_samples=600, n_in=10, seed=2)[0])
+@pytest.mark.parametrize("name", ["lorenz", "mg", "narma10"])
+def test_load_seed_is_reproducible_and_matters(name):
+    first = ds.load(name, n_samples=600, n_in=10, seed=1)[0]
+    assert np.array_equal(first, ds.load(name, n_samples=600, n_in=10, seed=1)[0])
+    assert not np.array_equal(first, ds.load(name, n_samples=600, n_in=10, seed=2)[0])
 
 
 @pytest.mark.parametrize(
@@ -170,7 +168,7 @@ def test_load_does_not_print(capsys):
 
 @pytest.mark.parametrize("order", [5, 10])
 def test_narma_satisfies_its_recursion(order):
-    data = ds._generate_narma(400, order=order, seed=0, washout=0)
+    data = ds.generate_narma(400, order=order, seed=0, washout=0)
     u, target = data[:, 0], data[:, 1]  # target[t] = y(t+1)
     y = np.concatenate([[0.0], target])  # y[t] with y(0) = 0
     assert data.shape == (400, 2)
@@ -190,47 +188,47 @@ def test_narma_satisfies_its_recursion(order):
 
 @pytest.mark.parametrize("order", [5, 10])
 def test_narma_statistics(order):
-    target = ds._generate_narma(3000, order=order, seed=1)[:, 1]
+    target = ds.generate_narma(3000, order=order, seed=1, washout=100)[:, 1]
     assert np.isfinite(target).all() and 0.1 < target.min() and target.max() < 1.5
     assert 0.25 < target.mean() < 0.45 and 0.05 < target.std() < 0.2
 
 
 def test_narma_seed_and_washout():
-    a = ds._generate_narma(300, seed=4)
-    assert np.array_equal(a, ds._generate_narma(300, seed=4))
-    assert not np.array_equal(a, ds._generate_narma(300, seed=5))
-    assert not np.array_equal(ds._generate_narma(300), ds._generate_narma(300))  # no seed
+    a = ds.generate_narma(300, seed=4)
+    assert np.array_equal(a, ds.generate_narma(300, seed=4))
+    assert not np.array_equal(a, ds.generate_narma(300, seed=5))
+    assert not np.array_equal(ds.generate_narma(300), ds.generate_narma(300))  # no seed
 
     # dropping a washout of w samples is the same as generating w more and discarding them
-    full = ds._generate_narma(250, seed=4, washout=0)
-    assert np.array_equal(ds._generate_narma(200, seed=4, washout=50), full[50:])
+    full = ds.generate_narma(250, seed=4, washout=0)
+    assert np.array_equal(ds.generate_narma(200, seed=4, washout=50), full[50:])
 
 
 def test_narma10_diverging_sequences_are_redrawn():
     # seed 75 gives a diverging output for NARMA10 with 5000 steps
     with pytest.raises(RuntimeError, match="diverged"):
-        ds._generate_narma(5000, order=10, seed=75, washout=0, max_attempts=1)
-    data = ds._generate_narma(5000, order=10, seed=75, washout=0)
+        ds.generate_narma(5000, order=10, seed=75, washout=0, max_attempts=1)
+    data = ds.generate_narma(5000, order=10, seed=75, washout=0)
     assert np.isfinite(data).all() and data[:, 1].max() < 2.0
-    assert np.array_equal(data, ds._generate_narma(5000, order=10, seed=75, washout=0))
+    assert np.array_equal(data, ds.generate_narma(5000, order=10, seed=75, washout=0))
 
 
 def test_narma_gives_up_if_the_system_cannot_be_stable():
     with pytest.raises(RuntimeError, match="diverged"):
-        ds._generate_narma(1000, order=10, u_max=3.0, seed=0, max_attempts=3)
+        ds.generate_narma(1000, order=10, u_max=3.0, seed=0, max_attempts=3)
 
 
 @pytest.mark.parametrize("order", [0, 1, 2.5])
 def test_narma_validates_the_order(order):
     with pytest.raises(ValueError, match="order"):
-        ds._generate_narma(100, order=order)
+        ds.generate_narma(100, order=order)
 
 
 @pytest.mark.parametrize("name, order", [("narma5", 5), ("narma10", 10)])
 def test_load_narma_windows_are_input_output_windows(name, order):
     n_in, n_out, n = 30, 4, 1000
     x_train, y_train, x_test, y_test = ds.load(name, n_samples=n, n_in=n_in, n_out=n_out, seed=2)
-    raw = ds._generate_narma(n, order=order, seed=2)
+    raw = ds.generate_narma(n, order=order, seed=2, washout=100)
     n_train = int(n * 0.7)
 
     assert x_train.shape == (n_train - n_in + 1, n_in, 1)
@@ -260,7 +258,7 @@ def test_load_narma_names_and_options():
 
 def test_load_narma_standardization_covers_input_and_target():
     n, n_in = 1000, 20
-    raw = ds._generate_narma(n, order=10, seed=1)
+    raw = ds.generate_narma(n, order=10, seed=1, washout=100)
     x_train, y_train, x_test, y_test, scaler = ds.load("narma10", n_samples=n, n_in=n_in, seed=1, standardize=True)
     n_train = int(n * 0.7)
     assert scaler.mean_.shape == (2,)  # [input, target]
@@ -288,3 +286,115 @@ def test_narma_is_learnable_from_lagged_inputs():
     prediction = model.predict(features(x_test))
     nrmse = np.sqrt(np.mean((prediction - y_test[:, 0, 0]) ** 2) / np.var(y_test[:, 0, 0]))
     assert nrmse < 0.1  # 1.0 for predicting the mean
+
+
+# ------------------------------------------------- one interface for all generators
+
+GENERATORS = {
+    "lorenz": (ds.generate_lorenz, 3),
+    "mackey_glass": (ds.generate_mackey_glass, 1),
+    "narma": (ds.generate_narma, 2),
+}
+
+
+@pytest.mark.parametrize("name", GENERATORS)
+def test_generators_share_one_signature(name):
+    import inspect
+
+    function, _ = GENERATORS[name]
+    parameters = inspect.signature(function).parameters
+    first, *rest = parameters.values()
+    assert first.name == "n_timesteps" and first.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in rest)  # no positional guessing
+    assert parameters["washout"].default == 0 and parameters["seed"].default is None
+    assert list(parameters)[-2:] == ["washout", "seed"]
+    if name != "narma":  # the continuous systems are sampled with dt
+        assert "dt" in parameters and "h" not in parameters
+    with pytest.raises(TypeError):
+        function(100, 0.5)
+
+
+@pytest.mark.parametrize("name", GENERATORS)
+def test_generators_return_float_arrays_of_the_same_layout(name):
+    function, n_features = GENERATORS[name]
+    data = function(120, seed=0)
+    assert data.shape == (120, n_features) and data.dtype == np.float64
+    assert np.isfinite(data).all()
+    assert function(1, seed=0).shape == (1, n_features)
+
+
+@pytest.mark.parametrize("name", GENERATORS)
+def test_washout_drops_leading_samples(name):
+    function, _ = GENERATORS[name]
+    full = function(230, seed=3)
+    assert np.allclose(function(200, washout=30, seed=3), full[30:], rtol=1e-6, atol=1e-8)
+
+
+@pytest.mark.parametrize("name", GENERATORS)
+def test_generators_are_reproducible_and_seed_matters(name):
+    function, _ = GENERATORS[name]
+    assert np.array_equal(function(150, seed=7), function(150, seed=7))
+    assert not np.array_equal(function(150, seed=7), function(150, seed=8))
+
+
+@pytest.mark.parametrize("name", ["lorenz", "mackey_glass"])
+def test_deterministic_systems_without_seed_are_deterministic(name):
+    function, _ = GENERATORS[name]
+    assert np.array_equal(function(100), function(100))
+    # a seed is a small perturbation of the same trajectory, not another system
+    assert np.abs(function(20, seed=1) - function(20)).max() < 0.05
+
+
+@pytest.mark.parametrize("name", GENERATORS)
+@pytest.mark.parametrize("kwargs", [dict(n_timesteps=0), dict(n_timesteps=2.5), dict(n_timesteps=True), dict(washout=-1), dict(washout=1.5)])
+def test_generators_validate_the_common_arguments(name, kwargs):
+    function, _ = GENERATORS[name]
+    with pytest.raises(ValueError, match="integer"):
+        function(**{**dict(n_timesteps=50), **kwargs})
+
+
+@pytest.mark.parametrize(
+    "function, kwargs",
+    [
+        (ds.generate_lorenz, dict(dt=0.0)),
+        (ds.generate_lorenz, dict(dt=-0.01)),
+        (ds.generate_lorenz, dict(x0=[1.0, 1.0])),
+        (ds.generate_lorenz, dict(x0=[1.0, np.nan, 1.0])),
+        (ds.generate_mackey_glass, dict(dt=0)),
+        (ds.generate_mackey_glass, dict(tau=-17)),
+        (ds.generate_mackey_glass, dict(x0=np.inf)),
+    ],
+)
+def test_generators_validate_the_system_parameters(function, kwargs):
+    with pytest.raises(ValueError):
+        function(50, **kwargs)
+
+
+def test_generate_calls_the_generators_by_name():
+    assert np.array_equal(ds.generate("Lorenz63", 100, dt=0.02), ds.generate_lorenz(100, dt=0.02))
+    assert np.array_equal(ds.generate("mg", 100, tau=20, seed=1), ds.generate_mackey_glass(100, tau=20, seed=1))
+    # NARMA: the benchmark fixes the order, and the washout defaults to the recommended 100
+    assert np.array_equal(ds.generate("narma5", 100, seed=1), ds.generate_narma(100, order=5, washout=100, seed=1))
+    assert np.array_equal(ds.generate("narma10", 100, washout=0, seed=1), ds.generate_narma(100, order=10, seed=1))
+    with pytest.raises(ValueError, match="fixed"):
+        ds.generate("narma10", 100, order=5)
+    with pytest.raises(TypeError):
+        ds.generate("lorenz", 100, tau=17)  # a typo or the wrong system is not ignored silently
+    with pytest.raises(ValueError, match="Unknown dataset"):
+        ds.generate("nope", 100)
+
+
+def test_old_parameter_names_still_work_with_a_warning():
+    with pytest.warns(DeprecationWarning, match="dt"):
+        old = ds.load("lorenz", n_samples=300, n_in=10, h=0.02)[0]
+    assert np.array_equal(old, ds.load("lorenz", n_samples=300, n_in=10, dt=0.02)[0])
+    with pytest.warns(DeprecationWarning, match="dt_int"):
+        ds.generate("mackey_glass", 50, h_int=0.05)
+
+
+def test_load_passes_washout_and_rejects_unknown_parameters():
+    a = ds.load("lorenz", n_samples=400, n_in=10, washout=100)[0]
+    raw = ds.generate_lorenz(400, washout=100)
+    assert np.allclose(a[0], raw[:10])
+    with pytest.raises(TypeError):
+        ds.load("lorenz", n_samples=400, n_in=10, tua=17)
