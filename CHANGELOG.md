@@ -83,6 +83,10 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* New example `mwe_lorenz_reconstruction.py`: a reservoir observer that infers the third Lorenz state from
+  the first two (test NRMSE 0.003 with 300 nodes), after Lu et al., Chaos 27, 041102 (2017). It uses one
+  long sequence with a washout, and controls that must fail (x from z is impossible by the symmetry of the
+  equations).
 * New input bias: `model.compile(input_bias=b)` (also `set_input_bias`, `set_hp(input_bias=...)`,
   `get_hp`) adds a constant input `b * s` to every reservoir node, `s` being a vector of random signs
   (+1/-1, fixed at compile, `model.input_layer.bias`). Default 0, i.e. no change for existing code.
