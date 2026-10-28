@@ -187,6 +187,12 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Bugfixes
 
+* `fit()`, `predict()` and `evaluate()` check the data and say what is wrong: NaN or infinite values (with
+  their position; `predict` used to return NaN and `fit` failed with a message of the underlying ridge
+  regression), a wrong number of input channels (a broadcast error before), a sequence that is not longer
+  than the warm-up (an `IndexError`), and `predict()` before `fit()`. `fit()` also checks the number of
+  target channels against the readout layer: it used to train a model with other outputs than the layer
+  declared without any message.
 * `evaluate(x, y)` raises a `ValueError` if `y` has more time steps than there are predictions. With a
   warm-up, a target sequence that was given in full (including the first `discard_transients` steps) was
   compared with the wrong predictions without any message (e.g. an NRMSE of 1.58 instead of 0.009).

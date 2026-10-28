@@ -386,6 +386,13 @@ class CustomModel(ABC):
                 "No reservoir node is read out (were all readout nodes removed?)."
             )
 
+        # the data has to match the model and must not contain NaN or infinite values
+        # (NaN is easy to produce when targets are shifted by hand)
+        self._check_channels(x, "x", self.input_layer.weights.shape[1], "input")
+        self._check_channels(y, "y", self.readout_layer.n_states, "target")
+        self._check_finite(x, "x")
+        self._check_finite(y, "y")
+
         # Extract shapes of inputs and outputs, expected to be 3D arrays
         # of shape [n_batch, n_timesteps, n_features]
         n_batch, n_time_in = x.shape[0], x.shape[1]
@@ -545,6 +552,22 @@ class CustomModel(ABC):
         # TODO: external function that is going to check the input dimensionality
         # and raise an error if shape is not correct
 
+        if self._input_scaling_fit is None:
+            raise RuntimeError("Model is not fitted yet. Call fit() first.")
+        if not isinstance(x, np.ndarray):
+            raise TypeError("Input data must be a numpy array.")
+        if x.ndim != 3:
+            raise ValueError(
+                "Input data must have 3 dimensions (n_batch, n_timesteps, n_states)."
+            )
+        self._check_channels(x, "x", self.input_layer.weights.shape[1], "input")
+        self._check_finite(x, "x")
+        if x.shape[1] <= self.num_transients_to_remove:
+            raise ValueError(
+                f"x has {x.shape[1]} time steps, but the warm-up is {self.num_transients_to_remove} "
+                f"time steps: there must be at least one more to make a prediction."
+            )
+
         # Same input preprocessing as in fit() (z-scoring and input scaling)
         x = self._transform_x(x)
 
@@ -567,6 +590,30 @@ class CustomModel(ABC):
         )
         return y_pred + self.readout_layer.bias
     
+
+    @staticmethod
+    def _check_channels(a: np.ndarray, name: str, expected: int, kind: str):
+        if a.shape[-1] != expected:
+            raise ValueError(
+                f"{name} has {a.shape[-1]} {kind} channels (last axis), but the model has "
+                f"{expected}. Build the model with matching layers, e.g. "
+                f"InputLayer(input_shape=(n_time, {a.shape[-1]})) for a new data set."
+            )
+
+    @staticmethod
+    def _check_finite(a: np.ndarray, name: str):
+        bad = ~np.isfinite(a)
+        if bad.any():
+            first = tuple(int(i) for i in np.argwhere(bad)[0])
+            raise ValueError(
+                f"{name} contains {int(bad.sum())} NaN or infinite values (first at index {first})."
+                + (
+                    " Targets that were shifted by hand need their padding removed, e.g. "
+                    "by leaving out the warm-up."
+                    if name == "y"
+                    else ""
+                )
+            )
 
     def _transform_x(self, x: np.ndarray, channels=None) -> np.ndarray:
         """
