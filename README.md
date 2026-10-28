@@ -321,6 +321,7 @@ The folder `examples/` contains minimal working examples (`mwe_*.py`) that you c
 | `mwe_remove_nodes.py`, `mwe_remove_edges.py` | remove nodes or edges of a trained model |
 | `mwe_node_pruning.py`, `mwe_edge_pruning.py` | pruning |
 | `mwe_lorenz_reconstruction.py` | Reconstruct the third Lorenz state from the first two (reservoir observer), with controls that must fail |
+| `mwe_mackey_glass_delay_reconstruction.py` | Mackey-Glass delay equation: infer the hidden delayed state x(t - tau) and the production term from x(t); reconstruction error versus lag (memory and prediction), with controls |
 | `mwe_narma10_optimal_reservoir.py` | NARMA10: search for the best reservoir with at most 200 nodes (size, density and hyperparameters) |
 | `effects_network_structure.py` | variation of the performance across random reservoir networks |
 | `compare_tensorflow_recopy.py`, `RC_vs_ANN.py` | comparison with feed-forward networks (needs `pyreco[benchmarks]`) |

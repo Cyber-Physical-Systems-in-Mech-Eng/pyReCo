@@ -83,6 +83,10 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* New example `mwe_mackey_glass_delay_reconstruction.py`: a reservoir observer for the Mackey-Glass delay
+  equation that infers the hidden delayed state x(t - tau) and the production term from x(t) (test NRMSE
+  1e-4 and 2e-4; a ridge regression on x(t) alone gets 0.87 and 0.83). It scans the error over the lag, from
+  the past to the future, and has a control with targets in random order (NRMSE 1.0).
 * New example `mwe_lorenz_reconstruction.py`: a reservoir observer that infers the third Lorenz state from
   the first two (test NRMSE 0.003 with 300 nodes), after Lu et al., Chaos 27, 041102 (2017). It uses one
   long sequence with a washout, and controls that must fail (x from z is impossible by the symmetry of the
