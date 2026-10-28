@@ -8,30 +8,42 @@ from pyreco.utils_random import RngLike, make_rng
 
 def cross_val(model, X: np.ndarray, y: np.ndarray, n_splits: int, metric: str = 'mse',
               seed: RngLike = None) -> Tuple[List[float], float, float]:
-    '''
-    Performs k-fold cross-validation on a given model.
+    r'''
+    Perform k-fold cross-validation on a given model.
 
-    Parameters:
+    The samples are shuffled and split into :math:`k` folds. For every fold the model is trained on the other
+    :math:`k - 1` folds and scored on the fold; the result is the mean and the standard deviation of the
+    :math:`k` scores :math:`m_j`,
+
+    .. math::
+
+        \bar m = \frac{1}{k} \sum_{j=1}^{k} m_j, \qquad
+        s_m = \sqrt{\frac{1}{k} \sum_{j=1}^{k} \left( m_j - \bar m \right)^2} .
+
+    Parameters
+    ----------
     model : object
         The RC model to be validated.
-    X : np.ndarray
-        Feature matrix.
-    y : np.ndarray
-        Target vector.
+    X : ndarray
+        Input data, the first axis holds the samples.
+    y : ndarray
+        Target data, the first axis holds the samples.
     n_splits : int
-        Number of folds.
-    metrics : str
+        Number of folds :math:`k`.
+    metric : str, default='mse'
         Metric to evaluate.
     seed : int, np.random.Generator or None, optional
         Seed for shuffling the samples before they are split into folds. The global
         random state is not used. Note that the model itself is seeded separately.
 
-    Returns:
-    tuple
-        A tuple containing:
-        - list of metric's value for each fold
-        - mean of the metric values
-        - standard deviation of the metric values
+    Returns
+    -------
+    list of float
+        The metric value of each fold.
+    float
+        Mean of the metric values.
+    float
+        Standard deviation of the metric values.
     '''
 
     # issue warning if more than one metric is specified

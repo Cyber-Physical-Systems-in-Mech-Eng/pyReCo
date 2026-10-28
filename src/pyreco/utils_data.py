@@ -1,10 +1,15 @@
-"""
-Provides testing data sets.
+r"""
+Toy problems for quick tests of reservoir computers (periodic signals).
 
-SHAPES will always be:
-inputs X: [n_batch, n_timesteps, n_states]
-outputs y: [n_batch, n_timesteps, n_states]
+The shapes are always inputs ``X`` of shape ``(n_batch, n_timesteps, n_states)`` and outputs ``y`` of shape
+``(n_batch, n_timesteps, n_states)``. The task functions return ``X_train, X_test, y_train, y_test`` from a
+random 80/20 split of overlapping windows of one signal. The generators of
+:mod:`pyreco.datasets` (``generate_sine``, ``generate_sine_to_cosine``, ``generate_sincos2``) are the
+successors with the same interface as the other benchmark systems.
 
+The signals are sines and cosines of the form :math:`\sin(\omega t_i)` on the grid
+:math:`t_i = \frac{i}{n-1}\, \frac{n \omega}{50}`, so the phase grows like :math:`\omega^2` (the step between
+samples is :math:`\omega^2 / 50` for large :math:`n`).
 """
 
 import numbers
@@ -20,27 +25,77 @@ from pyreco.utils_random import make_rng
 
 
 def gen_sine(n=10, omega=np.pi):
-    # generates a sine with a given frequency: n points on t in [0, n/50 * omega]
+    r"""
+    Sine :math:`\sin(\omega t_i)` on ``n`` points :math:`t_i \in [0, n \omega / 50]`.
+
+    Parameters
+    ----------
+    n : int, default=10
+        Number of samples.
+    omega : float, default=pi
+        Frequency parameter :math:`\omega` (it scales both the grid and the argument).
+
+    Returns
+    -------
+    ndarray of shape (n,)
+    """
     t = np.linspace(start=0, stop=n / 50 * omega, num=n, endpoint=True)
     return np.sin(omega * t)
 
 
 def gen_cos(n=10, omega=np.pi):
-    # generates a cosine with a given frequency: n points on t in [0, n/50 * omega]
+    r"""Cosine :math:`\cos(\omega t_i)` on the grid of :func:`gen_sine`; returns an array of shape ``(n,)``."""
     t = np.linspace(start=0, stop=n / 50 * omega, num=n, endpoint=True)
     return np.cos(omega * t)
 
 
 def gen_sincos(n=10, omega=np.pi, a_sc=1, b_sc=0.25, P_sc=3):
-    # generates a sequence of a_sc*sin(omega*t)^P_sc + b_sc*cos(omega*t)^P_sc
-    # using gen_sine and gen_cos functions
+    r"""
+    Nonlinear combination of sine and cosine on the grid of :func:`gen_sine`.
+
+    .. math::
+
+        y_i = a \sin^P(\omega t_i) + b \cos^P(\omega t_i)
+
+    Parameters
+    ----------
+    n : int, default=10
+        Number of samples.
+    omega : float, default=pi
+        Frequency parameter.
+    a_sc, b_sc : float
+        Coefficients :math:`a` and :math:`b`.
+    P_sc : int
+        Exponent :math:`P`.
+
+    Returns
+    -------
+    ndarray of shape (n,)
+    """
     sine_wave = gen_sine(n, omega)
     cos_wave = gen_cos(n, omega)
     return a_sc * sine_wave**P_sc + b_sc * cos_wave**P_sc
 
 
 def split_sequence(signal, n_batch, n_time_in, n_time_out):
-    # expects [n_timesteps, n_states] sequence
+    r"""
+    Cut a signal into overlapping windows: the input of window :math:`i` is :math:`s_{i:i+T_\mathrm{in}}` and
+    the target the :math:`T_\mathrm{out}` values that follow.
+
+    Parameters
+    ----------
+    signal : ndarray of shape (n_timesteps, n_states)
+        The signal.
+    n_batch : int
+        Number of windows (consecutive start indices).
+    n_time_in, n_time_out : int
+        Length of the input and the target window.
+
+    Returns
+    -------
+    x : ndarray of shape (n_batch, n_time_in, n_states)
+    y : ndarray of shape (n_batch, n_time_out, n_states)
+    """
 
     # convert into inputs (function at last n_time_in points) and outputs (function at next n_time_out points)
     x, y = [], []
@@ -55,6 +110,23 @@ def split_sequence(signal, n_batch, n_time_in, n_time_out):
 
 
 def train_test_split(x, y, seed=None):
+    """
+    Random train/test split of the first axis, 80 % of the samples for training.
+
+    The samples are overlapping windows of one signal, so the split is not leakage-free (test windows share
+    values with training windows); ``pyreco.datasets.load`` splits chronologically.
+
+    Parameters
+    ----------
+    x, y : ndarray
+        Inputs and targets with the same first dimension.
+    seed : int, Generator or None
+        Seed of the split; the global random state is not used.
+
+    Returns
+    -------
+    x_train, x_test, y_train, y_test : ndarray
+    """
     # train-test split: 80% randomly chosen samples for training, the rest for testing.
     # Note: the samples are overlapping windows of one signal, so the random split is not
     # leakage-free (test windows share values with training windows). Fine for toy data;
@@ -74,7 +146,25 @@ def train_test_split(x, y, seed=None):
 
 
 def sine_pred(n_batch, n_time_in, n_time_out, n_states, seed=None):
-    # predict a sine signal. Single- and multi-step prediction supported
+    r"""
+    Forecasting task: predict sines, state :math:`k` with the frequency parameter :math:`\pi + 0.314 k`.
+
+    Parameters
+    ----------
+    n_batch : int
+        Number of windows.
+    n_time_in, n_time_out : int
+        Length of the input and target window (single- and multi-step prediction).
+    n_states : int
+        Number of sines.
+    seed : int, optional
+        Seed of the train/test split.
+
+    Returns
+    -------
+    X_train, X_test, y_train, y_test : ndarray
+        Of shape ``(n_samples, n_time_in or n_time_out, n_states)``.
+    """
 
     # we will create different signal frequencies for the different states
     signal, omega = [], np.pi
@@ -95,7 +185,13 @@ def sine_pred(n_batch, n_time_in, n_time_out, n_states, seed=None):
 
 
 def sine_to_cosine(n_batch, n_time_in, n_time_out, n_states, seed=None):
-    # Generate sine input and cosine output signals
+    r"""
+    Input/output task: sines as inputs, the cosines of the same frequency parameter as targets,
+    :math:`y_k = \cos(\omega_k t) = \sin(\omega_k t + \pi/2)` with :math:`\omega_k = \pi + 0.314 k`.
+
+    As in :func:`sine_pred`, the target window is the signal on the time steps that follow the input window.
+    Arguments and return values as in :func:`sine_pred`.
+    """
     total_time = n_batch + n_time_in + n_time_out
     x, y = [], []
     omega = np.pi
@@ -123,7 +219,11 @@ def sine_to_cosine(n_batch, n_time_in, n_time_out, n_states, seed=None):
 
 
 def sincos2(n_batch, n_time_in, n_time_out, n_states, seed=None):
-    # Generate sine input and SinCos-2 output signals
+    r"""
+    Input/output task: sines as inputs and :math:`y_k = \sin^3(\omega_k t) + 0.25 \cos^3(\omega_k t)` as
+    targets, with :math:`\omega_k = 1 + 0.314 k`; the target window follows the input window as in
+    :func:`sine_pred`. Arguments and return values as in :func:`sine_pred`.
+    """
     total_time = n_batch + n_time_in + n_time_out
     x, y = [], []
     omega = 1  # As specified in the document
@@ -194,6 +294,25 @@ CASE 1: Vector to Vector
 
 
 def vector_to_vector(name, n_batch: int = 50, n_states=1, seed=None):
+    """
+    Case 1, vector to vector: one input time step, one target time step.
+
+    Parameters
+    ----------
+    name : str
+        Problem name, see :func:`available_problems`.
+    n_batch : int, default=50
+        Number of samples (at least 2).
+    n_states : int, default=1
+        Number of states.
+    seed : int, optional
+        Seed of the train/test split.
+
+    Returns
+    -------
+    X_train, X_test, y_train, y_test : ndarray
+        Of shape ``(n_samples, 1, n_states)``.
+    """
     _check_int("n_states", n_states)
     return _generate(name, n_batch, n_states, n_time_in=1, n_time_out=1, seed=seed)
 
@@ -204,6 +323,12 @@ CASE 2: Sequence to scalar
 
 
 def sequence_to_scalar(name, n_batch: int = 50, n_states=1, n_time_in=2, seed=None):
+    """
+    Case 2, sequence to scalar: ``n_time_in`` input time steps, one target time step.
+
+    Arguments as in :func:`vector_to_vector`, plus ``n_time_in``. Returns arrays of shape
+    ``(n_samples, n_time_in, n_states)`` (inputs) and ``(n_samples, 1, n_states)`` (targets).
+    """
     _check_int("n_states", n_states)
     _check_int("n_time_in", n_time_in)
     return _generate(name, n_batch, n_states, n_time_in=n_time_in, n_time_out=1, seed=seed)
@@ -215,6 +340,12 @@ CASE 3: Sequence to sequence
 
 
 def sequence_to_sequence(name, n_batch: int = 50, n_states: int = 2, n_time: int = 3, seed=None):
+    """
+    Case 3, sequence to sequence: ``n_time`` input and ``n_time`` target time steps.
+
+    Arguments as in :func:`vector_to_vector`, plus ``n_time``. Returns arrays of shape
+    ``(n_samples, n_time, n_states)``.
+    """
     return _generate(name, n_batch, n_states, n_time_in=n_time, n_time_out=n_time, seed=seed)
 
 
@@ -232,6 +363,18 @@ def x_to_x(
     n_time_out: int = 1,
     seed=None,
 ):
+    """
+    Case 4, free choice of the number of input and output states and time steps.
+
+    The problem is generated with ``max(n_states_in, n_states_out)`` states and the first
+    ``n_states_in`` / ``n_states_out`` states are used as inputs / targets.
+
+    Returns
+    -------
+    X_train, X_test, y_train, y_test : ndarray
+        Inputs of shape ``(n_samples, n_time_in, n_states_in)``, targets of shape
+        ``(n_samples, n_time_out, n_states_out)``.
+    """
     # generate with as many states as needed, then cut the input and output states
     n_states = int(np.max([n_states_in, n_states_out]))
     X_train, X_test, y_train, y_test = _generate(

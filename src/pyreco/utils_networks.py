@@ -1,5 +1,9 @@
-"""
-Helper routines for networks
+r"""
+Helper routines for the reservoir networks.
+
+Networks are weighted adjacency matrices :math:`A \in \mathbb{R}^{N \times N}` in which :math:`A_{uv}` is
+the weight of the directed edge :math:`u \to v` (a zero entry is no edge). The module generates random
+networks, measures them (density, spectral radius, degrees, centralities) and edits them (removal of nodes).
 """
 
 from typing import Union
@@ -22,11 +26,28 @@ WEIGHT_DISTRIBUTIONS = ("positive", "sign", "uniform", "normal")
 
 
 def draw_edge_weights(mask: np.ndarray, distribution: str, rng: np.random.Generator):
-    """Weights for the edges of a binary adjacency matrix.
+    r"""
+    Weights :math:`w_{uv}` for the edges of a binary adjacency matrix.
 
-    "positive": all edges 1 (no random numbers are drawn), "sign": +1 or -1 with equal
-    probability, "uniform": uniform on [-1, 1], "normal": standard normal. Entries
-    without an edge stay 0.
+    Parameters
+    ----------
+    mask : ndarray of shape (N, N)
+        Non-zero (True) where an edge exists.
+    distribution : {"positive", "sign", "uniform", "normal"}
+        ``"positive"``: all edges 1 (no random numbers are drawn); ``"sign"``: :math:`\pm 1` with
+        equal probability; ``"uniform"``: :math:`\mathcal{U}(-1, 1)`; ``"normal"``: :math:`\mathcal{N}(0, 1)`.
+    rng : numpy.random.Generator
+        Source of the random numbers.
+
+    Returns
+    -------
+    ndarray of shape (N, N)
+        The weights on the edges, 0 where there is no edge.
+
+    Raises
+    ------
+    ValueError
+        For an unknown distribution.
     """
     if distribution == "positive":
         return mask.astype(float)
@@ -51,45 +72,62 @@ def gen_ER_graph(
     seed: RngLike = None,
     weight_distribution: str = "positive",
 ):
-    """Generate an Erdős-Rényi random graph with specified properties.
+    r"""
+    Generate an Erdős-Rényi random graph as a weighted adjacency matrix with a given spectral radius.
 
-    Bug Fix Documentation:
-    ---------------------
-    Previous Bug:
-        The line `G.remove_nodes_from(list(nx.isolates(G)))` removed isolated nodes from the graph
-        before converting to a numpy array. This caused the final matrix to sometimes be smaller
-        than the specified size (e.g., 29x29 instead of 30x30) when isolated nodes were present.
-        This led to dimension mismatches in reservoir computations where other matrices expected
-        the full size.
+    Every ordered pair of different nodes :math:`(u, v)` is connected with probability :math:`p`
+    (``density``), the weights of the edges are drawn from ``weight_distribution``, and the matrix is
+    rescaled to the spectral radius :math:`\rho_\mathrm{target}`,
 
-    Solution:
-        Instead of removing isolated nodes, we now connect them to maintain the specified
-        network size. This ensures consistency between the reservoir weight matrix and
-        other matrices in the computation.
+    .. math::
 
-    Parameters:
-        nodes (int): Number of nodes in the graph
-        density (float): Desired connection density (0 to 1)
-        spec_rad (float): Desired spectral radius
-        directed (bool): Whether to create a directed graph
-        seed (int, Generator or None): Random seed for reproducibility. Controls the
-            graph and the repair of isolated nodes; the global random state is not used.
-        weight_distribution (str): weights of the edges, see WEIGHT_DISTRIBUTIONS. The
-            default "positive" gives the binary adjacency matrix (all weights 1). The
-            others give signed weights; they are drawn after the graph, so the support is
-            the same ER graph for every distribution and seed.
+        A_{uv} = \xi_{uv}\, w_{uv}, \quad \xi_{uv} \sim \mathrm{Bernoulli}(p), \qquad
+        A \leftarrow A\, \frac{\rho_\mathrm{target}}{\rho(A)}, \qquad
+        \rho(A) = \max_i |\lambda_i(A)| .
 
-    Returns:
-        np.ndarray: Adjacency matrix with shape (nodes, nodes)
+    The edges (:math:`\xi`) are drawn first, so the support is the same ER graph for every distribution and
+    seed; only the weights :math:`w_{uv}` differ.
 
-    Raises:
-        ValueError: if no graph with a directed cycle could be drawn (e.g. density 0).
+    Parameters
+    ----------
+    nodes : int
+        Number of nodes :math:`N`.
+    density : float
+        Edge probability :math:`p` in [0, 1]. The density of the generated graph varies around it.
+    spec_rad : float, default=0.9
+        Spectral radius :math:`\rho_\mathrm{target}` of the returned matrix.
+    directed : bool, default=True
+        Whether to create a directed graph.
+    seed : int, Generator or None
+        Seed for reproducibility. It controls the graph, the weights and the repair of isolated nodes;
+        the global random state is not used.
+    weight_distribution : {"positive", "sign", "uniform", "normal"}, default="positive"
+        Distribution of the weights :math:`w_{uv}`, see ``WEIGHT_DISTRIBUTIONS``: all 1 (a binary
+        matrix, no random numbers are drawn), :math:`\pm 1` with equal probability,
+        :math:`\mathcal{U}(-1, 1)` or :math:`\mathcal{N}(0, 1)`.
 
-    Graphs with spectral radius 0 (no directed cycle) cannot be scaled to the requested
-    spectral radius and are redrawn, up to MAX_ER_ATTEMPTS times. The first attempt is
-    identical to a plain ER draw, so for graphs that have a cycle the seed gives the same
-    graph as before. For reservoirs of realistic size redraws practically never happen;
-    for very small or sparse graphs the result is an ER graph conditioned on having a
+    Returns
+    -------
+    ndarray of shape (nodes, nodes)
+        The adjacency matrix; ``A[u, v]`` is the weight of the edge :math:`u \to v`.
+
+    Raises
+    ------
+    ValueError
+        If no graph with a directed cycle could be drawn (e.g. density 0) or the weight distribution is
+        unknown.
+
+    Notes
+    -----
+    Isolated nodes are not removed (that would change the size of the matrix) but connected, so that the
+    matrix keeps the requested size.
+
+    Graphs with spectral radius 0 (no directed cycle) cannot be scaled to the requested spectral radius and
+    are redrawn, up to ``MAX_ER_ATTEMPTS`` times. The same holds for signed graphs in which the cycles cancel
+    (:math:`\rho(A)` below ``MIN_SPEC_RAD`` times the largest weight), which would otherwise be rescaled by
+    a huge factor. The first attempt is identical to a plain ER draw, so for graphs that have a cycle the
+    seed gives the same graph as without the check. For reservoirs of realistic size redraws practically
+    never happen; for very small or sparse graphs the result is an ER graph conditioned on having a
     directed cycle.
     """
     # all randomness comes from this generator, never from the global state
@@ -147,6 +185,32 @@ def gen_ER_graph(
 
 
 def compute_density(network: np.ndarray) -> float:
+    r"""
+    Density of a network, the fraction of non-zero entries of its adjacency matrix.
+
+    .. math::
+
+        d = \frac{\left| \{ (u, v) : A_{uv} \ne 0 \} \right|}{N^2}
+
+    Weights of either sign count as links.
+
+    Parameters
+    ----------
+    network : ndarray of shape (N, N)
+        Adjacency matrix.
+
+    Returns
+    -------
+    float
+        The density :math:`d \in [0, 1]`.
+
+    Raises
+    ------
+    TypeError
+        If ``network`` is not a numpy array.
+    ValueError
+        If it is not square.
+    """
     if not isinstance(network, np.ndarray):
         raise TypeError("adjacency matrix must be numpy.ndarray")
     if network.shape[0] != network.shape[1]:
@@ -157,6 +221,11 @@ def compute_density(network: np.ndarray) -> float:
 
 
 def get_num_nodes(network: np.ndarray) -> int:
+    """
+    Number of nodes :math:`N` of a network given as an :math:`N \\times N` adjacency matrix.
+
+    Raises a TypeError for something else than a numpy array and a ValueError for a non-square matrix.
+    """
     if not isinstance(network, np.ndarray):
         raise TypeError("adjacency matrix must be numpy.ndarray")
     if network.shape[0] != network.shape[1]:
@@ -165,6 +234,32 @@ def get_num_nodes(network: np.ndarray) -> int:
 
 
 def compute_spec_rad(network: np.ndarray) -> float:
+    r"""
+    Spectral radius of a network, the largest absolute eigenvalue of its adjacency matrix.
+
+    .. math::
+
+        \rho(A) = \max_i \left| \lambda_i(A) \right|
+
+    It is 0 for a network without a directed cycle.
+
+    Parameters
+    ----------
+    network : ndarray of shape (N, N)
+        Adjacency matrix.
+
+    Returns
+    -------
+    float
+        The spectral radius :math:`\rho(A)`.
+
+    Raises
+    ------
+    TypeError
+        If ``network`` is not a numpy array.
+    ValueError
+        If it is not square.
+    """
     if not isinstance(network, np.ndarray):
         raise TypeError("adjacency matrix must be numpy.ndarray")
     if network.shape[0] != network.shape[1]:
@@ -173,6 +268,34 @@ def compute_spec_rad(network: np.ndarray) -> float:
 
 
 def set_spec_rad(network: np.ndarray, spec_radius: float) -> np.ndarray:
+    r"""
+    Rescale a network to a spectral radius.
+
+    .. math::
+
+        A' = A\, \frac{\rho_\mathrm{new}}{\rho(A)} \quad \Rightarrow \quad \rho(A') = \rho_\mathrm{new}
+
+    Parameters
+    ----------
+    network : ndarray of shape (N, N)
+        Adjacency matrix with at least one directed cycle.
+    spec_radius : float
+        The new spectral radius :math:`\rho_\mathrm{new} > 0`. A value above 1 warns, since it is unusual
+        for reservoirs (the echo state property is not guaranteed).
+
+    Returns
+    -------
+    ndarray of shape (N, N)
+        The rescaled matrix; ``network`` itself is not changed.
+
+    Raises
+    ------
+    TypeError
+        If ``network`` is not a numpy array.
+    ValueError
+        If it is not square, has no link, or has spectral radius 0 (no directed cycle), or if
+        ``spec_radius`` is not positive.
+    """
     if not isinstance(network, np.ndarray):
         raise TypeError("adjacency matrix must be numpy.ndarray")
     if network.shape[0] != network.shape[1]:
@@ -194,8 +317,7 @@ def set_spec_rad(network: np.ndarray, spec_radius: float) -> np.ndarray:
 
 
 def is_zero_col_and_row(x: np.ndarray, idx: int) -> bool:
-    # returns zero if adjacency matrix x carries only zeros in column and row of index
-    #   idx (i.e. missing node)
+    """True if column and row ``idx`` of the adjacency matrix ``x`` are zero, i.e. the node is isolated."""
 
     is_zero_column = np.all(x[:, idx] == 0)
     is_zero_row = np.all(x[idx, :] == 0)
@@ -207,7 +329,29 @@ def is_zero_col_and_row(x: np.ndarray, idx: int) -> bool:
 
 
 def remove_nodes_from_graph(graph: np.ndarray, nodes: list):
-    # removes a node from the graph given as np adjacency matrix
+    """
+    Remove nodes from a network given as an adjacency matrix.
+
+    Parameters
+    ----------
+    graph : ndarray of shape (N, N)
+        Adjacency matrix.
+    nodes : list of int
+        Indices of the nodes to remove; their rows and columns are deleted and the remaining nodes are
+        renumbered.
+
+    Returns
+    -------
+    ndarray of shape (N - len(nodes), N - len(nodes))
+        The adjacency matrix of the remaining network.
+
+    Raises
+    ------
+    TypeError
+        If ``nodes`` is not a list or ``graph`` not an array.
+    ValueError
+        If an index is negative, too large or not an integer.
+    """
 
     # TODO: allow the user to input a networkx graph instead of a numpy array
 
@@ -245,9 +389,24 @@ def remove_nodes_from_graph(graph: np.ndarray, nodes: list):
 
 
 def rename_nodes_after_removal(original_nodes: list, removed_nodes: list):
-    # Removes the nodes from the original list of nodes and renames the remaining nodes
-    # Surviving node's new index = old index minus the number of removed nodes that had
-    #   smaller index
+    r"""
+    Drop the removed nodes from a list of node indices and renumber the survivors.
+
+    A surviving node :math:`v` gets the new index :math:`v - |\{ r \in R : r < v \}|`, with :math:`R` the
+    set of removed nodes, which is its index in the reduced adjacency matrix.
+
+    Parameters
+    ----------
+    original_nodes : list of int
+        Node indices before the removal.
+    removed_nodes : list of int
+        Nodes that were removed.
+
+    Returns
+    -------
+    list of int
+        The indices of the remaining nodes in the reduced network.
+    """
     removed_set = set(removed_nodes)
     updated_nodes = [
         node - sum(1 for r in removed_nodes if r < node)
@@ -259,9 +418,28 @@ def rename_nodes_after_removal(original_nodes: list, removed_nodes: list):
 
 
 def gen_init_states(num_nodes: int, method: str = "random", rng: RngLike = None):
-    # returns an array of length <num_nodes>
-    # creates the entries based on different sampling methods
-    # when not setting specific values, the range is normalized to abs(1)
+    r"""
+    Initial reservoir state :math:`r(0)` of the given length.
+
+    Parameters
+    ----------
+    num_nodes : int
+        Number of nodes :math:`N`.
+    method : {"random", "random_normal", "ones", "zeros"}
+        Uniform on :math:`[0, 1)`, standard normal, all ones, or all zeros. All but ``"zeros"`` are divided
+        by their largest absolute value, so that :math:`\max_u |r_u(0)| = 1`.
+    rng : int, Generator or None
+        Seed or generator of the random numbers.
+
+    Returns
+    -------
+    ndarray of shape (num_nodes,)
+
+    Raises
+    ------
+    ValueError
+        For an unknown method.
+    """
 
     rng = make_rng(rng)
     if method == "random":
@@ -289,11 +467,22 @@ def gen_init_states(num_nodes: int, method: str = "random", rng: RngLike = None)
 
 def convert_to_nx_graph(graph: np.ndarray) -> nx.Graph:
     """
-    Convert a numpy array to a NetworkX graph.
-    Args:
-        adjacency_matrix (np.ndarray): The adjacency matrix of the graph.
-    Returns:
-        nx.Graph: The NetworkX graph.
+    Convert an adjacency matrix to a directed NetworkX graph; graphs are passed through.
+
+    Parameters
+    ----------
+    graph : ndarray, nx.Graph or nx.DiGraph
+        Adjacency matrix with ``graph[u, v]`` the weight of the edge ``u -> v``, or a graph.
+
+    Returns
+    -------
+    nx.Graph or nx.DiGraph
+        The graph; the weights are stored as the ``weight`` attribute of the edges.
+
+    Raises
+    ------
+    ValueError
+        If ``graph`` is neither an array nor a NetworkX graph.
     """
     if isinstance(graph, np.ndarray):
         graph = nx.from_numpy_array(graph, create_using=nx.DiGraph)
@@ -303,13 +492,24 @@ def convert_to_nx_graph(graph: np.ndarray) -> nx.Graph:
 
 
 def extract_density(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
-    """
-    Extract the density of a graph from its adjacency matrix.
-    Args:
-        adjacency_matrix (np.ndarray, nx.Graph, nx.DiGraph): The adjacency matrix of
-        the graph.
-    Returns:
-        float: The density of the graph.
+    r"""
+    Density of a directed graph, the number of edges over the number of possible edges.
+
+    .. math::
+
+        d = \frac{|E|}{N (N - 1)}
+
+    Note the difference to :func:`compute_density`, which divides by :math:`N^2` (self-loops included).
+
+    Parameters
+    ----------
+    graph : ndarray, nx.Graph or nx.DiGraph
+        Adjacency matrix or graph.
+
+    Returns
+    -------
+    float
+        The density of the graph.
     """
     graph = convert_to_nx_graph(graph)
 
@@ -317,6 +517,19 @@ def extract_density(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
 
 
 def extract_spectral_radius(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+    r"""
+    Spectral radius :math:`\rho(A) = \max_i |\lambda_i(A)|` of the adjacency matrix of a graph.
+
+    Parameters
+    ----------
+    graph : ndarray, nx.Graph or nx.DiGraph
+        Adjacency matrix or graph.
+
+    Returns
+    -------
+    float
+        The spectral radius.
+    """
 
     graph = convert_to_nx_graph(graph)
 
@@ -333,6 +546,7 @@ def extract_spectral_radius(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> f
 
 
 def extract_av_in_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+    r"""Mean in-degree :math:`\frac{1}{N} \sum_v k^\mathrm{in}_v` (number of incoming edges per node)."""
     graph = convert_to_nx_graph(graph)
     in_degrees = graph.in_degree()
     avg_in_degree = np.mean(list(dict(in_degrees).values()))
@@ -340,6 +554,7 @@ def extract_av_in_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> floa
 
 
 def extract_av_out_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> float:
+    r"""Mean out-degree :math:`\frac{1}{N} \sum_u k^\mathrm{out}_u` (number of outgoing edges per node)."""
     graph = convert_to_nx_graph(graph)
     out_degrees = graph.out_degree()
     avg_out_degree = np.mean(list(dict(out_degrees).values()))
@@ -349,6 +564,7 @@ def extract_av_out_degree(graph: Union[np.ndarray, nx.Graph, nx.DiGraph]) -> flo
 def extract_clustering_coefficient(
     graph: Union[np.ndarray, nx.Graph, nx.DiGraph]
 ) -> float:
+    r"""Average clustering coefficient :math:`\frac{1}{N} \sum_v C_v` (see :func:`extract_node_clustering_coefficient`)."""
     graph = convert_to_nx_graph(graph)
     return nx.average_clustering(graph)
 
@@ -356,6 +572,7 @@ def extract_clustering_coefficient(
 def extract_node_degree(
     graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
 ) -> float:
+    r"""Degree :math:`k_v = k^\mathrm{in}_v + k^\mathrm{out}_v` of a node of a directed graph."""
     graph = convert_to_nx_graph(graph)
     return graph.degree[node]
 
@@ -363,6 +580,7 @@ def extract_node_degree(
 def extract_node_in_degree(
     graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
 ) -> float:
+    r"""In-degree :math:`k^\mathrm{in}_v = |\{ u : u \to v \}|` of a node."""
     graph = convert_to_nx_graph(graph)
     return graph.in_degree[node]
 
@@ -370,6 +588,7 @@ def extract_node_in_degree(
 def extract_node_out_degree(
     graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
 ) -> float:
+    r"""Out-degree :math:`k^\mathrm{out}_u = |\{ v : u \to v \}|` of a node."""
     graph = convert_to_nx_graph(graph)
     return graph.out_degree[node]
 
@@ -377,6 +596,12 @@ def extract_node_out_degree(
 def extract_node_clustering_coefficient(
     graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
 ) -> float:
+    r"""
+    Clustering coefficient of a node: the fraction of the possible triangles through it that exist.
+
+    For an undirected graph :math:`C_v = 2 T_v / (k_v (k_v - 1))` with :math:`T_v` the number of triangles
+    through :math:`v`; for directed graphs the NetworkX definition is used.
+    """
     graph = convert_to_nx_graph(graph)
 
     return nx.clustering(graph, node)
@@ -385,6 +610,16 @@ def extract_node_clustering_coefficient(
 def extract_node_betweenness_centrality(
     graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
 ) -> float:
+    r"""
+    Betweenness centrality of a node: the share of shortest paths that pass through it.
+
+    .. math::
+
+        c_B(v) = \sum_{s \ne v \ne t} \frac{\sigma_{st}(v)}{\sigma_{st}} \Big/ \big((N-1)(N-2)\big)
+
+    with :math:`\sigma_{st}` the number of shortest paths from :math:`s` to :math:`t` and
+    :math:`\sigma_{st}(v)` those through :math:`v` (normalized, directed).
+    """
     graph = convert_to_nx_graph(graph)
     return nx.betweenness_centrality(graph)[node]
 
@@ -392,6 +627,16 @@ def extract_node_betweenness_centrality(
 def extract_node_pagerank(
     graph: Union[np.ndarray, nx.Graph, nx.DiGraph], node: int
 ) -> float:
+    r"""
+    PageRank of a node, the stationary distribution of a random walk with restarts on the graph structure.
+
+    .. math::
+
+        p = \frac{1 - \delta}{N}\, \mathbf{1} + \delta\, P^\top p
+
+    with the damping :math:`\delta = 0.85` and the transition matrix :math:`P` of the random walk. The
+    structure counts, not the (possibly negative) weights.
+    """
     graph = convert_to_nx_graph(graph)
     # the structure counts, not the (possibly negative) weights
     return nx.pagerank(graph, weight=None)[node]
@@ -422,7 +667,7 @@ def extract_edge_weight(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
 
 def extract_edge_abs_weight(graph: Union[np.ndarray, nx.Graph, nx.DiGraph],
                             edge: tuple) -> float:
-    """Magnitude |w| of the edge weight (1.0 if the edge has no explicit weight)."""
+    r"""Magnitude :math:`|w_{uv}|` of the edge weight (1.0 if the edge has no explicit weight)."""
     return abs(extract_edge_weight(graph, edge))
 
 

@@ -1,13 +1,27 @@
-"""
-We will have an abstract Layer class, from which the following layers inherit:
+r"""
+Layers of a reservoir computer.
 
-- InputLayer
-- ReservoirLayer
-    - RandomReservoir
-    - RecurrenceReservoir
-    - EvolvedReservoir
-- ReadoutLayer
+A reservoir computer maps an input sequence :math:`x(t) \in \mathbb{R}^{n_\mathrm{in}}` to an output
+sequence :math:`\hat y(t) \in \mathbb{R}^{n_\mathrm{out}}` through a recurrent network of :math:`N` nodes
+(the reservoir) with state :math:`r(t) \in \mathbb{R}^N`. The three kinds of layers hold the weights of
+the three steps:
 
+.. math::
+
+    r(t+1) &= (1 - a)\, r(t) + a\, g\!\left( r(t)\, A + \tilde x(t)\, W_\mathrm{in}^\top + \beta\, b^\top \right) \\
+    \hat y(t) &= r_\mathrm{out}(t+1)\, W_\mathrm{out} + c
+
+* :class:`InputLayer` holds the read-in weights :math:`W_\mathrm{in} \in \mathbb{R}^{N \times n_\mathrm{in}}`
+  and the signs :math:`b \in \{-1, +1\}^N` of the input bias, whose gain :math:`\beta \ge 0` is set with
+  ``compile(input_bias=...)``. The preprocessed input is :math:`\tilde x = s \odot (x - \mu) / \sigma`
+  (z-scoring with the training statistics, followed by the input scaling :math:`s`).
+* :class:`ReservoirLayer` (:class:`RandomReservoirLayer`) holds the adjacency matrix
+  :math:`A \in \mathbb{R}^{N \times N}`, where :math:`A_{uv}` is the weight of the edge :math:`u \to v`,
+  the leakage rate :math:`a \in (0, 1]` and the activation :math:`g` (``tanh`` or the logistic function).
+* :class:`ReadoutLayer` holds the readout weights :math:`W_\mathrm{out}` and the intercept :math:`c`
+  that are fitted by ridge regression, acting on the states :math:`r_\mathrm{out}` of the read-out nodes.
+
+All layers inherit from the abstract :class:`Layer`.
 """
 
 from abc import ABC, abstractmethod
@@ -58,6 +72,16 @@ def _check_nodes(nodes):
 
 # implements the abstract base class
 class Layer(ABC):
+    """
+    Abstract base class of all layers.
+
+    Attributes
+    ----------
+    weights : ndarray or None
+        The weight matrix of the layer (trainable or not).
+    name : str
+        Name of the layer.
+    """
 
     @abstractmethod
     def __init__(self):
@@ -72,19 +96,42 @@ class Layer(ABC):
 
 
 class InputLayer(Layer):
-    # Shape of the read-in weights is: N x n_states, where N is the number of nodes in the reservoir, and n_states is
-    # the state dimension of the input (irrespective if a time series or a vector was put in)
-    # the actual read-in layer matrix will be created by model.compile()!
+    r"""
+    Read-in layer: maps the input channels to the reservoir nodes.
+
+    The read-in matrix :math:`W_\mathrm{in} \in \mathbb{R}^{N \times n_\mathrm{in}}` (``N`` reservoir
+    nodes, ``n_in`` input channels, irrespective of whether a time series or a vector is fed in) is
+    drawn by ``model.compile()``, which knows the size of the reservoir. Its rows are set to 0 for the
+    nodes that do not receive the input (``fraction_input`` of the reservoir layer).
+
+    Parameters
+    ----------
+    input_shape : tuple of int
+        ``(n_timesteps, n_states)`` of the input sequences.
+    weight_distribution : {"normal", "uniform", "sign"}, default="normal"
+        Distribution of the non-zero entries of :math:`W_\mathrm{in}`:
+
+        * ``"normal"``: :math:`\mathcal{N}(0, 1)`, scaled to a maximum absolute value of 1,
+        * ``"uniform"``: :math:`\mathcal{U}(-1, 1)`,
+        * ``"sign"``: :math:`\pm 1` with equal probability (equal magnitudes, as in many echo state networks).
+
+    Attributes
+    ----------
+    weights : ndarray of shape (N, n_states)
+        The read-in matrix :math:`W_\mathrm{in}`, set by ``compile()``.
+    bias : ndarray of shape (N,) or None
+        Signs :math:`b_u \in \{-1, +1\}` of the constant input of every node, set by ``compile()``.
+        The strength is the gain :math:`\beta` (``input_bias``) of the model.
+    fraction_nonzero_entries : float
+        Fraction of non-zero entries of :math:`W_\mathrm{in}`.
+
+    Raises
+    ------
+    ValueError
+        For an unknown ``weight_distribution``.
+    """
 
     def __init__(self, input_shape, weight_distribution: str = "normal"):
-        """
-        input_shape (tuple): (n_timesteps, n_states)
-        weight_distribution (str): distribution of the read-in weights W_in, drawn by
-        model.compile() before the weights of the nodes that do not receive the input are set
-        to 0: "normal" (default, standard normal scaled to a maximum absolute value of 1),
-        "uniform" (uniform on [-1, 1]) or "sign" (+1 or -1 with equal probability, equal
-        magnitude as in many echo state networks).
-        """
         super().__init__()
         if weight_distribution not in INPUT_WEIGHT_DISTRIBUTIONS:
             raise ValueError(
@@ -105,7 +152,21 @@ class InputLayer(Layer):
         )
 
     def remove_nodes(self, nodes: list):
-        # removes a node from the input layer (i.e. if a reservoir node needs to be dropped)
+        r"""
+        Delete the rows of :math:`W_\mathrm{in}` (and the bias signs) of reservoir nodes that are removed.
+
+        Parameters
+        ----------
+        nodes : list of int
+            Indices of the reservoir nodes.
+
+        Raises
+        ------
+        TypeError
+            If ``nodes`` is not a list.
+        ValueError
+            If an index is negative, too large or not an integer.
+        """
 
         if not isinstance(nodes, list):
             raise TypeError("Nodes must be provided as a list of indices.")
@@ -127,17 +188,44 @@ class InputLayer(Layer):
         self.update_layer_properties()
 
     def update_layer_properties(self):
-
-        # updates the properties of the input layer
+        """Recompute ``fraction_nonzero_entries`` = (non-zero entries of W_in) / (all entries)."""
         self.fraction_nonzero_entries = (
             np.count_nonzero(self.weights) / self.weights.size
         )
 
 
 class ReadoutLayer(Layer):
+    r"""
+    Readout layer: a linear map from (a subset of) the reservoir states to the outputs.
+
+    The readout is fitted by ridge regression on the reservoir states :math:`R` of the read-out nodes,
+
+    .. math::
+
+        \hat y(t) = r_\mathrm{out}(t+1)\, W_\mathrm{out} + c, \qquad
+        \min_{W_\mathrm{out}, c} \; \sum_{t} \left\| y(t) - \hat y(t) \right\|^2 + \alpha \left\| W_\mathrm{out} \right\|_F^2 ,
+
+    where the intercept :math:`c` is not penalized (states and targets are centered before the
+    weights are fitted) and :math:`\alpha` is the ridge penalty of the optimizer.
+
+    Parameters
+    ----------
+    output_shape : tuple of int
+        ``(n_timesteps, n_states)`` of the target sequences.
+    fraction_out : float, default=1.0
+        Fraction of the reservoir nodes that are read out, in (0, 1].
+
+    Attributes
+    ----------
+    readout_nodes : list of int
+        Indices of the read-out nodes, chosen by ``compile()``.
+    weights : ndarray of shape (n_readout_nodes, n_states)
+        Readout weights :math:`W_\mathrm{out}`, set by ``fit()``.
+    bias : ndarray of shape (n_states,) or None
+        Readout intercept :math:`c`, set by ``fit()``.
+    """
 
     def __init__(self, output_shape, fraction_out=1.0):
-        # expects output_shape = (n_timesteps, n_states)
         super().__init__()
         self.output_shape: tuple = output_shape
         self.n_time = output_shape[0]
@@ -151,7 +239,7 @@ class ReadoutLayer(Layer):
         self.bias = None  # readout intercept of shape (n_states,), set by fit
 
     def remove_nodes(self, nodes: list):
-        # remove nodes from the readout layer, when the user wants to delete specific reservoir nodes
+        """Not implemented: ``RC.remove_reservoir_nodes`` updates the read-out nodes itself."""
 
         # # delete entries that equal the nodes to be removed
         # idx_del = np.where(np.isin(self.readout_nodes, nodes))[0]
@@ -160,20 +248,31 @@ class ReadoutLayer(Layer):
         raise NotImplementedError("This method is not yet implemented.")
 
     def update_layer_properties(self, n_reservoir_nodes: int = None):
-        # updates the properties of the readout layer: the fraction of the reservoir nodes
-        # that are read out (unchanged if the number of reservoir nodes is not given)
+        """
+        Update ``fraction_out`` = (number of read-out nodes) / N.
+
+        Parameters
+        ----------
+        n_reservoir_nodes : int, optional
+            Current number of reservoir nodes :math:`N`. If None, ``fraction_out`` is unchanged.
+        """
         if n_reservoir_nodes is not None:
             self.fraction_out = len(self.readout_nodes) / n_reservoir_nodes
 
 
 class FeedbackLayer(Layer):
-    # is same as InputLayer, but for the feedback connections
-    # Shape of the read-in weights is: N x n_states, where N is the number of nodes in the reservoir, and n_states is
-    # the state dimension of the input (irrespective if a time series or a vector was put in)
-    # the actual read-in layer matrix will be created by mode.compile()!
+    r"""
+    Feedback layer: like :class:`InputLayer`, but for the connections from the outputs back to the reservoir.
+
+    The weights :math:`W_\mathrm{fb} \in \mathbb{R}^{N \times n_\mathrm{out}}` are created by ``compile()``.
+
+    Parameters
+    ----------
+    feedback_shape : tuple of int
+        ``(n_timesteps, n_states)`` of the fed-back sequences.
+    """
 
     def __init__(self, feedback_shape):
-        # input shape is (n_timesteps, n_states)
         super().__init__()
         self.shape = feedback_shape
         self.n_time = feedback_shape[0]
@@ -186,7 +285,21 @@ class FeedbackLayer(Layer):
         )
 
     def remove_nodes(self, nodes: list):
-        # removes a node from the input layer (i.e. if a reservoir node needs to be dropped)
+        """
+        Delete the rows of the feedback matrix of reservoir nodes that are removed.
+
+        Parameters
+        ----------
+        nodes : list of int
+            Indices of the reservoir nodes.
+
+        Raises
+        ------
+        TypeError
+            If ``nodes`` is not a list.
+        ValueError
+            If an index is negative, too large or not an integer.
+        """
 
         if not isinstance(nodes, list):
             raise TypeError("Nodes must be provided as a list of indices.")
@@ -206,20 +319,55 @@ class FeedbackLayer(Layer):
         self.update_layer_properties()
 
     def update_layer_properties(self):
-
-        # updates the properties of the input layer
+        """Recompute ``fraction_nonzero_entries`` = (non-zero entries) / (all entries)."""
         self.fraction_nonzero_entries = (
             np.count_nonzero(self.weights) / self.weights.size
         )
 
 class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
-    """
-    Reservoir layer. `weights` is the adjacency matrix of a directed graph.
+    r"""
+    Reservoir layer: the recurrent network of :math:`N` nodes.
 
-    Edge convention: weights[u, v] is the edge u -> v (u sends, v receives),
-    identical to networkx.from_numpy_array(weights, create_using=nx.DiGraph).
-    The state update uses the row-vector form r(t+1) = g(r(t) @ weights + ...),
-    so activity flows from row index to column index.
+    ``weights`` is the adjacency matrix :math:`A` of a directed graph. Edge convention:
+    :math:`A_{uv}` is the edge :math:`u \to v` (:math:`u` sends, :math:`v` receives), identical to
+    ``networkx.from_numpy_array(A, create_using=nx.DiGraph)``. The state update uses the row-vector form
+
+    .. math::
+
+        r(t+1) = (1 - a)\, r(t) + a\, g\!\left( r(t)\, A + \dots \right),
+
+    so activity flows from the row index to the column index. The leakage rate :math:`a \in (0, 1]`
+    sets the time scale of the nodes (:math:`a = 1`: no leak), and the activation :math:`g` is
+
+    .. math::
+
+        g(z) = \tanh(z) \quad \text{or} \quad g(z) = \frac{1}{1 + e^{-z}} .
+
+    Parameters
+    ----------
+    nodes : int
+        Number of nodes :math:`N \ge 2`.
+    density : float
+        Density of the network, in (0, 1].
+    activation : {"tanh", "sigmoid"}
+        The activation function :math:`g`.
+    leakage_rate : float
+        Leakage rate :math:`a`, in (0, 1].
+    fraction_input : float
+        Fraction of the nodes that receive the input, in (0, 1].
+    init_res_sampling : {"zeros", "ones", "random", "random_normal"}
+        Initial state :math:`r(0)`, see :class:`RandomReservoirLayer`.
+
+    Attributes
+    ----------
+    weights : ndarray of shape (N, N)
+        The adjacency matrix :math:`A`.
+    spec_rad : float
+        Spectral radius :math:`\rho(A) = \max_i |\lambda_i(A)|`.
+    input_receiving_nodes : list of int
+        Nodes that receive the input, chosen by ``compile()``.
+    initial_res_states : ndarray of shape (N,)
+        The initial state :math:`r(0)`.
     """
 
     def __init__(
@@ -256,6 +404,19 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         self.init_res_sampling = init_res_sampling
 
     def activation_fun(self, x: np.ndarray):
+        r"""
+        Apply the activation function :math:`g` element-wise.
+
+        Parameters
+        ----------
+        x : ndarray
+            Pre-activation :math:`z`.
+
+        Returns
+        -------
+        ndarray
+            :math:`\tanh(z)` or :math:`1 / (1 + e^{-z})`, depending on ``activation``.
+        """
         if self.activation == "sigmoid":
             return 1 / (1 + np.exp(-x))
         elif self.activation == "tanh":
@@ -264,7 +425,23 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
             raise (ValueError(f"unknown activation function {self.activation}!"))
 
     def set_weights(self, network: np.ndarray):
-        # set reservoir network (adjacency matrix) from outside.
+        """
+        Replace the adjacency matrix :math:`A` and update density and spectral radius.
+
+        After ``compile()`` the new matrix must have the shape of the existing one.
+
+        Parameters
+        ----------
+        network : ndarray of shape (N, N)
+            The new adjacency matrix.
+
+        Raises
+        ------
+        TypeError
+            If ``network`` is not a numpy array.
+        ValueError
+            If it is not a square matrix of the current size.
+        """
         # Updates all related parameters. 
         # MUST be having the same shape as the existing reservoir network.
 
@@ -288,7 +465,19 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         self.update_layer_properties()
 
     def set_initial_state(self, r_init: np.ndarray):
-        # assigns an initial state to each of the reservoir nodes
+        r"""
+        Set the initial state :math:`r(0)` that every sequence starts from.
+
+        Parameters
+        ----------
+        r_init : ndarray of shape (N,)
+            Initial state of the nodes.
+
+        Raises
+        ------
+        ValueError
+            If the number of entries is not :math:`N`.
+        """
 
         if r_init.shape[0] != self.nodes:
             raise (
@@ -300,11 +489,22 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
 
     def remove_nodes(self, nodes: list):
         """
-        Remove specified nodes from the reservoir network.
-        Parameters:
-        nodes (list): A list of indices representing the nodes to be removed.
-        1. Removes the specified nodes from the adjacency matrix.
-        2. Updates the reservoir properties including the number of nodes, density, and spectral radius.
+        Remove nodes from the reservoir network.
+
+        The rows and columns of the nodes are deleted from the adjacency matrix, the initial state
+        shrinks accordingly, and number of nodes, density and spectral radius are updated.
+
+        Parameters
+        ----------
+        nodes : list of int
+            Indices of the nodes to remove.
+
+        Raises
+        ------
+        TypeError
+            If ``nodes`` is not a list.
+        ValueError
+            If an index is negative or exceeds the number of nodes.
         """
         # remove nodes from the reservoir network
 
@@ -330,23 +530,40 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         # self.input_receiving_nodes = np.delete(self.input_receiving_nodes, nodes)
 
     def update_layer_properties(self):
-        """
-        Updates the reservoir properties including the number of nodes, density, and spectral radius.
-        This method should be called after any changes to the reservoir network.
+        r"""
+        Recompute the properties of the network from ``weights``; call it after any change of the network.
+
+        .. math::
+
+            N = \dim A, \qquad
+            d = \frac{\left| \{ (u, v) : A_{uv} \ne 0 \} \right|}{N^2}, \qquad
+            \rho(A) = \max_i \left| \lambda_i(A) \right| .
         """
         self.nodes = get_num_nodes(self.weights)
         self.density = compute_density(self.weights)
         self.spec_rad = compute_spec_rad(self.weights)
 
     def get_spec_rad(self):
+        r"""Spectral radius :math:`\rho(A)` of the current network."""
         return self.spec_rad
 
     def set_spec_rad(self, value):
-        """ Sets the spectral radius of the reservoir network.
-        Parameters:
-        - value (float): The desired spectral radius.
-        Raises:
-        - ValueError: If the value is not positive or if the weights are not set."""
+        r"""
+        Rescale the network to a spectral radius, :math:`A \leftarrow A \, \rho_\mathrm{new} / \rho(A)`.
+
+        A failure leaves the layer unchanged.
+
+        Parameters
+        ----------
+        value : float
+            The desired spectral radius :math:`\rho_\mathrm{new} > 0`.
+
+        Raises
+        ------
+        ValueError
+            If the value is not positive, the weights are not set, or the network has spectral
+            radius 0 (no directed cycle), which cannot be rescaled.
+        """
 
         # check that the value is positive and that the weights are set
         if value <= 0:
@@ -366,23 +583,83 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         self.spec_rad = _new_spec_rad
 
     def get_leakage_rate(self):
+        """Leakage rate :math:`a`."""
         return self.leakage_rate
 
     def set_leakage_rate(self, value):
+        """Set the leakage rate :math:`a \\in (0, 1]`; raises a ValueError outside this interval."""
         if not (0 < value <= 1):
             raise ValueError("Leakage rate must be in (0, 1]")
         self.leakage_rate = value
 
     def get_activation(self):
+        """Name of the activation function (``"tanh"`` or ``"sigmoid"``)."""
         return self.activation
 
     def set_activation(self, value):
+        """Set the activation function by name; raises a ValueError for an unknown name."""
         if value not in ACTIVATIONS:
             raise ValueError("Activation must be 'tanh' or 'sigmoid'")
         self.activation = value
 
 
 class RandomReservoirLayer(ReservoirLayer):
+    r"""
+    Random (Erdős-Rényi) reservoir network.
+
+    Every ordered pair of different nodes :math:`(u, v)` is connected with probability :math:`p`
+    (``density``); the weights of the edges are drawn from ``weight_distribution`` and the matrix is
+    rescaled to the requested spectral radius,
+
+    .. math::
+
+        A_{uv} = \xi_{uv}\, w_{uv}, \quad \xi_{uv} \sim \mathrm{Bernoulli}(p), \qquad
+        A \leftarrow A \, \frac{\rho_\mathrm{target}}{\rho(A)} ,
+
+    so the realized density differs a little from :math:`p` (it is available as ``density``).
+    Isolated nodes are connected again, and graphs without a directed cycle (:math:`\rho(A) = 0`)
+    are redrawn, since they cannot be rescaled.
+
+    Parameters
+    ----------
+    nodes : int
+        Number of nodes, at least 2.
+    density : float, default=0.1
+        Edge probability :math:`p`, in (0, 1].
+    activation : {"tanh", "sigmoid"}, default="tanh"
+        Activation function :math:`g`.
+    leakage_rate : float, default=0.5
+        Leakage rate :math:`a`, in (0, 1].
+    fraction_input : float, default=0.8
+        Fraction of the nodes that receive the input, in (0, 1].
+    spec_rad : float, default=0.9
+        Spectral radius :math:`\rho_\mathrm{target} > 0` that the network is scaled to.
+    init_res_sampling : {"zeros", "ones", "random", "random_normal"}, default="zeros"
+        Initial state :math:`r(0)`, the same for every sample: all zeros, all ones, uniform on
+        :math:`[-1, 1]` or standard normal (the last two scaled to a maximum absolute value of 1).
+        Explicit values can be set after ``compile()`` with :meth:`ReservoirLayer.set_initial_state`.
+    seed : int, optional
+        Seed of the reservoir graph. It fixes the adjacency matrix completely, including the repair of
+        isolated nodes; the global random state is never used. The random choices made when a model
+        is compiled (read-in weights, initial state, input and readout nodes) are seeded by the model,
+        see ``RC(seed=...)``.
+    weight_distribution : {"positive", "sign", "uniform", "normal"}, default="positive"
+        Distribution of the weights :math:`w_{uv}` before the rescaling:
+
+        * ``"positive"``: all weights equal 1 (a binary graph),
+        * ``"sign"``: :math:`\pm 1` with equal probability,
+        * ``"uniform"``: :math:`\mathcal{U}(-1, 1)`,
+        * ``"normal"``: :math:`\mathcal{N}(0, 1)`.
+
+        The graph (which edges exist) is the same for all of them. Signed weights are common for
+        echo state networks and matter for tasks with nonlinear memory such as NARMA10.
+
+    Raises
+    ------
+    TypeError, ValueError
+        For arguments of the wrong type or outside their range.
+    """
+
     def __init__(
         self,
         nodes,
@@ -395,35 +672,6 @@ class RandomReservoirLayer(ReservoirLayer):
         seed=None,
         weight_distribution: str = "positive",
     ):
-        """
-        Random (Erdős-Rényi) reservoir network.
-
-        nodes (int): number of nodes, at least 2.
-        density (float): probability of an edge between two nodes, in (0, 1]. The density of
-        the generated network varies around it.
-        activation (str): "tanh" or "sigmoid".
-        leakage_rate (float): in (0, 1].
-        fraction_input (float): fraction of the nodes that receive the input, in (0, 1].
-        spec_rad (float): spectral radius the network is scaled to, larger than 0.
-
-        seed (int, optional): seed of the reservoir graph. It fixes the adjacency matrix
-        completely, including the repair of isolated nodes. The global random state is
-        never used. The random choices made when a model is compiled (read-in weights,
-        initial state, input and readout nodes) are seeded by the model, see RC(seed=...).
-
-        init_res_sampling (str): initial state r(0) of the reservoir, the same for every
-        sample: "zeros" (default), "ones", "random" or "random_normal" (the last two are scaled
-        to a maximum absolute value of 1). Explicit values can be set after compile() with
-        set_initial_state().
-
-        weight_distribution (str): weights on the edges of the network (before it is scaled
-        to the spectral radius): "positive" (default, all weights equal, as before), "sign"
-        (+1 or -1 with equal probability), "uniform" (uniform on [-1, 1]) or "normal"
-        (standard normal). The graph (which edges exist) is the same for all of them. Signed
-        weights are common for echo state networks and matter for tasks with nonlinear memory
-        such as NARMA10.
-        """
-
         # Call the parent class's __init__ method
         super().__init__(
             nodes=nodes,

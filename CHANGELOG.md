@@ -90,6 +90,18 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* Docstrings: the public API is documented in NumPy style (parameters, returns, raises) with the equations of
+  the model, the readout, the metrics, the generators and the pruning algorithms written as LaTeX
+  (`.. math::`), which the Sphinx documentation (autodoc, napoleon, mathjax) renders. The documentation
+  shows the parameters that are documented in a constructor (`autoclass_content = "both"`). The module
+  `network_prop_extractor` does not import (it needs functions that no longer exist) and is missing in the
+  documentation.
+* The test suite was reorganized: shared builders (`tests/helpers.py`), no duplicate tests (predict before fit,
+  the scaling after fit, the invalid constructor arguments of the pruner as one parametrized test), related
+  files merged (`test_seeding*`, the layer and the network utility tests), the script-like
+  `test_normalization.py` and the monolithic `test_setters_and_getters.py` replaced by focused tests, the
+  visualization test that could never fail fixed, and every file has a header that says what it tests.
+
 * The data generators of `pyreco.datasets` are public and share one interface:
   `generate_lorenz`, `generate_mackey_glass` and `generate_narma` take `n_timesteps` and keyword-only
   system parameters, then `washout` (leading samples that are generated and dropped, default 0 for

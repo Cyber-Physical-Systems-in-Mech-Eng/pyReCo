@@ -64,7 +64,28 @@ def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y
 
 
 class EdgePruner:
-    # implements a pruning object for pyreco objects.
+    r"""
+    Prune the edges of the reservoir network one after the other.
+
+    In iteration :math:`k` the network has the edge set :math:`E_k`. A random fraction
+    :math:`\varphi` (``candidate_fraction``) of the edges is chosen as candidates,
+    :math:`C_k \subset E_k` with :math:`|C_k| = \max(1, \mathrm{round}(\varphi |E_k|))`. For every
+    candidate :math:`e` the edge is removed tentatively, the readout is retrained, and the loss
+    :math:`L_\mathrm{val}(e)` on the validation data is computed. The candidate that hurts the
+    performance least is removed for good,
+
+    .. math::
+
+        e^*_k = \arg\min_{e \in C_k} L_\mathrm{val}\!\left( A_k \setminus e \right), \qquad
+        E_{k+1} = E_k \setminus \{ e^*_k \} ,
+
+    where :math:`A_k \setminus e` is the adjacency matrix with the entry of :math:`e` set to 0. The pruning
+    stops when a stopping criterion is met: no improvement of the loss for ``patience`` iterations, a
+    minimum number of nodes or edges. The history records the loss and the properties of the network
+    (density, spectral radius, degrees, ...) per iteration.
+
+    Use :meth:`prune` to run it; the constructor arguments are documented below.
+    """
 
     PRUNING_CRITERION = {
         'performance': '_performance_pruning',

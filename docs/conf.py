@@ -160,6 +160,13 @@ todo_emit_warnings = True
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
+# NumPy-style docstrings; the parameters of a class are documented in the class docstring and, if the
+# constructor has a docstring of its own, appended to it
+napoleon_numpy_docstring = True
+napoleon_google_docstring = True
+autoclass_content = "both"
+autodoc_member_order = "bysource"
+
 html_theme = "sphinx_rtd_theme"
 
 # Theme options are theme-specific and customize the look and feel of a theme

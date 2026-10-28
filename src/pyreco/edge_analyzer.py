@@ -89,11 +89,10 @@ class EdgeAnalyzer:
         Parameters
         ----------
         quantities : list, optional
-            List of edge properties to extract.
-            Defaults to all at the moment available:
-            ['abs_weight', 'sign', 'is_reciprocal', 'in_scc', 'betweenness',
-             'source_out_degree', 'target_in_degree',
-             'source_betweenness', 'target_betweenness'].
+            List of edge properties to extract. Defaults to all that are available at the moment
+            (see :func:`available_extractors`): ``'abs_weight'``, ``'sign'``, ``'is_reciprocal'``,
+            ``'in_scc'``, ``'betweenness'``, ``'source_out_degree'``, ``'target_in_degree'``,
+            ``'source_betweenness'`` and ``'target_betweenness'``.
         """
         all_extractors = available_extractors().keys()
         self.quantities = quantities or list(all_extractors)

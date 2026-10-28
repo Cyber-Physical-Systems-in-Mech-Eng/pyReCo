@@ -48,26 +48,48 @@ from pyreco.utils_random import check_seed
 
 
 class CustomModel(ABC):
-    """
-    Abstract base class for custom reservoir computing model.
+    r"""
+    Abstract base class of the reservoir computers.
 
-    Has a syntax similar to the one of TensorFlow model API,
-    e.g. using the model.add() statement to add layers to the model.
+    The syntax is similar to the TensorFlow model API: layers are added with :meth:`add`, the model is
+    configured with :meth:`compile`, trained with :meth:`fit` and applied with :meth:`predict`. A model
+    has an input layer, a reservoir layer and a readout layer.
 
-    A model hast an input layer, a reservoir layer and a readout layer.
+    For an input sequence :math:`x(0), \dots, x(T-1)` the reservoir state :math:`r(t) \in \mathbb{R}^N`
+    starts at :math:`r(0)` (zero by default) and evolves as
+
+    .. math::
+
+        r(t+1) = (1 - a)\, r(t) + a\, g\!\left( r(t)\, A + \tilde x(t)\, W_\mathrm{in}^\top + \beta\, b^\top \right),
+        \qquad
+        \tilde x(t) = s \odot \frac{x(t) - \mu}{\sigma} ,
+
+    with the adjacency matrix :math:`A`, leakage rate :math:`a`, activation :math:`g`, read-in matrix
+    :math:`W_\mathrm{in}`, input bias :math:`\beta b` (:math:`b \in \{\pm 1\}^N`) and the input
+    preprocessing (z-scoring with the training mean :math:`\mu` and standard deviation :math:`\sigma` per
+    channel, input scaling :math:`s`). The output is a linear readout of the states :math:`r_\mathrm{out}`
+    of the read-out nodes,
+
+    .. math::
+
+        \hat y(j) = r_\mathrm{out}(d + j + 1)\, W_\mathrm{out} + c ,
+
+    where :math:`d` is the warm-up (``discard_transients``): target :math:`j` is paired with the state
+    after the inputs :math:`x(0), \dots, x(d + j)`. :math:`W_\mathrm{out}` and :math:`c` minimize the
+    ridge-regularized squared error of :class:`pyreco.layers.ReadoutLayer`.
+
+    Parameters
+    ----------
+    seed : int, optional
+        Seed for the random choices made when the model is compiled: the read-in weights, the initial
+        reservoir state, the nodes that receive the input, the nodes that are read out and the signs of
+        the input bias. The global random state (``np.random``, ``random``) is never used. None draws
+        fresh entropy at every ``compile()``. The reservoir graph has its own seed, see
+        :class:`pyreco.layers.RandomReservoirLayer`.
     """
 
     def __init__(self, seed: int = None):
-        """
-        Initialize the CustomModel with empty layers and default values.
-
-        Args:
-        seed (int, optional): Seed for the random choices made when the model is
-            compiled: the read-in weights, the initial reservoir state, the nodes that
-            receive the input and the nodes that are read out. The global random state
-            (np.random, random) is never used. None draws fresh entropy at every
-            compile(). The reservoir graph has its own seed, see RandomReservoirLayer.
-        """
+        """Create an empty model with default hyperparameters (see the class documentation)."""
         check_seed(seed)
         self.seed = seed
         self._init_rngs()
@@ -132,12 +154,18 @@ class CustomModel(ABC):
 
     def add(self, layer: Layer):
         """
-        Add a layer to the model.
+        Add a layer to the model; it is assigned to the attribute that belongs to its type.
 
-        Is type-sensitive and will assign the layer to the correct attribute.
+        Parameters
+        ----------
+        layer : Layer
+            An input, reservoir, readout or feedback layer. A second layer of the same kind replaces
+            the first.
 
-        Args:
-        layer (Layer): Layer to be added to the model.
+        Raises
+        ------
+        TypeError
+            If ``layer`` is not a :class:`pyreco.layers.Layer`.
         """
         # Sanity check for the correct shape of the input argument layer
         if not isinstance(layer, Layer):
@@ -169,37 +197,58 @@ class CustomModel(ABC):
         input_scaling: Union[float, np.ndarray] = None,
         input_bias: float = None,
     ):
-        """
-        Configure the model for training.
+        r"""
+        Configure the model for training and draw its random components.
 
-        Args:
-        optimizer (str): Name of the optimizer.
-        metrics (list): List of metric names.
-        discard_transients (int): Warm-up of the reservoir, default 0 (none). The target at
-            time step j is paired with the reservoir state r(discard_transients + j + 1),
-            i.e. the state after the inputs x(0), ..., x(discard_transients + j) have been
-            applied. The first states are therefore not used, because they still depend on the
-            initial state. It must not exceed the number of input time steps minus the number
-            of target time steps (checked in fit()): to get a warm-up, provide inputs that are
-            longer than the targets. For a sequence-to-scalar task (one target for a sequence
-            of T inputs) use discard_transients = T - 1 to pair the target with the last state.
-        normalize_inputs (bool, optional): z-score each input channel (mean 0, std 1,
-            statistics taken over batch and time of the training data). Default: on.
-            If None, the current setting is kept.
-        input_scaling (float or np.ndarray, optional): positive gain applied to the
-            z-scored inputs, a scalar or one value per input channel. Default: 1.0
-            (no additional scaling). If None, the current setting is kept.
-        input_bias (float, optional): gain of a constant input to every reservoir node, >= 0.
-            Each node gets input_bias * b, b being +1 or -1 (drawn once at compile, equal
-            probability), so r(t+1) = (1 - a) r(t) + a g(r(t) A + W_in x_tilde(t) + input_bias b).
-            Default 0 (no bias). A bias lets the units work away from the symmetric point of
-            tanh and is part of most echo state networks in the literature. If None, the
-            current setting is kept. Not used by AutoRC.
+        Creates the read-in matrix :math:`W_\mathrm{in}` and the bias signs :math:`b`, the initial state
+        :math:`r(0)` and chooses the input-receiving and read-out nodes. Compiling twice with a fixed
+        seed gives the same model.
 
-        The reservoir starts every sample from the same initial state r(0), which is zero by
-        default. Choose another sampling method with
-        RandomReservoirLayer(init_res_sampling="ones" | "random" | "random_normal"), or set
-        explicit values after compile() with model.reservoir_layer.set_initial_state(r0).
+        Parameters
+        ----------
+        optimizer : str or Optimizer, default="ridge"
+            Name of the optimizer that finds the readout weights, or an optimizer instance.
+        metrics : list of str or str, optional
+            Metrics that are computed during :meth:`fit` (default ``["mse"]``).
+        discard_transients : int, default=0
+            Warm-up :math:`d` of the reservoir. The target at time step :math:`j` is paired with the state
+            :math:`r(d + j + 1)`, i.e. the state after the inputs :math:`x(0), \dots, x(d + j)` have been
+            applied; the first states are not used because they still depend on the initial state. It must
+            not exceed :math:`T - K` for :math:`T` input and :math:`K` target time steps (checked in
+            :meth:`fit`): to get a warm-up, provide inputs that are longer than the targets. For a
+            sequence-to-scalar task (:math:`K = 1`) use :math:`d = T - 1` to pair the target with the last
+            state.
+        normalize_inputs : bool, optional
+            z-score each input channel to mean 0 and standard deviation 1 (statistics over batch and time
+            of the training data). Default: on. None keeps the current setting.
+        input_scaling : float or ndarray, optional
+            Positive gain :math:`s` applied to the z-scored inputs, a scalar or one value per input channel.
+            Default 1 (no additional scaling). None keeps the current setting.
+        input_bias : float, optional
+            Gain :math:`\beta \ge 0` of a constant input to every reservoir node. Node :math:`u` receives
+            :math:`\beta b_u` with :math:`b_u = \pm 1` (drawn once at compile with equal probability),
+
+            .. math::
+
+                r(t+1) = (1 - a)\, r(t) + a\, g\!\left( r(t)\, A + \tilde x(t)\, W_\mathrm{in}^\top + \beta\, b^\top \right).
+
+            Default 0 (no bias). A bias lets the units work away from the symmetric point of ``tanh`` (without
+            it, the states are odd functions of the input and cannot represent even functions such as
+            :math:`x^2`) and is part of most echo state networks. None keeps the current setting.
+            Not used by :class:`AutoRC`.
+
+        Raises
+        ------
+        TypeError
+            If ``discard_transients`` is not an integer.
+        ValueError
+            If ``discard_transients`` is negative, or a metric or optimizer is unknown.
+
+        Notes
+        -----
+        The reservoir starts every sample from the same initial state :math:`r(0)`, which is zero by default.
+        Choose another sampling method with ``RandomReservoirLayer(init_res_sampling=...)``, or set explicit
+        values after ``compile()`` with ``model.reservoir_layer.set_initial_state(r0)``.
         """
 
         # sanity checks for inputs
@@ -345,14 +394,49 @@ class CustomModel(ABC):
             visualize=False,
             store_states: bool = False
             ) -> dict:
-        """
-        RC training with batch processing.
+        r"""
+        Train the readout on the reservoir states of the given sequences.
 
-        The inputs are preprocessed as x_tilde = input_scaling * (x - mean) / std
-        (per-channel z-scoring with statistics over batches and time, if enabled; see
-        compile() and set_normalization()). The settings and statistics are frozen
-        here and reused by predict(). Targets are used as given, so predictions are in
-        the physical units of y.
+        The inputs are preprocessed as :math:`\tilde x = s \odot (x - \mu) / \sigma` (per-channel z-scoring
+        with statistics over batches and time, if enabled; see :meth:`compile` and :meth:`set_normalization`).
+        The settings and statistics are frozen here and reused by :meth:`predict`. Targets are used as given,
+        so predictions are in the physical units of :math:`y`.
+
+        With the matrix :math:`R` of the read-out states (one row per target time step and sample, paired
+        as described in :meth:`compile`) and the targets :math:`Y`, the intercept is the mean difference and
+        the weights solve the ridge problem on the centered data,
+
+        .. math::
+
+            W_\mathrm{out} = \arg\min_W \left\| (R - \bar R) W - (Y - \bar Y) \right\|_F^2 + \alpha \left\| W \right\|_F^2 ,
+            \qquad
+            c = \bar Y - \bar R\, W_\mathrm{out} .
+
+        Parameters
+        ----------
+        x : ndarray of shape (n_batch, T, n_in)
+            Input sequences.
+        y : ndarray of shape (n_batch, K, n_out)
+            Targets, :math:`K \le T`; the :math:`K` targets belong to the time steps after the warm-up.
+        visualize : bool, default=False
+            Has no effect (kept for compatibility); plot the network with :meth:`model_visualize`.
+        store_states : bool, default=False
+            Also return the reservoir states.
+
+        Returns
+        -------
+        dict
+            ``"train_score"`` (the first metric on the training data), ``"train_metrics"`` (all compiled
+            metrics) and, with ``store_states=True``, ``"res_states"`` of shape ``(n_batch, T, N)``.
+
+        Raises
+        ------
+        TypeError, ValueError
+            For data that is not a 3D float array, has other sample or channel counts than the model,
+            contains NaN or infinite values, is too short for the warm-up, or if no node receives the input
+            or is read out.
+        RuntimeError
+            If the model is not compiled.
         """
         # sanity checks for inputs
         if not isinstance(x, np.ndarray) or not isinstance(y, np.ndarray):
@@ -532,15 +616,29 @@ class CustomModel(ABC):
             print("Visualization failed:", e)
 
     def predict(self, x: np.ndarray) -> np.ndarray:
-        """
-        Make predictions for given input.
+        r"""
+        Predict the output for each time step after the warm-up (single-step prediction).
 
-        Args:
-        x (np.ndarray): Input data of shape [n_batch, n_timestep, n_states]
-        one_shot (bool): If True, don't re-initialize reservoir between samples.
+        Every sample starts from the initial state :math:`r(0)`; the prediction for step :math:`j` is
+        :math:`\hat y(j) = r_\mathrm{out}(d + j + 1)\, W_\mathrm{out} + c` with the warm-up :math:`d`.
 
-        Returns:
-        np.ndarray: Predictions of shape [n_batch, n_timestep, n_states]
+        Parameters
+        ----------
+        x : ndarray of shape (n_batch, T, n_in)
+            Input sequences, :math:`T > d`.
+
+        Returns
+        -------
+        ndarray of shape (n_batch, T - d, n_out)
+            The predictions in the physical units of the training targets.
+
+        Raises
+        ------
+        RuntimeError
+            If the model is not fitted.
+        TypeError, ValueError
+            For input that is not a 3D array, has the wrong number of channels, contains NaN or infinite
+            values, or is not longer than the warm-up.
         """
         # makes prediction for given input (single-step prediction)
         # expects inputs of shape [n_batch, n_timestep, n_states]
@@ -654,16 +752,30 @@ class CustomModel(ABC):
     def evaluate(
         self, x: np.ndarray, y: np.ndarray, metrics: Union[str, list, None] = None
     ) -> list:
-        """
-        Evaluate metrics on predictions made for input data.
+        r"""
+        Score the predictions for ``x`` against the targets ``y``.
 
-        Args:
-        x (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
-        y (np.ndarray): Target data of shape [n_batch, n_timesteps_out, n_states_out]
-        metrics (Union[str, list, None], optional): List of metric names or a single metric name. If None, use metrics from .compile()
+        Prediction :math:`j` is compared with target :math:`j`; targets are given without the warm-up.
+        If there are fewer targets than predictions, only the first :math:`K` predictions are compared.
 
-        Returns:
-        list: Metric values, in the order of the given metrics
+        Parameters
+        ----------
+        x : ndarray of shape (n_batch, T, n_in)
+            Input sequences.
+        y : ndarray of shape (n_batch, K, n_out)
+            Targets, :math:`K \le T - d`.
+        metrics : str or list of str, optional
+            Metric names (see :mod:`pyreco.metrics`); default: the metrics given to :meth:`compile`.
+
+        Returns
+        -------
+        list of float
+            The metric values, in the order of ``metrics``.
+
+        Raises
+        ------
+        ValueError
+            If there are more targets than predictions (targets that still contain the warm-up).
         """
         # evaluate metrics on predictions made for input data
         # expects: x of shape [n_batch, n_timesteps, n_states]
@@ -768,8 +880,24 @@ class CustomModel(ABC):
         return reservoir_states, self.readout_layer.weights
 
     def remove_reservoir_nodes(self, nodes: list):
-        # removes specific nodes from the reservoir matrix, and
-        # deletes accordingly the relevant readin weights and readout weights
+        """
+        Remove reservoir nodes together with their read-in weights, bias signs and readout connections.
+
+        The adjacency matrix loses the rows and columns of the nodes, so :math:`N` decreases. The readout
+        has to be trained again with :meth:`fit`.
+
+        Parameters
+        ----------
+        nodes : list of int
+            Indices of the nodes to remove.
+
+        Raises
+        ------
+        TypeError
+            If ``nodes`` is not a list.
+        ValueError
+            If an index is out of range or all nodes would be removed.
+        """
 
         # print(
         # f"removing nodes {nodes} from the reservoir. You need to retrain the model!"
@@ -1058,14 +1186,27 @@ class CustomModel(ABC):
         self.feedback_layer.weights = self.input_layer.weights
 
     def compute_reservoir_state(self, x: np.ndarray) -> np.ndarray:
-        """
-        Vectorized computation of reservoir states with batch processing.
+        r"""
+        Compute the reservoir states for all samples at once.
 
-        Args:
-            x (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
+        Iterates the update
 
-        Returns:
-            np.ndarray: Reservoir states of shape [(n_batch * n_timesteps), N]
+        .. math::
+
+            r(t+1) = (1 - a)\, r(t) + a\, g\!\left( r(t)\, A + \tilde x(t)\, W_\mathrm{in}^\top + \beta\, b^\top \right)
+
+        from :math:`r(0)` for every sample, using the preprocessing and bias settings frozen by
+        :meth:`fit` (the current settings before the first fit).
+
+        Parameters
+        ----------
+        x : ndarray of shape (n_batch, T, n_in)
+            Input sequences.
+
+        Returns
+        -------
+        ndarray of shape (n_batch, T + 1, N)
+            The states :math:`r(0), \dots, r(T)`.
         """
 
         # sanity checks for inputs
@@ -1121,19 +1262,40 @@ class CustomModel(ABC):
         return states
 
     def AutoRC_predict(self, x: np.ndarray, fb_scale: float, T_run: int, feedback_indices: np.ndarray = None) -> np.ndarray:
-        """
-        Contains the prediction function for the AutoRC model along with the feedback mechanism.
-        It returns the predictions and reservoir states.
+        r"""
+        Run the AutoRC model for ``T_run`` steps with the previous output fed back into the reservoir.
 
-        Args:
-            x (np.ndarray): Input data of shape [n_batch, n_timesteps, n_states]
-            feedback_indices (np.ndarray): Indices from the inputs to be used for feedback
-            because we want to select those feedback/input weights for the feedback. If not given by the user,
-            the model will use all available feedback weights.
+        Experimental. At step :math:`t` the output is read from the current state,
+        :math:`\hat y(t) = r_\mathrm{out}(t)\, W_\mathrm{out} + c`, and the state is updated with
 
-        Returns:
-            np.ndarray: Reservoir states of shape [(n_batch * n_timesteps), N], 
-                        Predictions of shape [n_batch, n_timesteps, n_states_out]
+        .. math::
+
+            r(t+1) = (1 - a)\, r(t) + a\, g\!\left( r(t)\, A + \tilde x(t)\, W_\mathrm{in}^\top
+            + \phi\; \tilde{\hat y}(t)\, W_\mathrm{fb}^\top \right) ,
+
+        where :math:`\tilde x(t)` is the preprocessed input (zero after the end of the input sequence) and
+        :math:`\tilde{\hat y}` the output in the coordinates of the input channels. The feedback term, scaled
+        by :math:`\phi` (``fb_scale``), is active from step 500 on (hard-coded); before that the reservoir is
+        driven by the input only.
+
+        Parameters
+        ----------
+        x : ndarray of shape (n_batch, n_timesteps, n_states)
+            Input data.
+        fb_scale : float
+            Scale :math:`\phi` of the fed-back prediction.
+        T_run : int
+            Number of time steps to run.
+        feedback_indices : ndarray, optional
+            Indices of the input channels that the outputs replace, i.e. the columns of the feedback weights
+            that are used. If not given, all available feedback weights are used.
+
+        Returns
+        -------
+        states : ndarray of shape (n_batch, T_run + 1, N)
+            Reservoir states.
+        predictions : ndarray of shape (n_batch, T_run - 1, n_states_out)
+            The predictions for the steps 1, ..., T_run - 1.
         """
 
         # sanity checks for inputs
@@ -1252,7 +1414,7 @@ class CustomModel(ABC):
         return states, y_pred.transpose(1,0,2)
 
     def fit_evolve(self, X: np.ndarray, y: np.ndarray):
-        # build an evolving reservoir computer: performance-dependent node addition and removal
+        """Placeholder for an evolving reservoir computer (performance-dependent node addition and removal); not implemented, returns None."""
 
         history = None
         return history
@@ -1297,16 +1459,23 @@ class CustomModel(ABC):
         raise NotImplementedError("Method not implemented yet.")
 
     def set_normalization(self, normalize_inputs: bool = None):
-        """
+        r"""
         Enable or disable z-scoring of the inputs (default: enabled).
 
-        With z-scoring, every input channel is shifted and divided by its mean and
-        standard deviation, computed over all batches and time steps of the training
-        data in fit(). The same statistics are used in predict().
-        Takes effect at the next fit().
+        With z-scoring every input channel is shifted and divided by its mean :math:`\mu` and standard
+        deviation :math:`\sigma`, computed over all batches and time steps of the training data in
+        :meth:`fit`; :math:`\tilde x = (x - \mu) / \sigma`. The same statistics are used in :meth:`predict`.
+        Takes effect at the next :meth:`fit`.
 
-        Args:
-            normalize_inputs (bool or None): If None, leave unchanged.
+        Parameters
+        ----------
+        normalize_inputs : bool, optional
+            None leaves the setting unchanged.
+
+        Raises
+        ------
+        TypeError
+            If the argument is not a boolean.
         """
         if normalize_inputs is not None:
             if not isinstance(normalize_inputs, (bool, np.bool_)):
@@ -1314,20 +1483,41 @@ class CustomModel(ABC):
             self.normalize_inputs = bool(normalize_inputs)
 
     def set_input_scaling(self, input_scaling: Union[float, np.ndarray]):
-        """
-        Set the input scaling: a positive gain multiplied onto the (z-scored) inputs.
-        Equivalent to scaling the columns of the read-in matrix W_in. Takes effect at
-        the next fit().
+        r"""
+        Set the input scaling: a positive gain :math:`s` multiplied onto the (z-scored) inputs.
 
-        Args:
-            input_scaling (float or np.ndarray): Scalar or one value per input channel.
+        This is equivalent to scaling the columns of the read-in matrix, :math:`W_\mathrm{in} \leftarrow W_\mathrm{in} \, \mathrm{diag}(s)`.
+        Takes effect at the next :meth:`fit`.
+
+        Parameters
+        ----------
+        input_scaling : float or ndarray
+            A scalar or one value per input channel; all values positive and finite.
+
+        Raises
+        ------
+        ValueError
+            For non-positive, non-finite or mis-shaped values.
         """
         self.input_scaling = self._validate_input_scaling(input_scaling)
 
     def set_input_bias(self, input_bias: float):
-        """
-        Set the gain of the constant input to the reservoir nodes (0 = no bias). Takes effect
-        at the next fit().
+        r"""
+        Set the gain :math:`\beta \ge 0` of the constant input :math:`\beta b` to the reservoir nodes (0 = no bias).
+
+        Takes effect at the next :meth:`fit`.
+
+        Parameters
+        ----------
+        input_bias : float
+            The gain; the signs :math:`b` are fixed by :meth:`compile`.
+
+        Raises
+        ------
+        TypeError
+            If the value is not a number.
+        ValueError
+            If it is negative or not finite.
         """
         self.input_bias = self._validate_input_bias(input_bias)
 
@@ -1348,9 +1538,28 @@ class CustomModel(ABC):
         return gain * bias
 
     def set_hp(self, **kwargs):
-        """
-        Set one or more reservoir hyperparameters.
-        Supported kwargs: spec_rad, leakage_rate, activation
+        r"""
+        Set one or more hyperparameters; they are the arguments that hyperparameter searches vary.
+
+        Parameters
+        ----------
+        spec_rad : float, optional
+            Rescales the reservoir to spectral radius :math:`\rho(A)` (see :meth:`pyreco.layers.ReservoirLayer.set_spec_rad`).
+        leakage_rate : float, optional
+            Leakage rate :math:`a \in (0, 1]`.
+        activation : {"tanh", "sigmoid"}, optional
+            Activation function :math:`g`.
+        input_scaling : float or ndarray, optional
+            Input scaling :math:`s`, applied from the next :meth:`fit`.
+        input_bias : float, optional
+            Gain :math:`\beta` of the input bias, applied from the next :meth:`fit`.
+        alpha : float, optional
+            Ridge penalty :math:`\alpha \ge 0` of the readout.
+
+        Raises
+        ------
+        ValueError
+            For an unsupported name or an invalid value.
         """
         supported_hps = {
             "spec_rad", "leakage_rate", "activation", "input_scaling", "input_bias", "alpha"
@@ -1375,8 +1584,17 @@ class CustomModel(ABC):
 
     def get_hp(self, *args):
         """
-        Get one or more reservoir hyperparameters. If no args, returns all.
-        Usage: get_hp('spec_rad', 'activation') or get_hp()
+        Get hyperparameters by name, e.g. ``get_hp("spec_rad", "activation")``.
+
+        Parameters
+        ----------
+        *args : str
+            Names as in :meth:`set_hp`. Without names, all hyperparameters are returned.
+
+        Returns
+        -------
+        dict
+            Name to current value.
         """
         all_hps = {
             'spec_rad': self.reservoir_layer.get_spec_rad(),
@@ -1395,7 +1613,26 @@ class CustomModel(ABC):
 
 class RC(CustomModel):  # the non-auto version
     """
-    Non-autonomous version of the reservoir computer.
+    Non-autonomous reservoir computer: the output is a function of the input sequence only.
+
+    Use it for forecasting from windows of data and for input/output tasks; see :class:`CustomModel`
+    for the equations and the methods.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pyreco.custom_models import RC
+    >>> from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
+    >>> x = np.random.default_rng(0).normal(size=(20, 30, 1))
+    >>> y = np.tanh(x)
+    >>> model = RC(seed=0)
+    >>> model.add(InputLayer(input_shape=(30, 1)))
+    >>> model.add(RandomReservoirLayer(nodes=50, seed=0))
+    >>> model.add(ReadoutLayer(output_shape=(30, 1)))
+    >>> model.compile(metrics=["nrmse"])
+    >>> _ = model.fit(x, y)
+    >>> model.predict(x).shape
+    (20, 30, 1)
     """
 
     def __init__(self, seed: int = None):

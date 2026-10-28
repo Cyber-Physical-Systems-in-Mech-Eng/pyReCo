@@ -11,7 +11,7 @@ from pyreco.utils_random import check_seed
 
 
 class Tuner:
-    """
+    r"""
     Hyperparameter tuner for pyReCo models using Optuna.
 
     The Tuner provides a lightweight yet flexible interface for automated
@@ -26,15 +26,19 @@ class Tuner:
     a scikit-learn–like API (`fit`, `predict`, `evaluate`) and support dynamic
     hyperparameter updates via `model.set_hp()`.
 
-    Key Features
-    ------------
-    - Optuna-based hyperparameter optimization (TPE, random, grid search)
-    - Support for categorical, integer, and float search spaces
-    - Optional log-scaled float parameters
-    - Custom evaluator functions for control-loop or task-specific metrics
-    - Automatic deep-copying and storage of the best model during tuning
-    - Hyperparameter importance analysis after optimization
-    - Compatible with cross-validation and closed-loop evaluation workflows
+    The search minimizes (or maximizes) the score :math:`s(\theta)` of the hyperparameters :math:`\theta`,
+    :math:`\theta^* = \arg\min_\theta s(\theta)`, where :math:`s` is the validation metric of the model fitted
+    with :math:`\theta`.
+
+    Key features:
+
+    * Optuna-based hyperparameter optimization (TPE, random, grid search)
+    * Support for categorical, integer, and float search spaces
+    * Optional log-scaled float parameters
+    * Custom evaluator functions for control-loop or task-specific metrics
+    * Automatic deep-copying and storage of the best model during tuning
+    * Hyperparameter importance analysis after optimization
+    * Compatible with cross-validation and closed-loop evaluation workflows
 
     Parameters
     ----------
@@ -43,13 +47,15 @@ class Tuner:
         either `evaluate` or `predict`.
 
     search_space : dict
-        Dictionary defining the hyperparameter search space.
-        Each entry must follow the format:
+        Dictionary defining the hyperparameter search space. Each entry must follow the format
+
+        .. code-block:: python
+
             {
                 "param_name": ("float", low, high),
                 "param_name": ("float", low, high, "log"),
                 "param_name": ("int", low, high),
-                "param_name": ("categorical", [v1, v2, v3])
+                "param_name": ("categorical", [v1, v2, v3]),
             }
 
     x_train : np.ndarray
@@ -80,8 +86,7 @@ class Tuner:
         grid search.
 
     evaluator : callable, optional
-        Custom evaluation function with signature:
-            evaluator(model, trial) -> float
+        Custom evaluation function with the signature ``evaluator(model, trial) -> float``.
         This allows task-specific scoring (e.g. closed-loop control RMSE).
 
     direction : str, default="minimize"
@@ -172,6 +177,7 @@ class Tuner:
         return score < self.best_score if self.direction == "minimize" else score > self.best_score
 
     def set_model(self, model):
+        """Use another model; this resets the working copy, the best model, the study and the importances."""
         self.model = model
         self._working_model = None
         self.best_model = None
@@ -180,6 +186,12 @@ class Tuner:
         self.best_score = float("inf") if self.direction == "minimize" else -float("inf")
 
     def make_grid(self):
+        """
+        Grid of the search space for the grid sampler.
+
+        Categorical parameters use their choices, integers all values in [low, high], floats
+        ``num_float_steps`` equidistant values in [low, high].
+        """
         grid = {}
         for k, v in self.search_space.items():
             ptype = v[0]
@@ -194,6 +206,7 @@ class Tuner:
         return grid
 
     def get_sampler(self):
+        """The Optuna sampler for ``sampler_type`` ("tpe", "random" or "grid"), seeded with ``seed``."""
         if self.sampler_type == "tpe":
             return optuna.samplers.TPESampler(seed=self.seed)
         elif self.sampler_type == "random":
@@ -204,6 +217,7 @@ class Tuner:
             raise ValueError(f"Unknown sampler_type: {self.sampler_type}")
 
     def suggest_parameters(self, trial):
+        """Ask the Optuna ``trial`` for one value per entry of the search space; returns them as a dict."""
         params = {}
         for name, (ptype, *args) in self.search_space.items():
             if ptype == "float":
@@ -220,6 +234,24 @@ class Tuner:
         return params
 
     def objective(self, trial):
+        r"""
+        One trial: set the suggested hyperparameters on the working copy, fit it and score it.
+
+        The score is the value to minimize (or maximize) over the trials, :math:`s(\theta)`, for the
+        hyperparameters :math:`\theta`: the output of ``evaluator`` if given, else ``metric`` or the first
+        compiled metric of the model evaluated on the validation data. Invalid scores (NaN, infinite)
+        never become the best. A better score stores a copy of the model as ``best_model``.
+
+        Parameters
+        ----------
+        trial : optuna.Trial
+            The trial.
+
+        Returns
+        -------
+        float
+            The score of the trial.
+        """
         params = self.suggest_parameters(trial)
 
         # the trials run on a copy: the model of the caller stays as it is
@@ -271,6 +303,22 @@ class Tuner:
         return float(score)
 
     def optimize(self, save_importance_path: str | None = None):
+        r"""
+        Search the hyperparameters, :math:`\theta^* = \arg\min_\theta s(\theta)` (or ``argmax``).
+
+        Every optimization starts from a fresh copy of the model that was passed in.
+
+        Parameters
+        ----------
+        save_importance_path : str, optional
+            If given, the hyperparameter importances are written there as JSON.
+
+        Returns
+        -------
+        optuna.Study
+            The study; the best model is ``best_model``, importances are in ``importances`` (empty for a
+            single trial).
+        """
         # every optimization starts from a fresh copy of the model that was passed in
         self._working_model = copy.deepcopy(self.model)
         # quiet unless asked otherwise: restore the logging level of the caller afterwards
@@ -311,6 +359,7 @@ class Tuner:
         return self.study
 
     def save_best_model(self, path):
+        """Save ``best_model`` to ``path`` with joblib; warns if there is none (``optimize`` was not run)."""
         if self.best_model is not None:
             joblib.dump(self.best_model, path)
             if self.verbose:
@@ -319,6 +368,7 @@ class Tuner:
             warnings.warn("No best model to save. Did you run optimize()?", UserWarning)
 
     def report(self):
+        """Print the best parameters, the best score and the importances of the last study."""
         if self.study is None:
             print("[Tuner] No study yet. Run optimize().")
             return
