@@ -9,7 +9,8 @@ Every system has a generator with the same signature,
     generate_<system>(n_timesteps, *, <system parameters>, washout=0, seed=None)
         -> ndarray of shape (n_timesteps, n_features)
 
-(`generate_lorenz`, `generate_mackey_glass`, `generate_narma`), and `generate(name, n_timesteps,
+(`generate_lorenz`, `generate_mackey_glass`, `generate_narma`, `generate_sine`,
+`generate_sine_to_cosine`, `generate_sincos2`), and `generate(name, n_timesteps,
 ...)` calls them by name. They return the raw series, `load` cuts it into training and test windows.
 Continuous systems take their sampling interval as `dt`.
 
@@ -17,6 +18,8 @@ All data generators use numerical integration of the governing equations.
 Lorenz system uses scipy.integrate.solve_ivp for stable ODE integration.
 Mackey-Glass uses a second-order (Heun) scheme with a fine internal step for the delay
 differential equation, sampled at the requested interval.
+The sine tasks are toy problems for quick tests (`generate_sine`, `generate_sine_to_cosine`,
+`generate_sincos2`; successors of the task functions in `pyreco.utils_data`).
 NARMA5 and NARMA10 are nonlinear system-identification benchmarks (random input, the target is
 the output of a nonlinear autoregressive moving-average system); they test memory and
 nonlinearity of a reservoir rather than forecasting.
@@ -35,7 +38,16 @@ from scipy.integrate import solve_ivp
 
 from pyreco.utils_random import make_rng
 
-__all__ = ["generate", "generate_lorenz", "generate_mackey_glass", "generate_narma", "load"]
+__all__ = [
+    "generate",
+    "generate_lorenz",
+    "generate_mackey_glass",
+    "generate_narma",
+    "generate_sine",
+    "generate_sine_to_cosine",
+    "generate_sincos2",
+    "load",
+]
 
 
 #: standard deviation of the perturbation of the initial condition that a `seed` draws for the
@@ -283,12 +295,100 @@ def generate_narma(
     )
 
 
-# name -> (generator, parameters that define the benchmark, samples that `load` drops by default)
+def _sine_phases(n_timesteps, washout, n_states, omega, domega, dt, seed):
+    """Phase omega_k * t_k of every state k on the time grid; state k has omega_k = omega + k domega."""
+    n_timesteps = _check_count("n_timesteps", n_timesteps, 1)
+    washout = _check_count("washout", washout, 0)
+    n_states = _check_count("n_states", n_states, 1)
+    omega, dt = _check_positive("omega", omega), _check_positive("dt", dt)
+    if isinstance(domega, bool) or not np.isscalar(domega) or not np.isfinite(domega) or domega < 0:
+        raise ValueError(f"domega must be a non-negative number, got {domega!r}")
+    offset = 0.0 if seed is None else make_rng(seed).uniform(0.0, 2 * np.pi, size=n_states)
+    t = np.arange(washout, washout + n_timesteps)[:, None] * dt
+    return (omega + domega * np.arange(n_states)) * t + offset
+
+
+def generate_sine(n_timesteps, *, n_states=1, omega=np.pi, domega=0.314, dt=0.05, washout=0, seed=None):
+    """
+    Generate sines sin(omega_k t), one per state, with a different frequency per state.
+
+    A toy forecasting task. State k has the angular frequency `omega + k * domega`; the series is
+    sampled every `dt` time units (40 samples per period for the defaults).
+
+    Parameters
+    ----------
+    n_timesteps : int
+        Number of samples to return.
+    n_states : int, default=1
+        Number of sines (columns).
+    omega, domega : float
+        Angular frequency of the first state and the increase from state to state.
+    dt : float, default=0.05
+        Sampling interval.
+    washout : int, default=0
+        Number of leading samples that are generated and dropped (the signal is periodic, so
+        this only shifts the time axis).
+    seed : int, optional
+        If None, all sines start at phase 0. If given, every state starts at a random phase.
+
+    Returns
+    -------
+    data : ndarray of shape (n_timesteps, n_states)
+    """
+    return np.sin(_sine_phases(n_timesteps, washout, n_states, omega, domega, dt, seed))
+
+
+def generate_sine_to_cosine(
+    n_timesteps, *, n_states=1, omega=np.pi, domega=0.314, dt=0.05, washout=0, seed=None
+):
+    """
+    Generate sines as inputs and the cosines of the same phase as targets.
+
+    A toy input/output task: the target cos(omega_k t) belongs to the same time step as the input
+    sin(omega_k t). The sine alone does not tell the cosine (the sign is ambiguous), so the
+    reservoir has to remember the direction of change. Parameters as in `generate_sine`.
+
+    Returns
+    -------
+    data : ndarray of shape (n_timesteps, 2 * n_states)
+        The first `n_states` columns are the inputs, the last `n_states` columns the targets.
+    """
+    phase = _sine_phases(n_timesteps, washout, n_states, omega, domega, dt, seed)
+    return np.concatenate([np.sin(phase), np.cos(phase)], axis=1)
+
+
+def generate_sincos2(
+    n_timesteps, *, n_states=1, a=1.0, b=0.25, power=3, omega=1.0, domega=0.314, dt=0.05, washout=0, seed=None
+):
+    """
+    Generate sines as inputs and the nonlinear target a sin(phase)^power + b cos(phase)^power.
+
+    A toy input/output task with a polynomial nonlinearity of the input and its quadrature.
+    Parameters as in `generate_sine`, plus the coefficients `a`, `b` and the exponent `power`
+    of the target.
+
+    Returns
+    -------
+    data : ndarray of shape (n_timesteps, 2 * n_states)
+        The first `n_states` columns are the inputs, the last `n_states` columns the targets.
+    """
+    if isinstance(power, bool) or int(power) != power or power < 1:
+        raise ValueError(f"power must be an integer >= 1, got {power!r}")
+    phase = _sine_phases(n_timesteps, washout, n_states, omega, domega, dt, seed)
+    target = a * np.sin(phase) ** int(power) + b * np.cos(phase) ** int(power)
+    return np.concatenate([np.sin(phase), target], axis=1)
+
+
+# name -> (generator, parameters that define the benchmark, samples that `load` drops by default,
+#          input/output task: the columns are n inputs followed by n targets)
 _SYSTEMS = {
-    "lorenz": (generate_lorenz, {}, 0),
-    "mackey_glass": (generate_mackey_glass, {}, 0),
-    "narma5": (generate_narma, {"order": 5}, 100),
-    "narma10": (generate_narma, {"order": 10}, 100),
+    "lorenz": (generate_lorenz, {}, 0, False),
+    "mackey_glass": (generate_mackey_glass, {}, 0, False),
+    "sine": (generate_sine, {}, 0, False),
+    "narma5": (generate_narma, {"order": 5}, 100, True),
+    "narma10": (generate_narma, {"order": 10}, 100, True),
+    "sine_to_cosine": (generate_sine_to_cosine, {}, 0, True),
+    "sincos2": (generate_sincos2, {}, 0, True),
 }
 _ALIASES = {
     "lorentz69": "lorenz",
@@ -297,6 +397,9 @@ _ALIASES = {
     "mg": "mackey_glass",
     "narma_5": "narma5",
     "narma_10": "narma10",
+    "sine_pred": "sine",
+    "sine_prediction": "sine",
+    "sin_to_cos2": "sincos2",
 }
 # names of the parameters before the generators shared one convention
 _RENAMED = {"h": "dt", "h_int": "dt_int"}
@@ -308,7 +411,8 @@ def _system(dataset_name):
     if key not in _SYSTEMS:
         raise ValueError(
             f"Unknown dataset: '{dataset_name}'. Supported: 'lorenz' (alias 'lorentz69', "
-            f"'lorenz63'), 'mackey_glass' (alias 'mackeyglass', 'mg'), 'narma5', 'narma10'"
+            f"'lorenz63'), 'mackey_glass' (alias 'mackeyglass', 'mg'), 'narma5', 'narma10', 'sine' "
+            f"(alias 'sine_pred'), 'sine_to_cosine', 'sincos2' (alias 'sin_to_cos2')"
         )
     return key
 
@@ -338,9 +442,10 @@ def generate(dataset_name, n_timesteps, *, washout=None, seed=None, **parameters
     Returns
     -------
     data : ndarray of shape (n_timesteps, n_features)
-        1 feature for Mackey-Glass, 3 (x, y, z) for Lorenz, 2 (input u, target y) for NARMA.
+        1 feature for Mackey-Glass, 3 (x, y, z) for Lorenz, 2 (input u, target y) for NARMA, `n_states` for the sine forecasting task and
+        2 * `n_states` (inputs, then targets) for the sine input/output tasks.
     """
-    function, fixed, default_washout = _SYSTEMS[_system(dataset_name)]
+    function, fixed, default_washout, _ = _SYSTEMS[_system(dataset_name)]
     for old, new in _RENAMED.items():
         if old in parameters:
             warnings.warn(f"'{old}' was renamed to '{new}'", DeprecationWarning, stacklevel=2)
@@ -476,6 +581,10 @@ def load(
         Name of the dataset. Supported options:
         - 'lorentz69' or 'lorenz' or 'lorenz63': Lorenz 1963 attractor (3D system)
         - 'mackey_glass' or 'mackeyglass' or 'mg': Mackey-Glass delay system (1D system)
+        - 'sine' (or 'sine_pred'): sines with a different frequency per state (`n_states`),
+          forecast the next values
+        - 'sine_to_cosine', 'sincos2': toy input/output tasks (sine to cosine, sine to
+          a sin^3 + b cos^3), `n_states` inputs and `n_states` targets
         - 'narma5' or 'narma10': NARMA system identification benchmarks (1D input, 1D
           target). The inputs are random, the target is the output of the NARMA system.
     n_samples : int, default=5000
@@ -515,6 +624,7 @@ def load(
         - For Mackey-Glass: tau, a, b, n, dt (sampling interval), dt_int (internal
           integration step), x0 (initial value)
         - For NARMA: alpha, beta, gamma, delta, u_max, max_attempts
+        - For the sine tasks: n_states, omega, domega, dt; sincos2 also a, b, power
 
     Returns
     -------
@@ -593,10 +703,10 @@ def load(
       * All datasets (train/val/test) are standardized using the same scaler
     """
     name = _system(dataset_name)
-    io_task = name.startswith("narma")
+    io_task = _SYSTEMS[name][3]
     if io_task and n_out > n_in:
         raise ValueError(
-            f"For NARMA the number of output steps must not exceed the input steps, "
+            f"For input/output datasets ('{name}') the number of output steps must not exceed the input steps, "
             f"got n_in={n_in}, n_out={n_out}."
         )
     raw_data = generate(name, n_samples, washout=washout, seed=seed, **kwargs)
@@ -605,7 +715,8 @@ def load(
         # forecasting: the next n_out values of the series follow the input window;
         # input/output task: the targets belong to the last n_out steps of the window
         if io_task:
-            return _sliding_window_io(data[:, :1], data[:, 1:], n_in=n_in, n_out=n_out)
+            n_inputs = data.shape[1] // 2  # the columns are the inputs followed by the targets
+            return _sliding_window_io(data[:, :n_inputs], data[:, n_inputs:], n_in=n_in, n_out=n_out)
         return _sliding_window(data, n_in=n_in, n_out=n_out)
 
     # Split time series first (to avoid data leakage)

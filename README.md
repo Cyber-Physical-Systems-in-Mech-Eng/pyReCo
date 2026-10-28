@@ -249,7 +249,7 @@ mackey_glass = generate_mackey_glass(5000, tau=17, washout=1000, seed=1)  # (500
 print(f"scores: shapes {lorenz.shape} and {mackey_glass.shape}")
 ```
 
-Simple periodic signals (a sine with a different frequency per state, sine to cosine, ...) for quick tests are in `pyreco.utils_data`.
+Simple periodic signals for quick tests are `load('sine')` (forecast sines with a different frequency per state), `load('sine_to_cosine')` and `load('sincos2')` (`n_states` is passed on to the generator); the older task functions with a random split are in `pyreco.utils_data`.
 
 
 ### Edge pruning

@@ -7,11 +7,16 @@ outputs y: [n_batch, n_timesteps, n_states]
 
 """
 
+import numbers
+
 import numpy as np
 
 from pyreco.utils_random import make_rng
 
-# Chaotic benchmark systems (Lorenz, Mackey-Glass) are in pyreco.datasets.
+# Chaotic benchmark systems (Lorenz, Mackey-Glass) are in pyreco.datasets, as are the successors of the
+# toy problems below (generate_sine, generate_sine_to_cosine, generate_sincos2 / load('sincos2')): the same
+# call signature as the other benchmarks, chronological split. The functions here keep their interface
+# (random split, X_train, X_test, y_train, y_test).
 
 
 def gen_sine(n=10, omega=np.pi):
@@ -156,6 +161,11 @@ _PROBLEMS = {
 _ALIASES = {"sine_prediction": "sine_pred", "sin_to_cos2": "sincos2"}
 
 
+def _check_int(name, value):
+    if isinstance(value, bool) or not isinstance(value, numbers.Integral) or value < 1:
+        raise ValueError(f"{name} must be an integer >= 1, got {value!r}")
+
+
 def available_problems() -> list:
     """Names of the toy problems accepted by the data functions in this module."""
     return sorted(_PROBLEMS) + sorted(_ALIASES)
@@ -184,7 +194,7 @@ CASE 1: Vector to Vector
 
 
 def vector_to_vector(name, n_batch: int = 50, n_states=1, seed=None):
-    assert type(n_states) is int
+    _check_int("n_states", n_states)
     return _generate(name, n_batch, n_states, n_time_in=1, n_time_out=1, seed=seed)
 
 
@@ -194,8 +204,8 @@ CASE 2: Sequence to scalar
 
 
 def sequence_to_scalar(name, n_batch: int = 50, n_states=1, n_time_in=2, seed=None):
-    assert type(n_states) is int
-    assert type(n_time_in) is int
+    _check_int("n_states", n_states)
+    _check_int("n_time_in", n_time_in)
     return _generate(name, n_batch, n_states, n_time_in=n_time_in, n_time_out=1, seed=seed)
 
 

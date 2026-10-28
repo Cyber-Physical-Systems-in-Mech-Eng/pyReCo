@@ -294,6 +294,9 @@ GENERATORS = {
     "lorenz": (ds.generate_lorenz, 3),
     "mackey_glass": (ds.generate_mackey_glass, 1),
     "narma": (ds.generate_narma, 2),
+    "sine": (ds.generate_sine, 1),
+    "sine_to_cosine": (ds.generate_sine_to_cosine, 2),
+    "sincos2": (ds.generate_sincos2, 2),
 }
 
 
@@ -308,7 +311,7 @@ def test_generators_share_one_signature(name):
     assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in rest)  # no positional guessing
     assert parameters["washout"].default == 0 and parameters["seed"].default is None
     assert list(parameters)[-2:] == ["washout", "seed"]
-    if name != "narma":  # the continuous systems are sampled with dt
+    if name != "narma":  # the continuous systems and the sines systems are sampled with dt
         assert "dt" in parameters and "h" not in parameters
     with pytest.raises(TypeError):
         function(100, 0.5)
@@ -398,3 +401,52 @@ def test_load_passes_washout_and_rejects_unknown_parameters():
     assert np.allclose(a[0], raw[:10])
     with pytest.raises(TypeError):
         ds.load("lorenz", n_samples=400, n_in=10, tua=17)
+
+
+# ---------------------------------------------------------------------- sine tasks
+
+
+def test_sine_has_its_own_frequency_per_state():
+    x = ds.generate_sine(400, n_states=3, omega=2.0, domega=0.5, dt=0.01)
+    t = np.arange(400) * 0.01
+    for k, omega in enumerate([2.0, 2.5, 3.0]):
+        assert np.allclose(x[:, k], np.sin(omega * t))
+
+
+def test_sine_seed_draws_a_phase_per_state():
+    x = ds.generate_sine(50, n_states=2, seed=1)
+    assert not np.allclose(x[0], 0.0) and x[0, 0] != x[0, 1]
+
+
+def test_sine_to_cosine_is_the_quadrature_of_the_input():
+    data = ds.generate_sine_to_cosine(300, n_states=2, seed=2)
+    assert data.shape == (300, 4)
+    assert np.allclose(data[:, :2] ** 2 + data[:, 2:] ** 2, 1.0)
+
+
+def test_sincos2_target_formula():
+    data = ds.generate_sincos2(200, a=2.0, b=0.5, power=2, seed=0)
+    s = data[:, 0]
+    quadrature = ds.generate_sine_to_cosine(200, omega=1.0, seed=0)[:, 1]
+    assert np.allclose(data[:, 1], 2.0 * s**2 + 0.5 * quadrature**2)
+    with pytest.raises(ValueError, match="power"):
+        ds.generate_sincos2(10, power=0)
+
+
+@pytest.mark.parametrize("name", ["sine", "sine_pred", "sine_to_cosine", "sincos2", "sin_to_cos2"])
+def test_load_the_sine_tasks(name):
+    n_in, n_out, n = 20, 2, 600
+    x_train, y_train, x_test, y_test = ds.load(name, n_samples=n, n_in=n_in, n_out=n_out, n_states=2)
+    assert x_train.shape[1:] == (n_in, 2) and y_train.shape[1:] == (n_out, 2)
+    assert x_test.shape[2] == 2 and y_test.shape[2] == 2
+    raw = ds.generate(name, n, n_states=2)
+    assert np.allclose(x_train[0], raw[:n_in, :2])
+    if name.startswith("sine") and name not in ("sine", "sine_pred"):
+        assert np.allclose(y_train[0], raw[n_in - n_out : n_in, 2:])  # the targets of the last input steps
+    elif name in ("sine", "sine_pred"):
+        assert np.allclose(y_train[0], raw[n_in : n_in + n_out])  # forecast
+
+
+def test_sine_input_output_windows_validate_n_out():
+    with pytest.raises(ValueError, match="must not exceed"):
+        ds.load("sine_to_cosine", n_samples=500, n_in=5, n_out=6)

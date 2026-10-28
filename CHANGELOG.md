@@ -97,6 +97,13 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
   `generate(name, n_timesteps, ...)` calls them by name, `load` is built on it. Arguments are
   checked (counts, positive step sizes, the initial condition of Lorenz). The examples use the
   public functions instead of the private `_generate_*` ones, which are gone.
+* The toy sine problems have generators of the same interface: `generate_sine` (sines with a
+  different frequency per state, forecasting), `generate_sine_to_cosine` and `generate_sincos2`
+  (inputs and targets as columns), also available as `load("sine")`, `load("sine_to_cosine")`,
+  `load("sincos2")` with the chronological split and the return order of the other datasets.
+  Unlike the older functions in `pyreco.utils_data`, which are unchanged, `omega` is the true angular
+  frequency and `seed` draws random phases. `utils_data` checks `n_states` / `n_time_in` with a
+  `ValueError` (numpy integers are accepted) instead of an `assert`.
 
 * New example `mwe_mackey_glass_delay_reconstruction.py`: a reservoir observer for the Mackey-Glass delay
   equation that infers the hidden delayed state x(t - tau) and the production term from x(t) (test NRMSE
