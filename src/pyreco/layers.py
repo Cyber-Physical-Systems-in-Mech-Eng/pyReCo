@@ -28,6 +28,7 @@ import warnings
 from abc import ABC, abstractmethod
 import numpy as np
 import networkx as nx
+from scipy.special import expit
 
 from pyreco.utils_networks import (
     gen_ER_graph,
@@ -433,9 +434,9 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
             :math:`\tanh(z)` or :math:`1 / (1 + e^{-z})`, depending on ``activation``.
         """
         if self.activation == "sigmoid":
-            return 1 / (1 + np.exp(-x))
+            return expit(x)
         elif self.activation == "tanh":
-            return (np.exp(x) - np.exp(-x)) / (np.exp(x) + np.exp(-x))
+            return np.tanh(x)
         else:
             raise (ValueError(f"unknown activation function {self.activation}!"))
 

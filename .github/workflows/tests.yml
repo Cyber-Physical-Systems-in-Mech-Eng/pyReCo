@@ -1,14 +1,17 @@
 name: tests
 
 # Runs the test suite only. It never builds or publishes anything (see release.yml for that).
+# It runs on every pull request, and release.yml calls it before it publishes.
 # To make it a merge requirement, add the checks "tests (ubuntu-latest, 3.10)" and
-# "tests (ubuntu-latest, 3.12)" as required status checks of the branch protection of `main`.
+# "tests (ubuntu-latest, 3.12)" as required status checks of the branch protection of `main`
+# (GitHub: Settings > Branches > main > Require status checks to pass).
 
 on:
   pull_request:
   push:
     branches: [ main, dev ]
   workflow_dispatch:
+  workflow_call:
 
 # A newer push to the same branch/PR cancels the run that is still in progress.
 concurrency:

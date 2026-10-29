@@ -523,10 +523,12 @@ class CustomModel(ABC):
             metric_names, metric_funs = ["mean_squared_error"], [assign_metric("mean_squared_error")]
 
         # train the model on the given data
-        reservoir_states, _ = self._train_model(x=x, y=y)
+        reservoir_states, W_out = self._train_model(x=x, y=y)
 
-        # score on the training data, in the original units of x and y
-        y_pred = self.predict(x=x_raw)[:, :n_time_out]
+        # score on the training data, in the original units of x and y. The states returned by the
+        # training are the ones that predict() uses for the targets, so they are reused here
+        # instead of simulating the reservoir a second time.
+        y_pred = np.einsum("bik,jk->bij", reservoir_states, W_out.T) + self.readout_layer.bias
         train_metrics = {
             name: float(fun(y, y_pred)) for name, fun in zip(metric_names, metric_funs)
         }
