@@ -5,6 +5,14 @@ x(t) -> x(t+dt)
 
 """
 
+try:
+    import tensorflow as tf  # noqa: F401
+except ImportError:
+    raise SystemExit(
+        "This example needs TensorFlow, which is not a dependency of pyreco. "
+        'Install it with `pip install tensorflow` or `pip install "pyreco[benchmarks]"`.'
+    )
+
 import numpy as np
 from matplotlib import pyplot as plt
 

@@ -13,6 +13,14 @@ Merten Stender, TU Berlin, merten.stender@tu-berlin.de
 09.10.2024
 """
 
+try:
+    import tensorflow as tf  # noqa: F401
+except ImportError:
+    raise SystemExit(
+        "This example needs TensorFlow, which is not a dependency of pyreco. "
+        'Install it with `pip install tensorflow` or `pip install "pyreco[benchmarks]"`.'
+    )
+
 from matplotlib import pyplot as plt
 import time
 
