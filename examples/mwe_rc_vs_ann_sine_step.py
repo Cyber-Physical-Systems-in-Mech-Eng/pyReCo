@@ -1,8 +1,8 @@
 """
-Minimal testing example for predicting a sine function (discrete time setting)
+Minimal working example: reservoir computer vs. a dense TensorFlow network on one-step sine prediction.
 
-x(t) -> x(t+dt)
-
+Question: on the simplest forecasting task, x(t) -> x(t+dt), how do a small RC and a feed-forward net compare in test error?
+Needs TensorFlow (pip install "pyreco[benchmarks]").
 """
 
 try:

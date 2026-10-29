@@ -1,5 +1,7 @@
 """
-Testing the deletion of nodes in the reservoir computer
+Minimal working example: delete chosen nodes from a reservoir.
+
+Question: how do I remove specific nodes from a trained reservoir computer, and how does the score change as more are cut?
 """
 
 from matplotlib import pyplot as plt
@@ -68,8 +70,8 @@ Now let's cut reservoir nodes and see how the performance changes
 num_node_prune = 3
 scores = []
 num_nodes = []
-remaining_nodes = model.reservoir_layer.nodes
-while (remaining_nodes - num_node_prune) > 0:
+# stop while at least one node is still read out (the fit needs one)
+while len(model.readout_layer.readout_nodes) > num_node_prune:
     nodes_to_delete = np.random.choice(
         model.reservoir_layer.nodes, num_node_prune, replace=False
     ).tolist()
@@ -80,7 +82,6 @@ while (remaining_nodes - num_node_prune) > 0:
     model.fit(X_train, y_train)
     scores.append(model.evaluate(x=X_test, y=y_test)[0])
     num_nodes.append(model.reservoir_layer.nodes)
-    remaining_nodes = model.reservoir_layer.nodes
 
 plt.figure()
 plt.plot(num_nodes, scores, "o-")

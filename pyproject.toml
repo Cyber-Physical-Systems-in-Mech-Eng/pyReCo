@@ -46,7 +46,7 @@ exclude = [
 [project.optional-dependencies]
 # running the test suite (pip install -e ".[test]")
 test = ["pytest>=7", "pytest-cov"]
-# comparison with feed-forward networks (examples/compare_tensorflow_recopy.py, examples/RC_vs_ANN.py)
+# comparison with feed-forward networks (examples/mwe_rc_vs_ann_*.py)
 benchmarks = ["tensorflow"]
 
 [project.urls]

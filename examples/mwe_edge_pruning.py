@@ -1,3 +1,9 @@
+"""
+Minimal working example: pruning the edges of a reservoir.
+
+Question: how many edges can EdgePruner remove from a trained reservoir computer before the validation error gets worse?
+"""
+
 # Test edge pruning
 import matplotlib.pyplot as plt
 from pyreco.utils_data import sequence_to_sequence as seq_2_seq

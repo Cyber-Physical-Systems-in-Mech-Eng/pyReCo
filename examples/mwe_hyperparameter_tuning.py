@@ -1,8 +1,7 @@
 """
+Minimal working example: hyperparameter tuning with pyreco.tuner.Tuner.
 
-Showcase / tutorial script for using `pyreco.tuner.Tuner` with a Reservoir Computing (RC) model.
-
-
+Question: how much does an Optuna search over the reservoir hyperparameters improve on a hand-picked baseline? Task: sin -> cos^2.
 """
 
 import copy

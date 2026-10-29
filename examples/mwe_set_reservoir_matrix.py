@@ -1,6 +1,9 @@
 """
-Assigning a custom reservoir matrix to a reservoir computing model.
+Minimal working example: replace the reservoir matrix of a trained reservoir computer.
+
+Question: how do I set my own reservoir weights and spectral radius, and how does this change the predictions?
 """
+
 import numpy as np
 from matplotlib import pyplot as plt
 from pyreco.custom_models import RC as RC

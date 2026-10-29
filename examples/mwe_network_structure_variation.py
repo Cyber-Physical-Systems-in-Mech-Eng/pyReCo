@@ -1,12 +1,8 @@
 """
-Study the effect of reservoir network structure, i.e. the randomly generated reservoir adjacency matrix.
+Minimal working example: the effect of the random reservoir network on the test error.
 
-We will simply fit a large number of RCs, each with a randomly generated reservoir on a benchmark case and observe
-the variation in the scores.
-
-By Merten Stender, TU Berlin
-merten.stender@tu-berlin.de
-September 23, 2024
+Question: with identical hyperparameters, how much does the score vary across randomly drawn reservoir networks, and does
+that variation shrink as the reservoir gets larger? Saves three figures to the current directory.
 """
 
 import numpy as np
@@ -105,7 +101,7 @@ if __name__ == "__main__":
     plt.ylabel("counts")
     plt.title(f"variation of reservoir network, {num_trials} different networks")
     plt.legend()
-    plt.savefig("effects_network_structure_histogram.png")
+    plt.savefig("network_structure_variation_histogram.png")
     # plt.show()
 
     # Create the figure and axis
@@ -115,7 +111,7 @@ if __name__ == "__main__":
     ax.set_xlabel(r"reservoir nodes $N$")
     ax.set_ylabel(r"test error ($L_1$)")
     ax.set_title(f"Performance variation by random networks ({num_trials} trials)")
-    plt.savefig("effects_network_structure_boxplot.png")
+    plt.savefig("network_structure_variation_boxplot.png")
     # plt.show()
 
     # plot predictions of best and worst model for first test sample
@@ -132,5 +128,5 @@ if __name__ == "__main__":
     plt.ylabel("target / prediction")
     plt.title(rf"variation induced by network structure")
     plt.legend()
-    plt.savefig("effects_network_structure_predictions.png")
+    plt.savefig("network_structure_variation_predictions.png")
     # plt.show()

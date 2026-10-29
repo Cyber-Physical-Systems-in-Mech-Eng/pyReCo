@@ -1,3 +1,9 @@
+"""
+Minimal working example: delete chosen edges from a reservoir.
+
+Question: how do I remove specific edges from a trained reservoir computer, and what does it do to the score?
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 from pyreco.utils_data import sequence_to_sequence as seq_2_seq

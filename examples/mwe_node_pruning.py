@@ -1,3 +1,9 @@
+"""
+Minimal working example: pruning the nodes of a reservoir.
+
+Question: how many nodes can NetworkPruner remove from a trained reservoir computer before the validation error gets worse?
+"""
+
 # test the pruning
 import numpy as np
 import matplotlib.pyplot as plt

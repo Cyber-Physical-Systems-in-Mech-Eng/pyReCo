@@ -1,5 +1,8 @@
 """
-Some testing use case for the CustomModel API of pyreco
+Minimal working example (experimental): an autonomously running reservoir computer.
+
+Question: after training one-step-ahead on a sine, can the RC continue the signal on its own when its prediction is
+fed back as input (AutoRC_predict)? Uses the experimental AutoRC model.
 """
 
 from matplotlib import pyplot as plt

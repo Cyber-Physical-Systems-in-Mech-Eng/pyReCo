@@ -1,16 +1,9 @@
 """
-[requires tensorflow installed]
-[requires pyReCo installed]
+Minimal working example: reservoir computer vs. a feed-forward TensorFlow network on sine -> cosine.
 
-Comparison of a vanilla feedforward NN (implemented in TensorFlow) against a vanilla Reservoir Computer (implemented
-in pyReCo). Try to make them roughly the same size and compare performance.
-
-Benchmark case: sequence translation. map a sine to a cosine of the same frequency (i.e. learn a phase shift).
-
-Requires no memory, hence no recurrent network is required per se
-
-Merten Stender, TU Berlin, merten.stender@tu-berlin.de
-09.10.2024
+Question: for a task without memory (learn a phase shift), how do an RC and a feed-forward net of similar size compare in
+test error, training time and number of trainable weights?
+Needs TensorFlow (pip install "pyreco[benchmarks]").
 """
 
 try:

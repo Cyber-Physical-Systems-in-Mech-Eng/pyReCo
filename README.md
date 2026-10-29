@@ -327,15 +327,15 @@ The folder `examples/` contains minimal working examples (`mwe_*.py`) that you c
 | `mwe_cross_validation.py` | k-fold cross-validation, drawing the reservoir network |
 | `mwe_hyperparameter_tuning.py` | hyperparameter search with `Tuner` |
 | `mwe_narma10_size_sweep_edge_pruning.py` | NARMA10: how many nodes are needed (size sweep with tuned hyperparameters), then how many edges (edge pruning); also an extended smoke test that reports unexpected behavior |
-| `mwe_set_readin_weights.py`, `setting_reservoir_matrix.py` | use your own read-in weights or reservoir matrix |
+| `mwe_set_readin_weights.py`, `mwe_set_reservoir_matrix.py` | use your own read-in weights or reservoir matrix |
 | `mwe_remove_nodes.py`, `mwe_remove_edges.py` | remove nodes or edges of a trained model |
 | `mwe_node_pruning.py`, `mwe_edge_pruning.py` | pruning |
 | `mwe_lorenz_reconstruction.py` | Reconstruct the third Lorenz state from the first two (reservoir observer), with controls that must fail |
 | `mwe_mackey_glass_delay_reconstruction.py` | Mackey-Glass delay equation: infer the hidden delayed state x(t - tau) and the production term from x(t); reconstruction error versus lag (memory and prediction), with controls |
 | `mwe_narma10_optimal_reservoir.py` | NARMA10: search for the best reservoir with at most 200 nodes (size, density and hyperparameters) |
-| `effects_network_structure.py` | variation of the performance across random reservoir networks |
-| `compare_tensorflow_recopy.py`, `RC_vs_ANN.py` | comparison with feed-forward networks (needs `pyreco[benchmarks]`) |
-| `testing_autoRC.py`, `testing_Hybrid-RC.py` | experimental closed-loop (auto-regressive) prediction |
+| `mwe_network_structure_variation.py` | variation of the performance across random reservoir networks |
+| `mwe_rc_vs_ann_sine_step.py`, `mwe_rc_vs_ann_sine_to_cosine.py` | comparison with feed-forward networks (needs `pyreco[benchmarks]`) |
+| `mwe_auto_rc.py`, `mwe_hybrid_rc_duffing.py` | experimental closed-loop (auto-regressive) prediction |
 
 
 ## Development and tests

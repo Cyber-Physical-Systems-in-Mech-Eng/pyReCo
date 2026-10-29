@@ -1,5 +1,7 @@
 """
-Some testing use case for the CustomModel API of pyreco
+Minimal working example: replace the read-in (input) weights of a reservoir computer.
+
+Question: how do I set my own input weights, and how does that change the test error? Task: predict a sine from 20 past values.
 """
 
 import numpy as np

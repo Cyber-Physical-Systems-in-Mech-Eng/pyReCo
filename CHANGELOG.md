@@ -90,6 +90,7 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ### Minor Improvements
 
+* Examples: all scripts are named `mwe_*.py` and start with a short description of the question they answer. Renamed: `RC_vs_ANN.py` to `mwe_rc_vs_ann_sine_step.py`, `compare_tensorflow_recopy.py` to `mwe_rc_vs_ann_sine_to_cosine.py`, `effects_network_structure.py` to `mwe_network_structure_variation.py`, `setting_reservoir_matrix.py` to `mwe_set_reservoir_matrix.py`, `testing_Hybrid-RC.py` to `mwe_hybrid_rc_duffing.py`, `testing_autoRC.py` to `mwe_auto_rc.py`. The two TensorFlow comparisons exit with an install hint when TensorFlow is missing (it is only in the `benchmarks` extra); `mwe_set_reservoir_matrix.py` no longer fails.
 * Docstrings: the public API is documented in NumPy style (parameters, returns, raises) with the equations of
   the model, the readout, the metrics, the generators and the pruning algorithms written as LaTeX
   (`.. math::`), which the Sphinx documentation (autodoc, napoleon, mathjax) renders. The documentation

@@ -1,3 +1,9 @@
+"""
+Minimal working example: build a reservoir computer layer by layer (pyreco.custom_models.RC).
+
+Question: how do I add input, reservoir and readout layers, then compile, fit, predict and evaluate? Task: sine -> 2 * cosine.
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 from pyreco.custom_models import RC

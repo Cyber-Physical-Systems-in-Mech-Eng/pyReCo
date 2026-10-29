@@ -1,8 +1,11 @@
 """
-Some testing use case for the CustomModel API of pyreco
+Minimal working example (experimental): feedback reservoir computer on a forced Duffing oscillator.
+
+Question: can an RC with a feedback layer, trained on the forcing and the two states, run autonomously with its own
+predictions fed back for the states? Uses the experimental AutoRC model.
 """
 
-from re import X
+
 from matplotlib import pyplot as plt
 from pyreco.custom_models import AutoRC as RC
 from pyreco.layers import InputLayer, ReadoutLayer, FeedbackLayer
