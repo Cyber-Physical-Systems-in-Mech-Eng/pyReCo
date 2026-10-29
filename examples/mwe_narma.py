@@ -30,7 +30,7 @@ for ax, name in zip(axes, ["narma5", "narma10"]):
     model = RC(seed=0)
     model.add(InputLayer(input_shape=x_train.shape[1:]))
     model.add(
-        RandomReservoirLayer(nodes=200, density=0.1, spec_rad=0.9, leakage_rate=1.0, seed=0)
+        RandomReservoirLayer(nodes=200, density=0.1, spec_rad=0.9, leakage_rate=0.9, seed=0)
     )
     model.add(ReadoutLayer(output_shape=y_train.shape[1:]))
     model.compile(metrics=["nrmse"], discard_transients=49)  # warm-up: n_in - n_out

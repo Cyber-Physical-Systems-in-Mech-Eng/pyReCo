@@ -42,12 +42,12 @@ def test_one_step_forecast_of_chaotic_systems(name, limit):
 
 @pytest.mark.parametrize(
     "name, limit",
-    [("narma5", 0.6), ("narma10", 0.85)],  # measured: 0.395, 0.65 (the mean predictor gives 1)
+    [("narma5", 0.6), ("narma10", 0.85)],  # measured: 0.393, 0.585 (the mean predictor gives 1)
 )
 def test_narma(name, limit):
     x_train, y_train, x_test, y_test = load(name, n_samples=3000, n_in=50, n_out=1, seed=1)
     nrmse = _test_nrmse(
         x_train, y_train, x_test, y_test, discard_transients=49,  # n_in - n_out
-        alpha=1e-6, spec_rad=0.9, leakage_rate=1.0,
+        alpha=1e-6, spec_rad=0.9, leakage_rate=0.9,
     )
     assert nrmse < limit

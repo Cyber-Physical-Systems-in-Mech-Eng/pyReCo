@@ -24,6 +24,7 @@ the three steps:
 All layers inherit from the abstract :class:`Layer`.
 """
 
+import warnings
 from abc import ABC, abstractmethod
 import numpy as np
 import networkx as nx
@@ -57,6 +58,18 @@ def _check_number(name, value, low=None, high=None):
         interval = f"in ({low}, {high}]" if high is not None else f"larger than {low}"
         raise ValueError(f"{name} must be {interval}, got {value!r}.")
     return float(value)
+
+
+def _warn_if_not_leaky(leakage_rate):
+    """Warn that a leakage rate of 1 switches the leaky integration off."""
+    if leakage_rate == 1:
+        warnings.warn(
+            "leakage_rate=1.0 switches the leaky integration off: r(t+1) = g(...) does not contain "
+            "r(t) itself, so the nodes keep no memory of their own state (only the reservoir matrix "
+            "carries history). Use a value below 1 (e.g. 0.5) for a leaky reservoir.",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 def _check_nodes(nodes):
@@ -352,7 +365,8 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
     activation : {"tanh", "sigmoid"}
         The activation function :math:`g`.
     leakage_rate : float
-        Leakage rate :math:`a`, in (0, 1].
+        Leakage rate :math:`a`, in (0, 1]. Values above 1 raise a ValueError; 1 is allowed but warns,
+        because it switches the leaky integration off.
     fraction_input : float
         Fraction of the nodes that receive the input, in (0, 1].
     init_res_sampling : {"zeros", "ones", "random", "random_normal"}
@@ -387,6 +401,7 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
             raise ValueError(f"activation must be one of {ACTIVATIONS}, got {activation!r}.")
         self.activation = activation
         self.leakage_rate = _check_number("leakage_rate", leakage_rate, low=0, high=1)
+        _warn_if_not_leaky(self.leakage_rate)
         self.name = "reservoir_layer"
         self.type = "reservoir"
         # fraction of the nodes that receive the input
@@ -587,9 +602,11 @@ class ReservoirLayer(Layer):  # subclass for the specific reservoir layers
         return self.leakage_rate
 
     def set_leakage_rate(self, value):
-        """Set the leakage rate :math:`a \\in (0, 1]`; raises a ValueError outside this interval."""
+        """Set the leakage rate :math:`a \\in (0, 1]`; raises a ValueError outside this interval
+        and warns for a = 1, which switches the leaky integration off."""
         if not (0 < value <= 1):
             raise ValueError("Leakage rate must be in (0, 1]")
+        _warn_if_not_leaky(value)
         self.leakage_rate = value
 
     def get_activation(self):
@@ -629,7 +646,8 @@ class RandomReservoirLayer(ReservoirLayer):
     activation : {"tanh", "sigmoid"}, default="tanh"
         Activation function :math:`g`.
     leakage_rate : float, default=0.5
-        Leakage rate :math:`a`, in (0, 1].
+        Leakage rate :math:`a`, in (0, 1]. Values above 1 raise a ValueError; 1 is allowed but warns,
+        because it switches the leaky integration off.
     fraction_input : float, default=0.8
         Fraction of the nodes that receive the input, in (0, 1].
     spec_rad : float, default=0.9

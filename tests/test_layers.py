@@ -31,8 +31,6 @@ def _layer(**kwargs):
         dict(density=np.float64(0.2)),
         dict(spec_rad=0.01),
         dict(spec_rad=1.5),  # larger than 1 is unusual, but valid
-        dict(leakage_rate=1.0),
-        dict(leakage_rate=1),
         dict(activation="sigmoid"),
         dict(fraction_input=1.0),
         dict(fraction_input=1),
@@ -91,7 +89,8 @@ def test_numbers_are_stored_as_python_numbers():
     """Integers and numpy scalars are converted, so that later arithmetic and saving behave."""
     assert ReadoutLayer((10, 1), fraction_out=1).fraction_out == 1.0
     assert isinstance(ReadoutLayer((10, 1), fraction_out=np.float32(0.5)).fraction_out, float)
-    layer = _layer(fraction_input=1, density=1, leakage_rate=1)
+    with pytest.warns(UserWarning, match="leaky integration"):  # an integer 1 is the no-leakage case
+        layer = _layer(fraction_input=1, density=1, leakage_rate=1)
     assert all(isinstance(v, float) for v in (layer.fraction_input, layer.density, layer.leakage_rate))
     assert isinstance(_layer(nodes=np.int64(10)).nodes, int)
 
@@ -102,6 +101,24 @@ def test_a_valid_layer_is_unchanged_by_the_validation():
     b = _layer(nodes=np.int64(12), density=np.float64(0.25))
     assert np.array_equal(a.weights, b.weights)
     assert np.isclose(a.spec_rad, 0.9)  # the default
+
+
+def test_leakage_rate_one_warns_and_above_one_raises():
+    """a = 1 switches the leaky integration off: allowed, but with a warning. a > 1 is an error."""
+    with pytest.warns(UserWarning, match="leaky integration"):
+        _layer(leakage_rate=1.0)
+    with pytest.warns(UserWarning, match="leaky integration"):
+        _layer().set_leakage_rate(1.0)
+    with pytest.raises(ValueError):
+        _layer(leakage_rate=1.01)
+    with pytest.raises(ValueError):
+        _layer().set_leakage_rate(1.01)
+
+
+def test_leaky_reservoir_does_not_warn(recwarn):
+    layer = _layer(leakage_rate=0.99)
+    layer.set_leakage_rate(0.5)
+    assert not [w for w in recwarn if "leaky integration" in str(w.message)]
 
 
 def test_the_setters_use_the_same_activations():

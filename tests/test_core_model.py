@@ -73,7 +73,7 @@ def test_sequence_to_scalar_learns_a_function_of_the_last_input():
     y = x[:, -3:, :].mean(axis=1, keepdims=True)
     model = RC(seed=0)
     model.add(InputLayer((20, 1)))
-    model.add(RandomReservoirLayer(nodes=60, density=0.2, leakage_rate=1.0, seed=0))
+    model.add(RandomReservoirLayer(nodes=60, density=0.2, leakage_rate=0.9, seed=0))
     model.add(ReadoutLayer((1, 1)))
     model.compile(discard_transients=19, metrics=["nrmse"])
     model.set_hp(alpha=1e-6)
