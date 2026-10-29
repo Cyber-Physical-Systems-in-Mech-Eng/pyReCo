@@ -73,11 +73,11 @@ model.fit(X_train, y_train)
 
 # Evaluate the new model
 loss_rc_new = model.evaluate(X_test, y_test, metrics=["mae"])
-print(f"Test model loss: {loss_rc}")
+print(f"Test model loss (new weights): {loss_rc_new}")
 
 # Make predictions for new data
 y_pred_new = model.predict(X_test)
-print(f"shape of predictions on test set: {y_pred.shape}")
+print(f"shape of predictions on test set: {y_pred_new.shape}")
 
 """
 Visual comparison of the predictions with the old and new reservoir weights.
@@ -86,9 +86,7 @@ Visual comparison of the predictions with the old and new reservoir weights.
 print(f"old reservoir density: {density_old:.3f}, spectral radius: {spec_rad_old:.5f}")
 print(f"new reservoir density: {density_new:.3f}, spectral radius: {spec_rad_new:.5f}")
 
-# as we have discarded 10 transients, we can only compare the predictions after that
-y_test = y_test[:, 10:, :]
-X_test = X_test[:, 10:, :]
+# no transients were discarded (see compile above): predictions and targets have the same length
 
 plt.figure(figsize=(12, 6))
 plt.subplot(1, 2, 1)
