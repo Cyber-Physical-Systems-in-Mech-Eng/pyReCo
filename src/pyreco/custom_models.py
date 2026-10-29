@@ -391,7 +391,6 @@ class CustomModel(ABC):
 
     def fit(self, x: np.ndarray,
             y: np.ndarray,
-            visualize=False,
             store_states: bool = False
             ) -> dict:
         r"""
@@ -418,8 +417,6 @@ class CustomModel(ABC):
             Input sequences.
         y : ndarray of shape (n_batch, K, n_out)
             Targets, :math:`K \le T`; the :math:`K` targets belong to the time steps after the warm-up.
-        visualize : bool, default=False
-            Has no effect (kept for compatibility); plot the network with :meth:`model_visualize`.
         store_states : bool, default=False
             Also return the reservoir states.
 

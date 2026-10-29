@@ -62,7 +62,7 @@ model_rc.compile(
 )
 
 # Train baseline
-model_rc.fit(X_train, y_train, visualize=False)
+model_rc.fit(X_train, y_train)
 
 # Baseline eval
 y_pred_base = model_rc.predict(X_test)

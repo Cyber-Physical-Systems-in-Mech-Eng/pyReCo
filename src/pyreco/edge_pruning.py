@@ -304,6 +304,12 @@ class EdgePruner:
             Nested dictionary recording, per pruning iteration, the model
             state before and after pruning, the evaluated candidates and
             their scores, and any nodes removed as a side effect.
+
+        Raises
+        ------
+        ValueError
+            If ``'min_edges'`` is a stopping criterion and ``min_num_edges`` is larger than the number of
+            edges of the model, or for invalid models and data.
         """
 
         # Sanity checks for the input parameter types and values
@@ -331,6 +337,14 @@ class EdgePruner:
                 edge_indices = [(r, c) for r, c in edge_indices if r < c]
 
         self._curr_num_edges = len(edge_indices)
+
+        # a minimum above the edge count could never be reached: nothing would be pruned, silently
+        if 'min_edges' in self.stopping_criterion and self.min_num_edges > self._curr_num_edges:
+            raise ValueError(
+                f'min_num_edges ({self.min_num_edges}) is larger than the number of edges of the '
+                f'model ({self._curr_num_edges}): there is nothing to prune. Use a smaller '
+                f'min_num_edges.'
+            )
 
         # Initialize the quantities that affect the stop condition
         self._curr_loss = model.evaluate(x=x_test, y=y_test,

@@ -3,7 +3,7 @@
 Noteworthy changes of new releases of pyReCo have been documented in this file since version
 0.0.2.
 
-## Unreleased
+## pyReCo-3.0.0
 
 
 ### Breaking Changes
@@ -92,14 +92,15 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 * Reservoir layer: a leakage rate of exactly 1 now warns (it switches the leaky integration off); values above 1 raise a ValueError, as before. `mwe_narma.py` and the NARMA accuracy test use 0.9 instead of 1.0, which is also more accurate for NARMA10 (NRMSE 0.585 instead of 0.648).
 * New `pyreco.edge_analyzer.operating_point_statistics(model, x)`: read-only, state-dependent diagnostics measured on data - per node the mean and spread of the pre-activation, the mean slope of the activation and the saturation fraction, per edge the variance of its signal (also weighted with the squared mean slope of the receiving node). They show the effect of the random input bias on where the nodes operate, which degrees cannot.
+* `fit()` no longer has the `visualize` argument (it had no effect); plot the network with `model_visualize()`. Removed without replacement, so `fit(x, y, True)` now sets `store_states` - use keywords.
+* `EdgePruner.prune()` raises a ValueError when `min_edges` is a stopping criterion and `min_num_edges` is larger than the number of edges of the model (it returned the unchanged model silently before).
+* `pyreco.network_prop_extractor` works again (it imported functions that no longer exist): `NetworkQuantifier` returns the network properties and `NodePropExtractor` the properties of every node as arrays; tested on hand-computed networks.
 * New `examples/mwe_quickstart.py`: a commented quick start (Lorenz one-step forecast, test NRMSE about 0.002).
 * Examples: all scripts are named `mwe_*.py` and start with a short description of the question they answer. Renamed: `RC_vs_ANN.py` to `mwe_rc_vs_ann_sine_step.py`, `compare_tensorflow_recopy.py` to `mwe_rc_vs_ann_sine_to_cosine.py`, `effects_network_structure.py` to `mwe_network_structure_variation.py`, `setting_reservoir_matrix.py` to `mwe_set_reservoir_matrix.py`, `testing_Hybrid-RC.py` to `mwe_hybrid_rc_duffing.py`, `testing_autoRC.py` to `mwe_auto_rc.py`. The two TensorFlow comparisons exit with an install hint when TensorFlow is missing (it is only in the `benchmarks` extra); `mwe_set_reservoir_matrix.py` no longer fails.
 * Docstrings: the public API is documented in NumPy style (parameters, returns, raises) with the equations of
   the model, the readout, the metrics, the generators and the pruning algorithms written as LaTeX
   (`.. math::`), which the Sphinx documentation (autodoc, napoleon, mathjax) renders. The documentation
-  shows the parameters that are documented in a constructor (`autoclass_content = "both"`). The module
-  `network_prop_extractor` does not import (it needs functions that no longer exist) and is missing in the
-  documentation.
+  shows the parameters that are documented in a constructor (`autoclass_content = "both"`). 
 * The test suite was reorganized: shared builders (`tests/helpers.py`), no duplicate tests (predict before fit,
   the scaling after fit, the invalid constructor arguments of the pruner as one parametrized test), related
   files merged (`test_seeding*`, the layer and the network utility tests), the script-like
@@ -223,7 +224,7 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
   normalization used to provide.
 * Input preprocessing is documented: per-channel z-scoring (statistics over batch and time),
   then multiplication by `input_scaling`.
-* Prepared release metadata updates for `v2.1.0`.
+* Prepared release metadata updates for `v3.0.0`.
 * Confirmed automated publish flow via GitHub Release (`published`) to PyPI.
 
 

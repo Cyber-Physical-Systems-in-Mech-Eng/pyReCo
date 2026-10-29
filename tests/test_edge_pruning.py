@@ -271,6 +271,25 @@ class TestPruningLoop:
     """One edge is removed per iteration; the history records candidates, winner and snapshots."""
 
 
+    def test_min_num_edges_above_the_edge_count_is_an_error(self, small_model, small_data):
+        # a minimum that can never be reached would silently prune nothing: it is an error instead
+        data_train, data_val = small_data
+        n_edges = int(np.count_nonzero(small_model.reservoir_layer.weights))
+        pruner = EdgePruner(stopping_criterion=['min_edges'], min_num_edges=n_edges + 1)
+        with pytest.raises(ValueError, match="min_num_edges"):
+            pruner.prune(model=small_model, data_train=data_train, data_val=data_val)
+        # the model is untouched, and a minimum equal to the edge count is allowed (nothing to prune)
+        assert int(np.count_nonzero(small_model.reservoir_layer.weights)) == n_edges
+        EdgePruner(stopping_criterion=['min_edges'], min_num_edges=n_edges).prune(
+            model=small_model, data_train=data_train, data_val=data_val)
+
+    def test_min_num_edges_is_only_checked_for_the_min_edges_criterion(self, small_model, small_data):
+        # with another stopping criterion the minimum plays no role, whatever its value
+        data_train, data_val = small_data
+        n_edges = int(np.count_nonzero(small_model.reservoir_layer.weights))
+        EdgePruner(stopping_criterion=['patience'], patience=0, min_num_edges=n_edges + 10).prune(
+            model=small_model, data_train=data_train, data_val=data_val)
+
     def test_returns_model_and_history(self, small_model, small_data):
         # prune() returns a fitted RC model and a non-empty history dict
         data_train, data_val = small_data

@@ -1,96 +1,138 @@
+"""
+Whole-network and per-node properties of an adjacency matrix in one call.
+
+:class:`NetworkQuantifier` returns scalar properties of the network (density, spectral radius, mean
+degrees, clustering) and :class:`NodePropExtractor` returns, for every node, properties such as its
+degree or its PageRank. Both build on the extractor functions of :mod:`pyreco.utils_networks`. The
+single-edge and single-node analyzers that the pruning uses are :class:`pyreco.edge_analyzer.EdgeAnalyzer`,
+:class:`pyreco.node_analyzer.NodeAnalyzer` and :class:`pyreco.graph_analyzer.GraphAnalyzer`.
+"""
+
+import warnings
+
 import numpy as np
+
 from .utils_networks import (
-    extract_density, extract_spectral_radius, extract_in_degree_av,
-    extract_out_degree_av, extract_clustering_coefficient,
-    extract_node_degree, extract_node_in_degree, extract_node_out_degree,
-    extract_node_clustering_coefficient, extract_node_betweenness_centrality,
-    extract_node_pagerank
+    convert_to_nx_graph,
+    extract_av_in_degree,
+    extract_av_out_degree,
+    extract_clustering_coefficient,
+    extract_density,
+    extract_node_betweenness_centrality,
+    extract_node_clustering_coefficient,
+    extract_node_degree,
+    extract_node_in_degree,
+    extract_node_out_degree,
+    extract_node_pagerank,
+    extract_spectral_radius,
 )
 
-class NetworkQuantifier:
-    """
-    A class for extracting and quantifying network properties from an adjacency matrix.
+NETWORK_PROPERTIES = {
+    "density": extract_density,
+    "spectral_radius": extract_spectral_radius,
+    "in_degree_av": extract_av_in_degree,
+    "out_degree_av": extract_av_out_degree,
+    "clustering_coefficient": extract_clustering_coefficient,
+}
 
-    This class provides methods to extract various network-level properties such as
-    density, spectral radius, average in-degree, average out-degree, and clustering coefficient.
+NODE_PROPERTIES = {
+    "degree": extract_node_degree,
+    "in_degree": extract_node_in_degree,
+    "out_degree": extract_node_out_degree,
+    "clustering_coefficient": extract_node_clustering_coefficient,
+    "betweenness_centrality": extract_node_betweenness_centrality,
+    "pagerank": extract_node_pagerank,
+}
+
+
+class NetworkQuantifier:
+    r"""
+    Scalar properties of a network, given its adjacency matrix :math:`A` (``A[u, v]`` is the edge
+    :math:`u \to v`).
+
+    The available properties are the density :math:`|E| / (N (N - 1))`, the spectral radius
+    :math:`\rho(A) = \max_i |\lambda_i(A)|`, the mean in-degree :math:`\frac{1}{N} \sum_v k^\mathrm{in}_v`, the mean
+    out-degree :math:`\frac{1}{N} \sum_u k^\mathrm{out}_u` and the average clustering coefficient
+    (``"density"``, ``"spectral_radius"``, ``"in_degree_av"``, ``"out_degree_av"``,
+    ``"clustering_coefficient"``).
+
+    Parameters
+    ----------
+    quantities : list of str, optional
+        The properties to extract. By default all of them. Unknown names are skipped with a warning.
     """
 
     def __init__(self, quantities=None):
-        """
-        Initialize the NetworkQuantifier with specified quantities to extract.
+        quantities = list(NETWORK_PROPERTIES) if quantities is None else list(quantities)
+        self.quantities = _known(quantities, NETWORK_PROPERTIES, "network")
+        self.extractors = {name: NETWORK_PROPERTIES[name] for name in self.quantities}
 
-        Args:
-            quantities (list, optional): List of network properties to extract.
-                Defaults to ['density', 'spectral_radius', 'in_degree_av', 'out_degree_av', 'clustering_coefficient'].
+    def extract_properties(self, adjacency_matrix) -> dict:
         """
-        self.quantities = quantities or ['density', 'spectral_radius', 'in_degree_av', 'out_degree_av', 'clustering_coefficient']
-        self.extractors = {
-            'density': extract_density,
-            'spectral_radius': extract_spectral_radius,
-            'in_degree_av': extract_in_degree_av,  
-            'out_degree_av': extract_out_degree_av,
-            'clustering_coefficient': extract_clustering_coefficient
-        }
+        Extract the selected properties.
 
-    def extract_properties(self, adjacency_matrix):
+        Parameters
+        ----------
+        adjacency_matrix : ndarray, nx.Graph or nx.DiGraph
+            The network.
+
+        Returns
+        -------
+        dict
+            Property name -> value.
         """
-        Extract the specified network properties from the given adjacency matrix.
+        return {name: fun(adjacency_matrix) for name, fun in self.extractors.items()}
 
-        Args:
-            adjacency_matrix (numpy.ndarray): The adjacency matrix of the network.
-
-        Returns:
-            dict: A dictionary containing the extracted network properties.
-        """
-        network_props = {}
-        for quantity in self.quantities:
-            if quantity in self.extractors:
-                network_props[quantity] = self.extractors[quantity](adjacency_matrix)
-            else:
-                print(f"Warning: {quantity} is not a recognized network property.")
-        return network_props
 
 class NodePropExtractor:
-    """
-    A class for extracting and quantifying node-level properties from an adjacency matrix.
+    r"""
+    Properties of every node of a network, given its adjacency matrix :math:`A` (``A[u, v]`` is the edge
+    :math:`u \to v`).
 
-    This class provides methods to extract various node-level properties such as
-    degree, in-degree, out-degree, clustering coefficient, betweenness centrality, and PageRank.
+    The available properties are the degree :math:`k_v = k^\mathrm{in}_v + k^\mathrm{out}_v`, the in- and the
+    out-degree, the clustering coefficient, the betweenness centrality and the PageRank (``"degree"``,
+    ``"in_degree"``, ``"out_degree"``, ``"clustering_coefficient"``, ``"betweenness_centrality"``,
+    ``"pagerank"``; see :mod:`pyreco.utils_networks` for the definitions).
+
+    Parameters
+    ----------
+    properties : list of str, optional
+        The properties to extract. By default all of them. Unknown names are skipped with a warning.
     """
 
     def __init__(self, properties=None):
-        """
-        Initialize the NodePropExtractor with specified properties to extract.
+        properties = list(NODE_PROPERTIES) if properties is None else list(properties)
+        self.properties = _known(properties, NODE_PROPERTIES, "node")
+        self.extractors = {name: NODE_PROPERTIES[name] for name in self.properties}
 
-        Args:
-            properties (list, optional): List of node properties to extract.
-                Defaults to ['degree', 'in_degree', 'out_degree', 'clustering_coefficient', 'betweenness_centrality', 'pagerank'].
+    def extract_properties(self, adjacency_matrix, states=None) -> dict:
         """
-        self.properties = properties or ['degree', 'in_degree', 'out_degree', 'clustering_coefficient', 'betweenness_centrality', 'pagerank']
-        self.extractors = {
-            'degree': extract_node_degree,
-            'in_degree': extract_node_in_degree,
-            'out_degree': extract_node_out_degree,
-            'clustering_coefficient': extract_node_clustering_coefficient,
-            'betweenness_centrality': extract_node_betweenness_centrality,
-            'pagerank': extract_node_pagerank,
+        Extract the selected properties for all nodes.
+
+        Parameters
+        ----------
+        adjacency_matrix : ndarray, nx.Graph or nx.DiGraph
+            The network.
+        states : ndarray, optional
+            Not used (reserved for state-dependent properties).
+
+        Returns
+        -------
+        dict
+            Property name -> ndarray of shape (N,) with the value of every node, in the order of the node
+            indices.
+        """
+        graph = convert_to_nx_graph(adjacency_matrix)
+        nodes = list(graph.nodes)
+        return {
+            name: np.array([fun(graph, node) for node in nodes], dtype=float)
+            for name, fun in self.extractors.items()
         }
 
-    def extract_properties(self, adjacency_matrix, states=None):
-        """
-        Extract the specified node properties from the given adjacency matrix.
 
-        Args:
-            adjacency_matrix (numpy.ndarray): The adjacency matrix of the network.
-            states (numpy.ndarray, optional): Node states, if applicable. Defaults to None.
-
-        Returns:
-            dict: A dictionary containing the extracted node properties.
-        """
-        node_props = {}
-        for property in self.properties:
-            if property in self.extractors:
-                    node_props[property] = self.extractors[property](adjacency_matrix)
-            else:
-                print(f"Warning: {property} is not a recognized node property.")
-        return node_props
+def _known(names, available, kind):
+    """The names that are available; the others are reported in one warning."""
+    unknown = [name for name in names if name not in available]
+    if unknown:
+        warnings.warn(f"not recognized {kind} properties, skipped: {unknown}", UserWarning, stacklevel=3)
+    return [name for name in names if name in available]
