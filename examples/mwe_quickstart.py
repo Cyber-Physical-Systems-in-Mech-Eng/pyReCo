@@ -8,7 +8,7 @@ Question: what are the minimal steps to get a reservoir computer (RC) running in
     3. compile and fit  ->  only the readout is trained (ridge regression), which takes a moment
     4. evaluate         ->  on data that the model has never seen
 
-Run it with `python examples/mwe_quickstart.py`. Expect a test NRMSE of about 0.001
+Run it with `python examples/mwe_quickstart.py`. Expect a test NRMSE of about 0.002
 (NRMSE = 1 is the error of always predicting the mean, 0 is a perfect prediction).
 """
 
@@ -46,9 +46,9 @@ model.add(InputLayer(input_shape=x_train.shape[1:]))
 #   nodes        number of neurons in the reservoir
 #   density      fraction of all possible connections between nodes that exist
 #   spec_rad     spectral radius of the reservoir matrix (< 1 gives a fading memory)
-#   leakage_rate how fast the nodes forget their previous state (1 = no leakage)
+#   leakage_rate how fast the nodes forget their previous state (< 1: the state keeps a memory of its own past; 1 = none)
 model.add(
-    RandomReservoirLayer(nodes=200, density=0.1, spec_rad=0.9, leakage_rate=1.0, seed=0)
+    RandomReservoirLayer(nodes=200, density=0.1, spec_rad=0.9, leakage_rate=0.5, seed=0)
 )
 
 # readout layer: the only trained part; maps reservoir states to the target shape [n_out, n_states]
