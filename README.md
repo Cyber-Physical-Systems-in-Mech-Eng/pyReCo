@@ -321,6 +321,7 @@ The folder `examples/` contains minimal working examples (`mwe_*.py`) that you c
 
 | script | topic |
 |---|---|
+| `mwe_quickstart.py` | **start here**: Lorenz one-step forecast, every step commented (test NRMSE about 0.001) |
 | `mwe_model_api.py`, `mwe_custom_model_api.py` | the two APIs (sine to cosine) |
 | `mwe_task_shapes.py` | shapes of inputs and targets, warm-up |
 | `mwe_chaotic_datasets.py`, `mwe_narma.py` | Lorenz, Mackey-Glass and NARMA benchmarks |
