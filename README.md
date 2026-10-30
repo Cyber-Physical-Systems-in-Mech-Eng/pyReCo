@@ -53,6 +53,8 @@ Simply use pip, or get the source files from this repo.
 pip install pyreco
 ```
 
+Coming from pyReCo 2.x? See [UPGRADING.md](UPGRADING.md) for what changed.
+
 From a clone of this repository (development version, including the tools to run the tests):
 
 ```

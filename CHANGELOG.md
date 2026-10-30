@@ -5,6 +5,8 @@ Noteworthy changes of new releases of pyReCo have been documented in this file s
 
 ## pyReCo-3.0.0
 
+Upgrading from 2.x: see [UPGRADING.md](UPGRADING.md).
+
 
 ### Breaking Changes
 
