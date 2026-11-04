@@ -1248,7 +1248,7 @@ class CustomModel(ABC):
 
             # compute r(t) @ A for all batches. Row-vector convention: A[u, v] is the
             # edge u -> v (sender u, receiver v), consistent with networkx.
-            reservoir_contrib = np.einsum("ji,bj->bi", A, states[:, t])
+            reservoir_contrib = states[:, t] @ A
 
             # now compute r(t+1) = (1-alpha) * r(t) + alpha * g(r(t) @ A + W_in @ x(t))
             states[:, t + 1] = (1 - alpha) * states[:, t] + alpha * activation(
@@ -1386,7 +1386,7 @@ class CustomModel(ABC):
             #############################################
 
             # compute r(t) @ A for all batches (A[u, v] is the edge u -> v)
-            reservoir_contrib = np.einsum("ji,bj->bi", A, states[:, t])
+            reservoir_contrib = states[:, t] @ A
 
             # now compute r(t+1) = (1-alpha) * r(t) + alpha * g(r(t) @ A + W_in @ x(t))
             states[:, t + 1] = (1 - alpha) * states[:, t] + alpha * activation(

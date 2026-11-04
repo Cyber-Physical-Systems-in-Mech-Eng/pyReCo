@@ -49,7 +49,7 @@ def map_extractor_names(prop_names: str):
     # now return those extractors that are in prop_names
     extractor_dict = {}
     extractor_funs = []
-    for prop in prop_names:
+    for prop in list(prop_names):  # a copy: unknown names are removed from the list below
         if prop not in all_extractors:
             print(f"Warning: {prop} is not a recognized network property.")
             prop_names.remove(prop)

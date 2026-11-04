@@ -144,3 +144,24 @@ def test_unknown_node_properties_are_skipped_with_a_warning():
     with pytest.warns(UserWarning, match="not recognized node properties"):
         extractor = NodePropExtractor(["degree", "eccentricity"])
     assert list(extractor.extract_properties(TWO_WAY)) == ["degree"]
+
+
+# ------------------------------------------------------------------- matrix fast paths
+
+
+@pytest.mark.parametrize("n", [2, 3, 8, 30])
+@pytest.mark.parametrize("p", [0.0, 0.1, 0.5, 1.0])
+def test_matrix_and_graph_input_give_the_same_properties(n, p):
+    """The network properties of a matrix are computed without networkx; the numbers are the ones of the DiGraph."""
+    from pyreco.utils_networks import (
+        extract_av_in_degree, extract_av_out_degree, extract_clustering_coefficient,
+        extract_density, extract_spectral_radius,
+    )
+
+    rng = np.random.default_rng(n)
+    for _ in range(5):
+        A = (rng.random((n, n)) < p) * rng.normal(size=(n, n))  # includes self-loops and signed weights
+        G = nx.from_numpy_array(A, create_using=nx.DiGraph)
+        for fun in (extract_density, extract_spectral_radius, extract_av_in_degree, extract_av_out_degree,
+                    extract_clustering_coefficient):
+            assert fun(A) == pytest.approx(fun(G), abs=1e-10), fun.__name__

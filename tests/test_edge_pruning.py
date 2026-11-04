@@ -290,6 +290,17 @@ class TestPruningLoop:
         EdgePruner(stopping_criterion=['patience'], patience=0, min_num_edges=n_edges + 10).prune(
             model=small_model, data_train=data_train, data_val=data_val)
 
+    def test_a_pruner_can_be_used_again(self, small_model, small_data):
+        # history, best loss and patience start afresh in every prune() call
+        data_train, data_val = small_data
+        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'], min_num_edges=6)
+        _, first = pruner.prune(model=copy.deepcopy(small_model), data_train=data_train, data_val=data_val)
+        n_first = len(first)
+        pruner.min_num_edges = int(np.count_nonzero(small_model.reservoir_layer.weights)) - 1
+        _, second = pruner.prune(model=copy.deepcopy(small_model), data_train=data_train, data_val=data_val)
+        assert n_first > 1 and len(second) == 1  # no entries of the first run are left over
+        assert set(second) == {0}
+
     def test_returns_model_and_history(self, small_model, small_data):
         # prune() returns a fitted RC model and a non-empty history dict
         data_train, data_val = small_data

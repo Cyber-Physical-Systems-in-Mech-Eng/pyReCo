@@ -173,3 +173,6 @@ cython_debug/
 # macOS and editor files
 .DS_Store
 .vscode/
+
+# output of examples/mwe_edge_pruning_to_isolation.py runs
+pruning_runs/

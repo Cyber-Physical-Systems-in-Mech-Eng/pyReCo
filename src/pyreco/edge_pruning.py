@@ -319,6 +319,11 @@ class EdgePruner:
         self._rng = np.random.default_rng(self.seed)
         self._warned_zero_spec_rad = False
 
+        # a pruner can be used for several models: start with an empty history and no patience used up
+        self.history = {}
+        self._best_loss = None
+        self._patience_counter = 0
+
         # Obtain training and testing data
         x_test, y_test = data_val[0], data_val[1]
         x_train, y_train = data_train[0], data_train[1]
@@ -448,7 +453,7 @@ class EdgePruner:
                   f'resulting in loss {self._curr_loss:.6f}')
 
             prev_loss = self._curr_loss_history[-2]
-            loss_improvement = (prev_loss-self._curr_loss) / prev_loss
+            loss_improvement = (prev_loss-self._curr_loss) / prev_loss if prev_loss != 0 else 0.0
             print(
                 'Loss improvement to previous iteration by '
                 f'{loss_improvement:+.3%}\n'
@@ -495,7 +500,7 @@ class EdgePruner:
         if self.return_best_model:
             idx_best = np.argmin(_pruned_models_losses)
             model = copy.deepcopy(_pruned_models[idx_best])
-            print(f'\nReturning model form iteration {idx_best-1} as the best')
+            print(f'\nReturning the model after {idx_best} pruned edges as the best')
 
         # Fit the final model, and evaluate it
         model.fit(x=x_train, y=y_train)
