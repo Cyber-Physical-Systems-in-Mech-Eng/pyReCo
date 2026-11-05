@@ -1,151 +1,507 @@
-"""
-Standard chaotic system datasets for reservoir computing.
+r"""
+Benchmark data sets for reservoir computing.
 
-This module provides time series data from chaotic dynamical systems,
-formatted for direct use with PyReCo reservoir computers.
+Every system has a generator with the same signature,
 
-All data generators use numerical integration of the governing equations.
-Lorenz system uses scipy.integrate.solve_ivp for stable ODE integration.
-Mackey-Glass uses custom Euler integration for delay differential equations.
+.. code-block:: python
+
+    generate_<system>(n_timesteps, *, <system parameters>, washout=0, seed=None)  # -> (n_timesteps, n_features)
+
+(:func:`generate_lorenz`, :func:`generate_mackey_glass`, :func:`generate_narma`, :func:`generate_sine`,
+:func:`generate_sine_to_cosine`, :func:`generate_sincos2`), and :func:`generate` calls them by name.
+:func:`load` cuts the raw series into training, validation and test windows. Continuous systems take their
+sampling interval as ``dt``.
+
+The systems are
+
+* the Lorenz-63 system (chaotic ODE),
+
+  .. math::
+
+      \dot x = \sigma (y - x), \qquad \dot y = x (\rho - z) - y, \qquad \dot z = x y - \beta z ,
+
+  integrated with ``scipy.integrate.solve_ivp``;
+* the Mackey-Glass system (a delay differential equation, chaotic for :math:`\tau \ge 17`),
+
+  .. math::
+
+      \dot x(t) = \frac{a\, x(t - \tau)}{1 + x(t - \tau)^n} - b\, x(t) ,
+
+  integrated with Heun's method (explicit trapezoidal rule) with a fine internal step;
+* NARMA5 and NARMA10, nonlinear system-identification benchmarks with a random input
+  :math:`u(t) \sim \mathcal{U}(0, 0.5)` and the target
+
+  .. math::
+
+      y(t+1) = \alpha\, y(t) + \beta\, y(t) \sum_{i=0}^{k-1} y(t - i) + \gamma\, u(t - k + 1)\, u(t) + \delta ,
+
+  of order :math:`k = 5` or :math:`10`; they test memory and nonlinearity of a reservoir rather than forecasting;
+* sines :math:`\sin(\omega_k t)` and the toy input/output tasks sine to cosine and sine to
+  :math:`a \sin^p + b \cos^p` (successors of the task functions in :mod:`pyreco.utils_data`).
+
+Note: the generated series start from the initial condition of the system and include the start-up
+transient, i.e. the first samples are not yet on the attractor. Use ``washout`` to drop them (the reservoir's
+``discard_transients`` is the warm-up of the reservoir state, a different thing).
 """
+
+import warnings
 
 import numpy as np
-from collections import deque
 from sklearn.preprocessing import StandardScaler
 from scipy.integrate import solve_ivp
 
+from pyreco.utils_random import make_rng
 
-def _generate_lorenz(n_timesteps, sigma=10.0, rho=28.0, beta=8.0/3.0, h=0.01, x0=None):
-    """
-    Generate Lorenz 63 attractor time series using scipy.integrate.solve_ivp.
+__all__ = [
+    "generate",
+    "generate_lorenz",
+    "generate_mackey_glass",
+    "generate_narma",
+    "generate_sine",
+    "generate_sine_to_cosine",
+    "generate_sincos2",
+    "load",
+]
 
-    Lorenz system equations:
-        dx/dt = σ(y - x)
-        dy/dt = x(ρ - z) - y
-        dz/dt = xy - βz
+
+#: standard deviation of the perturbation of the initial condition that a `seed` draws for the
+#: deterministic systems (Lorenz, Mackey-Glass)
+INITIAL_PERTURBATION = 1e-3
+
+
+def _check_count(name, value, minimum):
+    """An integer (not a bool) of at least `minimum`."""
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < minimum:
+        raise ValueError(f"{name} must be an integer >= {minimum}, got {value!r}")
+    return int(value)
+
+
+def _check_positive(name, value):
+    if isinstance(value, bool) or not np.isscalar(value) or not np.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a positive number, got {value!r}")
+    return float(value)
+
+
+def generate_lorenz(
+    n_timesteps, *, sigma=10.0, rho=28.0, beta=8.0 / 3.0, dt=0.01, x0=None, washout=0, seed=None
+):
+    r"""
+    Generate a trajectory of the Lorenz-63 system.
+
+    .. math::
+
+        \dot x = \sigma (y - x), \qquad
+        \dot y = x (\rho - z) - y, \qquad
+        \dot z = x y - \beta z
+
+    The system is integrated with ``scipy.integrate.solve_ivp`` (adaptive Runge-Kutta, default
+    tolerances) and sampled at :math:`t_i = i\, \Delta t`. For the default parameters
+    (:math:`\sigma = 10`, :math:`\rho = 28`, :math:`\beta = 8/3`) the system is chaotic with a largest
+    Lyapunov exponent of about 0.9 per time unit.
 
     Parameters
     ----------
     n_timesteps : int
-        Number of time steps to generate
-    sigma : float, default=10.0
-        Prandtl number
-    rho : float, default=28.0
-        Rayleigh number
-    beta : float, default=8/3
-        Geometric factor
-    h : float, default=0.01
-        Integration time step
+        Number of samples to return.
+    sigma, rho, beta : float
+        Prandtl number, Rayleigh number and geometric factor of the system.
+    dt : float, default=0.01
+        Sampling interval of the returned series, in time units.
     x0 : array-like of shape (3,), optional
-        Initial condition [x, y, z]. If None, defaults to [1.0, 1.0, 1.0]
+        Initial condition (x, y, z), default (1, 1, 1).
+    washout : int, default=0
+        Number of leading samples that are generated and dropped: the series starts at the
+        initial condition, which is not on the attractor, so the first samples are a transient.
+    seed : int, optional
+        If None, the series is deterministic. If given, the initial condition is perturbed by
+        normal noise (std `INITIAL_PERTURBATION`), so different seeds give different
+        trajectories on the same attractor.
 
     Returns
     -------
     trajectory : ndarray of shape (n_timesteps, 3)
-        Lorenz attractor trajectory
+        Columns x, y, z.
     """
-    if x0 is None:
-        x0 = np.array([1.0, 1.0, 1.0], dtype=np.float64)
-    else:
-        x0 = np.asarray(x0, dtype=np.float64)
+    n_timesteps = _check_count("n_timesteps", n_timesteps, 1)
+    washout = _check_count("washout", washout, 0)
+    dt = _check_positive("dt", dt)
+    x0 = np.array([1.0, 1.0, 1.0] if x0 is None else x0, dtype=np.float64)
+    if x0.shape != (3,) or not np.isfinite(x0).all():
+        raise ValueError(f"x0 must be three finite numbers (x, y, z), got {x0!r}")
+    if seed is not None:
+        x0 = x0 + make_rng(seed).normal(0.0, INITIAL_PERTURBATION, size=3)
 
-    # Define Lorenz system for solve_ivp (requires t, y signature)
     def lorenz_deriv(t, state):
         x, y, z = state
-        dx = sigma * (y - x)
-        dy = x * (rho - z) - y
-        dz = x * y - beta * z
-        return [dx, dy, dz]
+        return [sigma * (y - x), x * (rho - z) - y, x * y - beta * z]
 
-    # Define time points for solution
-    t_span = (0, (n_timesteps - 1) * h)
-    t_eval = np.linspace(0, (n_timesteps - 1) * h, n_timesteps)
-
-    # Solve ODE using scipy.integrate.solve_ivp with default parameters
-    sol = solve_ivp(lorenz_deriv, t_span, x0, t_eval=t_eval)
-
-    # Check if integration was successful
+    n_total = n_timesteps + washout
+    t_eval = np.arange(max(n_total, 2)) * dt  # solve_ivp needs a non-empty time span
+    sol = solve_ivp(lorenz_deriv, (0.0, t_eval[-1]), x0, t_eval=t_eval)
     if not sol.success:
         raise RuntimeError(f"solve_ivp failed: {sol.message}")
-
-    # Return trajectory as (n_timesteps, 3) array
-    return sol.y.T
+    return np.ascontiguousarray(sol.y.T[washout:n_total])
 
 
-def _generate_mackey_glass(n_timesteps, tau=17, a=0.2, b=0.1, n=10, x0=1.2, h=1.0, seed=None):
-    """
-    Generate Mackey-Glass time series using delay differential equation integration.
+def generate_mackey_glass(
+    n_timesteps, *, tau=17, a=0.2, b=0.1, n=10, dt=1.0, dt_int=0.1, x0=1.2, washout=0, seed=None
+):
+    r"""
+    Generate a Mackey-Glass time series (delay differential equation).
 
-    Mackey-Glass equation:
-        dx/dt = a*x(t-τ)/(1 + x(t-τ)^n) - b*x(t)
+    .. math::
+
+        \dot x(t) = \frac{a\, x(t - \tau)}{1 + x(t - \tau)^n} - b\, x(t)
+
+    The state at time :math:`t` is the whole history on :math:`[t - \tau, t]`. The equation is integrated with
+    Heun's method (explicit trapezoidal rule) using the internal step :math:`h` (``dt_int``) and the series
+    is sampled every :math:`\Delta t` (``dt``) time units,
+
+    .. math::
+
+        x_{k+1} = x_k + \tfrac{h}{2} \left( f(x_k, x_{k-m}) + f(\tilde x_{k+1}, x_{k-m+1}) \right), \qquad
+        \tilde x_{k+1} = x_k + h\, f(x_k, x_{k-m}), \quad m = \tau / h ,
+
+    with :math:`f(x, x_\tau) = a x_\tau / (1 + x_\tau^n) - b x`. Integrating with a coarse step (e.g. an
+    Euler step of 1.0) gives a visibly different trajectory (deviations of up to 0.8 on a series with range
+    0.4 to 1.3 for :math:`\tau = 17`).
 
     Parameters
     ----------
     n_timesteps : int
-        Number of time steps to generate
-    tau : int, default=17
-        Time delay
-    a : float, default=0.2
-        Production rate
-    b : float, default=0.1
-        Degradation rate
+        Number of samples to return.
+    tau : float, default=17
+        Time delay :math:`\tau`. The system is chaotic for :math:`\tau \ge 17` (weakly at 17).
+    a, b : float
+        Production and degradation rate.
     n : float, default=10
-        Hill coefficient (nonlinearity)
+        Hill coefficient (nonlinearity).
+    dt : float, default=1.0
+        Sampling interval of the returned series, in time units.
+    dt_int : float, default=0.1
+        Internal integration step. `tau / dt_int` and `dt / dt_int` must be integers.
     x0 : float, default=1.2
-        Initial condition
-    h : float, default=1.0
-        Integration time step
+        Initial condition (constant history on [-tau, 0]).
+    washout : int, default=0
+        Number of leading samples that are generated and dropped (the series starts from the
+        constant history, which is not on the attractor).
     seed : int, optional
-        Random seed for initialization noise. If None, uses deterministic initialization
+        If None, the series is deterministic. If given, the initial history is perturbed by
+        normal noise (std `INITIAL_PERTURBATION`), so different seeds give different
+        trajectories on the same attractor.
 
     Returns
     -------
     timeseries : ndarray of shape (n_timesteps, 1)
-        Mackey-Glass time series
     """
+    n_timesteps = _check_count("n_timesteps", n_timesteps, 1)
+    washout = _check_count("washout", washout, 0)
+    tau, dt, dt_int = (_check_positive(k, v) for k, v in (("tau", tau), ("dt", dt), ("dt_int", dt_int)))
+    if not np.isscalar(x0) or not np.isfinite(x0):
+        raise ValueError(f"x0 must be a finite number, got {x0!r}")
+
+    # the delay and the sampling interval have to be multiples of the internal step
+    delay_steps = tau / dt_int
+    sub_steps = dt / dt_int
+    for name, quotient in (("tau/dt_int", delay_steps), ("dt/dt_int", sub_steps)):
+        if abs(quotient - round(quotient)) > 1e-9:
+            raise ValueError(
+                f"{name} must be an integer to correctly align the time delay. "
+                f"Got tau={tau}, dt={dt}, dt_int={dt_int}, {name}={quotient:.6f}."
+            )
+    delay_steps, sub_steps = int(round(delay_steps)), int(round(sub_steps))
+
+    # History ring buffer holding x(t - tau), ..., x(t); the slot at `oldest` is x(t - tau)
+    history = np.full(delay_steps + 1, float(x0))
     if seed is not None:
-        rng = np.random.RandomState(seed)
-    else:
-        rng = None
+        history = history + make_rng(seed).normal(0, INITIAL_PERTURBATION, size=delay_steps + 1)
+    oldest = 0
+    x_current = history[-1]
 
-    # Validate that tau/h is an integer to ensure correct delay alignment
-    delay_steps = tau / h
-    if abs(delay_steps - round(delay_steps)) > 1e-9:
+    def mg_deriv(x_now, x_delayed):
+        return a * x_delayed / (1 + x_delayed**n) - b * x_now
+
+    n_total = n_timesteps + washout
+    timeseries = np.empty((n_total,), dtype=np.float64)
+    for i in range(n_total * sub_steps):
+        if i % sub_steps == 0:
+            timeseries[i // sub_steps] = x_current
+
+        # Heun step; the delayed value at the end of the step is the next slot
+        x_delayed = history[oldest]
+        x_delayed_next = history[(oldest + 1) % (delay_steps + 1)]
+        k1 = mg_deriv(x_current, x_delayed)
+        k2 = mg_deriv(x_current + dt_int * k1, x_delayed_next)
+        x_current = x_current + 0.5 * dt_int * (k1 + k2)
+
+        # the oldest slot is replaced by the new value
+        history[oldest] = x_current
+        oldest = (oldest + 1) % (delay_steps + 1)
+
+    return timeseries[washout:].reshape(-1, 1)
+
+
+def generate_narma(
+    n_timesteps,
+    *,
+    order=10,
+    alpha=0.3,
+    beta=0.05,
+    gamma=1.5,
+    delta=0.1,
+    u_max=0.5,
+    max_attempts=100,
+    washout=0,
+    seed=None,
+):
+    r"""
+    Generate the NARMA-``order`` system identification benchmark.
+
+    The input :math:`u(t)` is i.i.d. uniform on :math:`[0, u_\mathrm{max}]` and the system output follows
+
+    .. math::
+
+        y(t+1) = \alpha\, y(t) + \beta\, y(t) \sum_{i=0}^{k-1} y(t - i) + \gamma\, u(t - k + 1)\, u(t) + \delta ,
+
+    with :math:`y = 0` as initial condition and the order :math:`k`. The standard benchmarks are NARMA10
+    (Jaeger) and NARMA5 (:math:`k = 5`) with :math:`\alpha = 0.3`, :math:`\beta = 0.05`, :math:`\gamma = 1.5`,
+    :math:`\delta = 0.1` and :math:`u_\mathrm{max} = 0.5`. The output depends on the last :math:`k` inputs and
+    on its own history, so the task needs memory and nonlinearity.
+
+    The output can blow up for some input sequences (NARMA10 for a few percent of the
+    sequences of 5000 steps, NARMA5 practically never). Such sequences are redrawn, up to
+    `max_attempts` times.
+
+    Parameters
+    ----------
+    n_timesteps : int
+        Number of samples to return.
+    order : int, default=10
+        Order of the system (memory length of the input term and of the output sum).
+    alpha, beta, gamma, delta, u_max : float
+        Coefficients of the system and the upper bound of the input.
+    max_attempts : int, default=100
+        Number of redraws of the input sequence if the output diverges.
+    washout : int, default=0
+        Number of leading samples that are generated and dropped, because the system starts
+        from the artificial initial condition y = 0 (the first `order` outputs are exactly 0).
+        The benchmark loader `load` drops 100 by default.
+    seed : int, optional
+        Seed of the random input sequence. If None, the input is different on every call (the
+        system itself has no free initial condition).
+
+    Returns
+    -------
+    data : ndarray of shape (n_timesteps, 2)
+        Column 0 is the input :math:`u(t)`, column 1 the target :math:`y(t+1)`: the system output right
+        after the input :math:`u(t)` has been applied. A reservoir state :math:`r(t+1)` has seen the inputs
+        :math:`u(0), \dots, u(t)`, so it is the state that is paired with the target :math:`y(t+1)`.
+    """
+    n_timesteps = _check_count("n_timesteps", n_timesteps, 1)
+    washout = _check_count("washout", washout, 0)
+    if isinstance(order, bool) or int(order) != order or order < 2:
+        raise ValueError(f"order must be an integer >= 2, got {order}")
+    order = int(order)
+    rng = make_rng(seed)
+    n_total = n_timesteps + washout
+
+    for _ in range(max_attempts):
+        u = rng.uniform(0.0, u_max, size=n_total)
+        y = np.zeros(n_total + 1)  # y[t] is the system output at time t
+        with np.errstate(over="ignore", invalid="ignore"):
+            for t in range(order - 1, n_total):
+                y[t + 1] = (
+                    alpha * y[t]
+                    + beta * y[t] * y[t - order + 1 : t + 1].sum()
+                    + gamma * u[t - order + 1] * u[t]
+                    + delta
+                )
+        if np.isfinite(y).all() and np.abs(y).max() < 10.0:
+            return np.stack([u[washout:], y[1:][washout:]], axis=1)
+
+    raise RuntimeError(
+        f"NARMA{order} diverged for all {max_attempts} random input sequences. "
+        "Use a smaller u_max or fewer samples."
+    )
+
+
+def _sine_phases(n_timesteps, washout, n_states, omega, domega, dt, seed):
+    r"""Phases :math:`\varphi_k(t_i) = \omega_k t_i + \varphi_{k,0}` on the grid :math:`t_i = i\, \Delta t`, with :math:`\omega_k = \omega + k\, \Delta\omega`."""
+    n_timesteps = _check_count("n_timesteps", n_timesteps, 1)
+    washout = _check_count("washout", washout, 0)
+    n_states = _check_count("n_states", n_states, 1)
+    omega, dt = _check_positive("omega", omega), _check_positive("dt", dt)
+    if isinstance(domega, bool) or not np.isscalar(domega) or not np.isfinite(domega) or domega < 0:
+        raise ValueError(f"domega must be a non-negative number, got {domega!r}")
+    offset = 0.0 if seed is None else make_rng(seed).uniform(0.0, 2 * np.pi, size=n_states)
+    t = np.arange(washout, washout + n_timesteps)[:, None] * dt
+    return (omega + domega * np.arange(n_states)) * t + offset
+
+
+def generate_sine(n_timesteps, *, n_states=1, omega=np.pi, domega=0.314, dt=0.05, washout=0, seed=None):
+    r"""
+    Generate sines, one per state, with a different frequency per state.
+
+    A toy forecasting task,
+
+    .. math::
+
+        x_k(t_i) = \sin(\omega_k t_i + \varphi_{k,0}), \qquad \omega_k = \omega + k\, \Delta\omega, \quad t_i = i\, \Delta t ,
+
+    for the states :math:`k = 0, \dots, n_\mathrm{states} - 1`; with the defaults there are 40 samples per
+    period of the first state.
+
+    Parameters
+    ----------
+    n_timesteps : int
+        Number of samples to return.
+    n_states : int, default=1
+        Number of sines (columns).
+    omega, domega : float
+        Angular frequency of the first state and the increase from state to state.
+    dt : float, default=0.05
+        Sampling interval.
+    washout : int, default=0
+        Number of leading samples that are generated and dropped (the signal is periodic, so
+        this only shifts the time axis).
+    seed : int, optional
+        If None, all sines start at phase 0. If given, every state starts at a random phase.
+
+    Returns
+    -------
+    data : ndarray of shape (n_timesteps, n_states)
+    """
+    return np.sin(_sine_phases(n_timesteps, washout, n_states, omega, domega, dt, seed))
+
+
+def generate_sine_to_cosine(
+    n_timesteps, *, n_states=1, omega=np.pi, domega=0.314, dt=0.05, washout=0, seed=None
+):
+    r"""
+    Generate sines as inputs and the cosines of the same phase as targets.
+
+    A toy input/output task: the target :math:`\cos(\varphi_k(t))` belongs to the same time step as the
+    input :math:`\sin(\varphi_k(t))`. The sine alone does not tell the cosine (the sign is ambiguous,
+    :math:`\cos = \pm\sqrt{1 - \sin^2}`), so the reservoir has to remember the direction of change.
+    Parameters as in :func:`generate_sine`.
+
+    Returns
+    -------
+    data : ndarray of shape (n_timesteps, 2 * n_states)
+        The first `n_states` columns are the inputs, the last `n_states` columns the targets.
+    """
+    phase = _sine_phases(n_timesteps, washout, n_states, omega, domega, dt, seed)
+    return np.concatenate([np.sin(phase), np.cos(phase)], axis=1)
+
+
+def generate_sincos2(
+    n_timesteps, *, n_states=1, a=1.0, b=0.25, power=3, omega=1.0, domega=0.314, dt=0.05, washout=0, seed=None
+):
+    r"""
+    Generate sines as inputs and a nonlinear function of their phase as targets.
+
+    A toy input/output task with a polynomial nonlinearity of the input and its quadrature,
+
+    .. math::
+
+        u_k(t) = \sin\varphi_k(t), \qquad y_k(t) = a \sin^p \varphi_k(t) + b \cos^p \varphi_k(t) .
+
+    Parameters as in :func:`generate_sine`, plus the coefficients ``a``, ``b`` and the exponent ``power``
+    :math:`p` of the target.
+
+    Returns
+    -------
+    data : ndarray of shape (n_timesteps, 2 * n_states)
+        The first `n_states` columns are the inputs, the last `n_states` columns the targets.
+    """
+    if isinstance(power, bool) or int(power) != power or power < 1:
+        raise ValueError(f"power must be an integer >= 1, got {power!r}")
+    phase = _sine_phases(n_timesteps, washout, n_states, omega, domega, dt, seed)
+    target = a * np.sin(phase) ** int(power) + b * np.cos(phase) ** int(power)
+    return np.concatenate([np.sin(phase), target], axis=1)
+
+
+# name -> (generator, parameters that define the benchmark, samples that `load` drops by default,
+#          input/output task: the columns are n inputs followed by n targets)
+_SYSTEMS = {
+    "lorenz": (generate_lorenz, {}, 0, False),
+    "mackey_glass": (generate_mackey_glass, {}, 0, False),
+    "sine": (generate_sine, {}, 0, False),
+    "narma5": (generate_narma, {"order": 5}, 100, True),
+    "narma10": (generate_narma, {"order": 10}, 100, True),
+    "sine_to_cosine": (generate_sine_to_cosine, {}, 0, True),
+    "sincos2": (generate_sincos2, {}, 0, True),
+}
+_ALIASES = {
+    "lorentz69": "lorenz",
+    "lorenz63": "lorenz",
+    "mackeyglass": "mackey_glass",
+    "mg": "mackey_glass",
+    "narma_5": "narma5",
+    "narma_10": "narma10",
+    "sine_pred": "sine",
+    "sine_prediction": "sine",
+    "sin_to_cos2": "sincos2",
+}
+# names of the parameters before the generators shared one convention
+_RENAMED = {"h": "dt", "h_int": "dt_int"}
+
+
+def _system(dataset_name):
+    key = str(dataset_name).lower().replace("-", "_").replace(" ", "_")
+    key = _ALIASES.get(key, key)
+    if key not in _SYSTEMS:
         raise ValueError(
-            f"tau/h must be an integer to correctly align the time delay. "
-            f"Got tau={tau}, h={h}, tau/h={delay_steps:.6f}. "
-            f"Please adjust tau or h so that tau/h is an integer."
+            f"Unknown dataset: '{dataset_name}'. Supported: 'lorenz' (alias 'lorentz69', "
+            f"'lorenz63'), 'mackey_glass' (alias 'mackeyglass', 'mg'), 'narma5', 'narma10', 'sine' "
+            f"(alias 'sine_pred'), 'sine_to_cosine', 'sincos2' (alias 'sin_to_cos2')"
         )
+    return key
 
-    # Initialize history buffer
-    history_len = int(round(delay_steps)) + 1
-    if rng is not None:
-        # Add small random perturbations to initial history
-        history = deque([x0 + rng.normal(0, 0.001) for _ in range(history_len)], maxlen=history_len)
-    else:
-        history = deque([x0] * history_len, maxlen=history_len)
 
-    # Pre-allocate output
-    timeseries = np.empty((n_timesteps,), dtype=np.float64)
+def generate(dataset_name, n_timesteps, *, washout=None, seed=None, **parameters):
+    """
+    Generate a benchmark time series by name; the same call for every system.
 
-    # Define Mackey-Glass derivative
-    def mg_deriv(x_current, x_delayed):
-        return a * x_delayed / (1 + x_delayed**n) - b * x_current
+    Parameters
+    ----------
+    dataset_name : str
+        'lorenz', 'mackey_glass' or 'narma5' / 'narma10' (case and separators do not matter,
+        aliases as in `load`).
+    n_timesteps : int
+        Number of samples to return.
+    washout : int, optional
+        Leading samples that are generated and dropped. Default: the recommended value of the
+        system (100 for NARMA, whose output starts from the artificial value 0, otherwise 0).
+    seed : int, optional
+        Seed of the random input (NARMA) or of the perturbation of the initial condition (Lorenz,
+        Mackey-Glass). Without a seed the Lorenz and Mackey-Glass series are deterministic and
+        the NARMA input is different on every call.
+    **parameters
+        Parameters of the system, see `generate_lorenz`, `generate_mackey_glass` and
+        `generate_narma` (e.g. `dt`, `x0`, `tau`). An unknown parameter raises a `TypeError`.
 
-    # Euler integration (suitable for DDEs with moderate stiffness)
-    for i in range(n_timesteps):
-        x_current = history[-1]
-        x_delayed = history[0]
-
-        timeseries[i] = x_current
-
-        # Euler step
-        dx = mg_deriv(x_current, x_delayed)
-        x_next = x_current + h * dx
-
-        history.append(x_next)
-
-    return timeseries.reshape(-1, 1)
+    Returns
+    -------
+    data : ndarray of shape (n_timesteps, n_features)
+        1 feature for Mackey-Glass, 3 (x, y, z) for Lorenz, 2 (input u, target y) for NARMA, `n_states` for the sine forecasting task and
+        2 * `n_states` (inputs, then targets) for the sine input/output tasks.
+    """
+    function, fixed, default_washout, _ = _SYSTEMS[_system(dataset_name)]
+    for old, new in _RENAMED.items():
+        if old in parameters:
+            warnings.warn(f"'{old}' was renamed to '{new}'", DeprecationWarning, stacklevel=2)
+            parameters.setdefault(new, parameters.pop(old))
+    clash = sorted(set(parameters) & set(fixed))
+    if clash:
+        raise ValueError(f"{clash} is fixed by the dataset '{dataset_name}'")
+    return function(
+        n_timesteps,
+        washout=default_washout if washout is None else washout,
+        seed=seed,
+        **fixed,
+        **parameters,
+    )
 
 
 def _check_sufficient_data(data, n_in, n_out, data_name):
@@ -211,89 +567,125 @@ def _sliding_window(data, n_in, n_out=1):
     return X, y
 
 
-def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, seed=None, val_fraction=None, standardize=False, **kwargs):
+def _sliding_window_io(inputs, targets, n_in, n_out=1):
     """
-    Load chaotic time series dataset with train/test split.
+    Create windows for input/output (system identification) tasks.
 
-    This function generates data from chaotic dynamical systems using reservoirpy
-    and formats it for reservoir computing tasks using sliding windows.
+    Parameters
+    ----------
+    inputs : ndarray of shape (n_timesteps, n_in_features)
+    targets : ndarray of shape (n_timesteps, n_out_features)
+        targets[t] is the target that belongs to the state after inputs[t] was applied
+    n_in : int
+        Number of time steps in the input window
+    n_out : int, default=1
+        Number of target time steps. They are the targets of the last n_out input steps,
+        i.e. the target windows end together with the input windows (n_out <= n_in).
+
+    Returns
+    -------
+    X : ndarray of shape (n_samples, n_in, n_in_features)
+    y : ndarray of shape (n_samples, n_out, n_out_features)
+    """
+    n_timesteps = len(inputs)
+    n_samples = n_timesteps - n_in + 1
+    if n_samples < 1:
+        raise ValueError(
+            f"Not enough data: need at least {n_in} timesteps, got {n_timesteps}"
+        )
+
+    X = np.stack([inputs[i : i + n_in] for i in range(n_samples)], axis=0)
+    y = np.stack([targets[i + n_in - n_out : i + n_in] for i in range(n_samples)], axis=0)
+    return X, y
+
+
+def load(
+    dataset_name,
+    n_samples=5000,
+    train_fraction=0.7,
+    n_in=100,
+    n_out=1,
+    seed=None,
+    val_fraction=None,
+    standardize=False,
+    washout=None,
+    **kwargs,
+):
+    r"""
+    Generate a benchmark series and cut it into training, (validation) and test windows.
+
+    The series :math:`s(0), \dots, s(n-1)` (``n_samples`` values, see :func:`generate`) is split
+    chronologically, then each part is cut into overlapping windows: forecasting systems give the input
+    window :math:`s(i), \dots, s(i + n_\mathrm{in} - 1)` and the target window of the following
+    :math:`n_\mathrm{out}` values; input/output systems (NARMA, sine to cosine, ...) give a window of the input
+    :math:`u` and the targets that belong to its last :math:`n_\mathrm{out}` steps.
+
+    The returned items are ``x_train, y_train, [x_val, y_val,] x_test, y_test[, scaler]``: 4 by default, 5 with
+    ``standardize=True`` and 7 with ``val_fraction``. With a validation split, the training part is the first
+    ``(1 - val_fraction)`` of the training data.
 
     Parameters
     ----------
     dataset_name : str
-        Name of the dataset. Supported options:
-        - 'lorentz69' or 'lorenz' or 'lorenz63': Lorenz 1963 attractor (3D system)
-        - 'mackey_glass' or 'mackeyglass' or 'mg': Mackey-Glass delay system (1D system)
+        Name of the dataset (case, hyphens and spaces do not matter):
+
+        * ``'lorenz'`` (aliases ``'lorentz69'``, ``'lorenz63'``): Lorenz 1963 attractor, 3 states,
+        * ``'mackey_glass'`` (``'mackeyglass'``, ``'mg'``): Mackey-Glass delay system, 1 state,
+        * ``'sine'`` (``'sine_pred'``): sines with a different frequency per state (``n_states``),
+          forecast the next values,
+        * ``'sine_to_cosine'``, ``'sincos2'``: toy input/output tasks (sine to cosine, sine to
+          :math:`a \sin^p + b \cos^p`) with ``n_states`` inputs and ``n_states`` targets,
+        * ``'narma5'``, ``'narma10'``: NARMA system identification benchmarks (1D input, 1D target); the
+          inputs are random, the target is the output of the NARMA system.
     n_samples : int, default=5000
-        Number of time steps to generate from the chaotic system
+        Number of time steps :math:`n` to generate.
     train_fraction : float, default=0.7
-        Fraction of data to use for training (between 0 and 1)
+        Fraction of the data to use for training, in (0, 1).
     n_in : int, default=100
-        Number of time steps in each input window
+        Number of time steps :math:`n_\mathrm{in}` in each input window.
     n_out : int, default=1
-        Number of time steps in each output window (prediction horizon)
+        Number of time steps :math:`n_\mathrm{out}` in each output window (prediction horizon).
     seed : int, optional
-        Random seed for reproducibility (used for Mackey-Glass)
+        Random seed for reproducibility. For Lorenz and Mackey-Glass it perturbs the initial condition
+        slightly (``None``: the deterministic series), for NARMA it draws the random input sequence
+        (``None``: a different sequence on every call).
     val_fraction : float, optional
-        Fraction of training data to use for validation (between 0 and 1).
-        If None (default), no validation split is created.
-        If set, the function will:
-        - Split validation set BEFORE sliding window (prevents data leakage)
-        - Automatically enable standardization (standardize=True)
-        - Fit StandardScaler only on the final training set
-        - Return 7 items: x_train, y_train, x_val, y_val, x_test, y_test, scaler
+        Fraction of the training data to use for validation, in (0, 1). If ``None`` (default), no validation
+        split is created. If set, the validation part is split off *before* the windows are cut (no data
+        leakage), standardization is enabled, the scaler is fitted on the final training set only, and 7 items
+        are returned: ``x_train, y_train, x_val, y_val, x_test, y_test, scaler``.
     standardize : bool, default=False
-        Whether to standardize the data using StandardScaler.
-        If True (and val_fraction=None), returns 5 items including the scaler.
-        If val_fraction is set, standardization is automatically enabled.
-        Standardization is recommended for reservoir computing as it:
-        - Normalizes features to similar scales
-        - Improves Ridge regression performance
-        - Accelerates neural network training
-    **kwargs : dict
-        Additional parameters passed to the generator function:
-        - For Lorenz: sigma, rho, beta, h (time step), x0 (initial condition)
-        - For Mackey-Glass: tau, a, b, n, h (time step), x0 (initial value)
+        Whether to standardize the data with ``StandardScaler`` (fitted on the training data),
+        :math:`s' = (s - \mu) / \sigma` per state. If ``True`` (and ``val_fraction=None``), 5 items including
+        the scaler are returned. It is enabled automatically with ``val_fraction``. Standardization puts all
+        states on a similar scale, which helps the ridge regression of the readout.
+    washout : int, optional
+        Number of leading samples that are generated and dropped before the split. Default: 100 for NARMA
+        (the output starts from the artificial value 0), 0 otherwise.
+    **kwargs
+        Parameters of the system, passed to :func:`generate` (an unknown name raises a ``TypeError``):
+
+        * Lorenz: ``sigma``, ``rho``, ``beta``, ``dt`` (sampling interval), ``x0`` (initial condition),
+        * Mackey-Glass: ``tau``, ``a``, ``b``, ``n``, ``dt`` (sampling interval), ``dt_int`` (internal
+          integration step), ``x0`` (initial value),
+        * NARMA: ``alpha``, ``beta``, ``gamma``, ``delta``, ``u_max``, ``max_attempts``,
+        * sine tasks: ``n_states``, ``omega``, ``domega``, ``dt``; ``sincos2`` also ``a``, ``b``, ``power``.
 
     Returns
     -------
-    When standardize=False and val_fraction=None (default, backward compatible):
-        x_train : ndarray of shape (n_train_samples, n_in, n_features)
-            Training input windows
-        y_train : ndarray of shape (n_train_samples, n_out, n_features)
-            Training output windows (targets)
-        x_test : ndarray of shape (n_test_samples, n_in, n_features)
-            Test input windows
-        y_test : ndarray of shape (n_test_samples, n_out, n_features)
-            Test output windows (targets)
-
-    When standardize=True and val_fraction=None:
-        x_train : ndarray of shape (n_train_samples, n_in, n_features)
-            Training input windows (standardized)
-        y_train : ndarray of shape (n_train_samples, n_out, n_features)
-            Training output windows (standardized)
-        x_test : ndarray of shape (n_test_samples, n_in, n_features)
-            Test input windows (standardized)
-        y_test : ndarray of shape (n_test_samples, n_out, n_features)
-            Test output windows (standardized)
-        scaler : StandardScaler
-            Fitted scaler object (fitted only on training data)
-
-    When val_fraction is set (standardize automatically enabled):
-        x_train : ndarray of shape (n_train_final_samples, n_in, n_features)
-            Training input windows (standardized)
-        y_train : ndarray of shape (n_train_final_samples, n_out, n_features)
-            Training output windows (standardized)
-        x_val : ndarray of shape (n_val_samples, n_in, n_features)
-            Validation input windows (standardized)
-        y_val : ndarray of shape (n_val_samples, n_out, n_features)
-            Validation output windows (standardized)
-        x_test : ndarray of shape (n_test_samples, n_in, n_features)
-            Test input windows (standardized)
-        y_test : ndarray of shape (n_test_samples, n_out, n_features)
-            Test output windows (standardized)
-        scaler : StandardScaler
-            Fitted scaler object (fitted only on training data)
+    x_train : ndarray of shape (n_train_samples, n_in, n_features)
+        Training input windows.
+    y_train : ndarray of shape (n_train_samples, n_out, n_features)
+        Training output windows (targets).
+    x_val, y_val : ndarray
+        Validation windows, only with ``val_fraction``; the shapes are as above.
+    x_test : ndarray of shape (n_test_samples, n_in, n_features)
+        Test input windows.
+    y_test : ndarray of shape (n_test_samples, n_out, n_features)
+        Test output windows (targets).
+    scaler : StandardScaler
+        The scaler fitted on the training data, only with ``standardize=True`` or ``val_fraction``. The windows
+        are standardized in that case.
 
     Examples
     --------
@@ -309,65 +701,39 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
 
     Notes
     -----
-    - Input: Past n_in time steps
-    - Output: Future n_out time steps (immediately following the input window)
-    - Data is split chronologically (earlier data for training, later for testing)
-    - Reproducible when seed is set (for Mackey-Glass)
-    - Data generation uses numerical integration:
-      * Lorenz: scipy.integrate.solve_ivp for stable ODE integration
-      * Mackey-Glass: Euler integration for delay differential equation
-    - When val_fraction is used:
-      * Validation split happens BEFORE sliding window to prevent data leakage
-      * StandardScaler is fitted ONLY on final training data (not on validation)
-      * This ensures validation set statistics don't leak into training preprocessing
-      * All datasets (train/val/test) are standardized using the same scaler
+    * Forecasting systems: the input is the past ``n_in`` time steps and the output the ``n_out`` time steps
+      that immediately follow the input window.
+    * NARMA and the sine input/output tasks are system-identification tasks instead of forecasting tasks: the
+      input window is a window of the input :math:`u`, and the output window holds the ``n_out`` targets that
+      belong to the last ``n_out`` input steps (``n_out <= n_in``). With ``n_out=1`` the target is the system
+      output right after the last input of the window. If the data is standardized, the returned scaler is
+      fitted on all columns, inputs and targets.
+    * The data is split chronologically (earlier data for training, later for testing).
+    * The series is reproducible when ``seed`` is set.
+    * Lorenz is integrated with ``scipy.integrate.solve_ivp``, Mackey-Glass with Heun's method and an internal
+      step of 0.1 for the delay differential equation.
+    * The series include the start-up transient unless ``washout`` is set.
+    * With ``val_fraction`` the validation split happens *before* the windows are cut, to prevent data leakage,
+      and the ``StandardScaler`` is fitted *only* on the final training data. All sets (train, validation,
+      test) are standardized with this scaler, so no statistics of the validation or test data leak into the
+      preprocessing.
     """
-    # Normalize dataset name
-    dataset_name = dataset_name.lower().replace('-', '_').replace(' ', '_')
-
-    # Generate raw time series using custom integrators
-    if dataset_name in ['lorentz69', 'lorenz', 'lorenz63']:
-        # Extract Lorenz-specific parameters with defaults
-        sigma = kwargs.get('sigma', 10.0)
-        rho = kwargs.get('rho', 28.0)
-        beta = kwargs.get('beta', 8.0/3.0)
-        h = kwargs.get('h', 0.01)
-        x0 = kwargs.get('x0', [1.0, 1.0, 1.0])
-
-        raw_data = _generate_lorenz(
-            n_timesteps=n_samples,
-            sigma=sigma,
-            rho=rho,
-            beta=beta,
-            h=h,
-            x0=x0
-        )
-
-    elif dataset_name in ['mackey_glass', 'mackeyglass', 'mg']:
-        # Extract Mackey-Glass-specific parameters with defaults
-        tau = kwargs.get('tau', 17)
-        a = kwargs.get('a', 0.2)
-        b = kwargs.get('b', 0.1)
-        n = kwargs.get('n', 10)
-        h = kwargs.get('h', 1.0)
-        x0 = kwargs.get('x0', 1.2)
-
-        raw_data = _generate_mackey_glass(
-            n_timesteps=n_samples,
-            tau=tau,
-            a=a,
-            b=b,
-            n=n,
-            h=h,
-            x0=x0,
-            seed=seed
-        )
-
-    else:
+    name = _system(dataset_name)
+    io_task = _SYSTEMS[name][3]
+    if io_task and n_out > n_in:
         raise ValueError(
-            f"Unknown dataset: '{dataset_name}'. "
-            f"Supported: 'lorentz69', 'lorenz', 'lorenz63', 'mackey_glass', 'mackeyglass', 'mg'"
+            f"For input/output datasets ('{name}') the number of output steps must not exceed the input steps, "
+            f"got n_in={n_in}, n_out={n_out}."
         )
+    raw_data = generate(name, n_samples, washout=washout, seed=seed, **kwargs)
+
+    def _windows(data):
+        # forecasting: the next n_out values of the series follow the input window;
+        # input/output task: the targets belong to the last n_out steps of the window
+        if io_task:
+            n_inputs = data.shape[1] // 2  # the columns are the inputs followed by the targets
+            return _sliding_window_io(data[:, :n_inputs], data[:, n_inputs:], n_in=n_in, n_out=n_out)
+        return _sliding_window(data, n_in=n_in, n_out=n_out)
 
     # Split time series first (to avoid data leakage)
     if not (0.0 < train_fraction < 1.0):
@@ -389,8 +755,8 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         _check_sufficient_data(train_data, n_in, n_out, "Training data")
         _check_sufficient_data(test_data, n_in, n_out, "Test data")
 
-        x_train, y_train = _sliding_window(train_data, n_in=n_in, n_out=n_out)
-        x_test, y_test = _sliding_window(test_data, n_in=n_in, n_out=n_out)
+        x_train, y_train = _windows(train_data)
+        x_test, y_test = _windows(test_data)
         return x_train, y_train, x_test, y_test
 
     # Mode 2: Standardization without validation split
@@ -408,8 +774,8 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         test_scaled = scaler.transform(test_data)
 
         # Create sliding windows
-        x_train, y_train = _sliding_window(train_scaled, n_in=n_in, n_out=n_out)
-        x_test, y_test = _sliding_window(test_scaled, n_in=n_in, n_out=n_out)
+        x_train, y_train = _windows(train_scaled)
+        x_test, y_test = _windows(test_scaled)
 
         return x_train, y_train, x_test, y_test, scaler
 
@@ -438,8 +804,8 @@ def load(dataset_name, n_samples=5000, train_fraction=0.7, n_in=100, n_out=1, se
         test_scaled = scaler.transform(test_data)
 
         # Create sliding windows on scaled data
-        x_train, y_train = _sliding_window(train_final_scaled, n_in=n_in, n_out=n_out)
-        x_val, y_val = _sliding_window(val_scaled, n_in=n_in, n_out=n_out)
-        x_test, y_test = _sliding_window(test_scaled, n_in=n_in, n_out=n_out)
+        x_train, y_train = _windows(train_final_scaled)
+        x_val, y_val = _windows(val_scaled)
+        x_test, y_test = _windows(test_scaled)
 
         return x_train, y_train, x_val, y_val, x_test, y_test, scaler

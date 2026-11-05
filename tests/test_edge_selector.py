@@ -1,3 +1,7 @@
+"""
+EdgeSelector: choosing edges of a reservoir graph (by number or fraction) for pruning.
+"""
+
 import pytest
 import numpy as np
 import networkx as nx
@@ -38,6 +42,7 @@ def selector_np(np_graph):
 
 class TestInit:
 
+    """Valid and invalid graphs and strategies, and the initial state of the selector."""
     def test_valid_nx_graph(self, nx_graph):
         # Valid directed nx graph is accepted and its edges are counted correctly
         sel = EdgeSelector(graph=nx_graph)
@@ -94,6 +99,7 @@ class TestInit:
 
 class TestExtractEdges:
 
+    """Edge lists of networkx graphs and adjacency matrices (directed / undirected)."""
     def test_nx_graph_edges(self, nx_graph):
         # All edges of an nx graph are extracted correctly
         sel = EdgeSelector(graph=nx_graph)
@@ -151,6 +157,7 @@ class TestExtractEdges:
 
 class TestValidateGraph:
 
+    """Type and directedness checks of the graph."""
     def test_none_raises_value_error(self):
         # graph=None must raise ValueError
         with pytest.raises(ValueError):
@@ -207,6 +214,7 @@ class TestValidateGraph:
 
 class TestValidateStrategy:
 
+    """Only known selection strategies are accepted."""
     def test_unknown_strategy_raises(self, nx_graph):
         # Unrecognized strategy name must raise NotImplementedError
         with pytest.raises(NotImplementedError):
@@ -221,6 +229,7 @@ class TestValidateStrategy:
 
 class TestSelectEdges:
 
+    """Selection by number or fraction: subset of the edges, unique, stored on the instance, argument errors."""
     def test_select_by_num(self, selector_nx):
         # Selecting by an exact count returns that many edges
         result = selector_nx.select_edges(num=2)

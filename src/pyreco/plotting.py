@@ -10,12 +10,21 @@ from .metrics import r2
 
 def r2_scatter(y_true: np.ndarray, y_pred: np.ndarray, state_idx: int|tuple= None,
                title:str = None, xlabel:str=None, ylabel:str = None):
-    # plots predictions against ground truth values as scatter plot
-    # lets the user choose the output state to plot (if there are multiple states). If not provided, all states will
-    # be plotted.
-    # collapses the data along the time dimension to show time-dependent targets
+    r"""
+    Scatter plot of the predictions :math:`\hat y` against the ground truth :math:`y`.
 
-    # expects arguments to be of 3D shape: [n_batch, n_timesteps, n_states]
+    Samples, time steps and (selected) states are flattened into one vector, so points on the diagonal
+    :math:`\hat y = y` are perfect predictions.
+
+    Parameters
+    ----------
+    y_true, y_pred : ndarray of shape (n_batch, n_timesteps, n_states)
+        Ground truth and predictions.
+    state_idx : int or tuple, optional
+        Output state(s) to show; default: all.
+    title, xlabel, ylabel : str, optional
+        Texts of the plot.
+    """
 
     if y_true.ndim != y_pred.ndim:
         raise(ValueError('Inconsistent shapes! y_true and y_pred need to have the same shape!'))
@@ -85,8 +94,8 @@ def visualize_reservoir_network_circle(G_Net, W_inp, W_out, n_inputs, n_outputs,
     # --------------------------------------------------
     # Setup
     # --------------------------------------------------
-    if seed is not None:
-        np.random.seed(seed)
+    # local generator: drawing a figure must not touch the global random state
+    rng = np.random.default_rng(seed)
 
     G = nx.DiGraph()
 
@@ -196,8 +205,8 @@ def visualize_reservoir_network_circle(G_Net, W_inp, W_out, n_inputs, n_outputs,
     # Reservoir nodes inside a circle
     R = 2
     for i, node in enumerate(reservoir_nodes):
-        theta = np.random.uniform(0, 2 * np.pi)
-        r = R * np.sqrt(np.random.uniform(0, 1))
+        theta = rng.uniform(0, 2 * np.pi)
+        r = R * np.sqrt(rng.uniform(0, 1))
         pos[node] = (r * np.cos(theta), r * np.sin(theta))
 
     # Input column aligned vertically

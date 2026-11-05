@@ -25,6 +25,7 @@ dependencies = [
     "joblib>=1.0.0",
     "tqdm>=4.60.0",
     "scipy>=1.7.0",
+    "optuna>=3.0.0",  # hyperparameter search (pyreco.tuner)
 ]
 
 [tool.hatch.version]
@@ -42,6 +43,29 @@ exclude = [
     ".*",                    # exclude all hidden files like .gitignore
 ]
 
+[project.optional-dependencies]
+# running the test suite (pip install -e ".[test]")
+test = ["pytest>=7", "pytest-cov"]
+# comparison with feed-forward networks (examples/mwe_rc_vs_ann_*.py)
+benchmarks = ["tensorflow"]
+
 [project.urls]
 Homepage = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo"
 Issues = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo/issues"
+
+[tool.pytest.ini_options]
+addopts = "--cov=pyreco --cov-report=term-missing"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["pyreco"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

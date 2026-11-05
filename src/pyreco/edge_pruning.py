@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import networkx as nx
 import scipy.sparse as sp
@@ -5,16 +7,42 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 from pyreco.custom_models import RC
 from pyreco.edge_selector import EdgeSelector
+from pyreco.utils_random import check_seed
 from typing import Union
 import copy
 from pyreco.graph_analyzer import GraphAnalyzer
 from pyreco.node_analyzer import NodeAnalyzer
 from pyreco.edge_analyzer import EdgeAnalyzer, available_extractors
-from pyreco.metrics import available_metrics
+from pyreco.metrics import available_metrics, is_loss
+
+
+def _remove_edge(model, candidate, target_spec_rad=None):
+    """
+    Remove one edge from the reservoir of ``model`` and, if ``target_spec_rad`` is given, rescale the
+    remaining weights to that spectral radius. A reservoir without a directed cycle has spectral radius 0
+    and cannot be rescaled: it is left as it is.
+    """
+    model.remove_reservoir_edges(edges=[candidate])
+    layer = model.reservoir_layer
+    if target_spec_rad is not None and layer.spec_rad > 0:
+        try:
+            layer.set_spec_rad(target_spec_rad)
+        except ValueError:  # the radius is numerically zero
+            pass
+
+
+def _check_rescale_spec_rad(value):
+    """Raise for a ``rescale_spec_rad`` that is not None, "initial" or a positive finite number."""
+    if value is None or (isinstance(value, str) and value == 'initial'):
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        raise TypeError(f'rescale_spec_rad must be None, "initial" or a number, got {value!r}')
+    if not np.isfinite(value) or value <= 0:
+        raise ValueError(f'rescale_spec_rad must be positive and finite, got {value!r}')
 
 
 def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y_test,
-                                   criterion, graph_analyzer):
+                                   criterion, graph_analyzer, target_spec_rad=None):
     """
     Evaluate a single candidate edge removal, independent of 'EdgePruner'.
     Standalone (module-level) counterpart to
@@ -40,6 +68,9 @@ def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y
         Performance metric used to score the candidate.
     graph_analyzer : GraphAnalyzer
         Analyzer used to extract graph-level properties after pruning.
+    target_spec_rad : float, optional
+        Spectral radius that the reservoir is rescaled to after removing the edge. None (default) does
+        not rescale.
 
     Returns
     -------
@@ -52,7 +83,7 @@ def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y
         Graph-level properties of the reservoir after removing 'candidate'.
     """
     _model = copy.deepcopy(model)
-    _model.remove_reservoir_edges(edges=[candidate])
+    _remove_edge(_model, candidate, target_spec_rad)
     _model.fit(x=x_train, y=y_train)
     _score = _model.evaluate(x=x_test, y=y_test, metrics=criterion)[0]
     _graph = _model.reservoir_layer.weights
@@ -61,7 +92,28 @@ def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y
 
 
 class EdgePruner:
-    # implements a pruning object for pyreco objects.
+    r"""
+    Prune the edges of the reservoir network one after the other.
+
+    In iteration :math:`k` the network has the edge set :math:`E_k`. A random fraction
+    :math:`\varphi` (``candidate_fraction``) of the edges is chosen as candidates,
+    :math:`C_k \subset E_k` with :math:`|C_k| = \max(1, \mathrm{round}(\varphi |E_k|))`. For every
+    candidate :math:`e` the edge is removed tentatively, the readout is retrained, and the loss
+    :math:`L_\mathrm{val}(e)` on the validation data is computed. The candidate that hurts the
+    performance least is removed for good,
+
+    .. math::
+
+        e^*_k = \arg\min_{e \in C_k} L_\mathrm{val}\!\left( A_k \setminus e \right), \qquad
+        E_{k+1} = E_k \setminus \{ e^*_k \} ,
+
+    where :math:`A_k \setminus e` is the adjacency matrix with the entry of :math:`e` set to 0. The pruning
+    stops when a stopping criterion is met: no improvement of the loss for ``patience`` iterations, a
+    minimum number of nodes or edges. The history records the loss and the properties of the network
+    (density, spectral radius, degrees, ...) per iteration.
+
+    Use :meth:`prune` to run it; the constructor arguments are documented below.
+    """
 
     PRUNING_CRITERION = {
         'performance': '_performance_pruning',
@@ -93,7 +145,8 @@ class EdgePruner:
         remove_isolated_nodes: bool = False,
         directed: bool = True,
         parallel: bool = False,
-
+        seed: int = None,
+        rescale_spec_rad: Union[None, float, str] = None,
     ):
         """
         Initializer for the edge pruning class.
@@ -129,8 +182,9 @@ class EdgePruner:
             Loss metric used to evaluate model performance, both for
             steering ``pruning_criterion='performance'`` and for tracking
             real loss (patience, history, ``return_best_model``) regardless
-            of which ``pruning_criterion`` is active. Must be a key of
-            :func:`pyreco.metrics.available_metrics`. Default is "mse".
+            of which ``pruning_criterion`` is active. Must be a loss (lower is
+            better) from :func:`pyreco.metrics.available_metrics`, i.e. not
+            "r2". Default is "mse".
         structural_criterion : str, optional
             Edge property used to score candidates when
             ``pruning_criterion='structure'``. Must be a key of
@@ -163,6 +217,18 @@ class EdgePruner:
         parallel : bool, optional
             Whether to parallelize candidate evaluation across CPU cores
             using ``joblib``. Default is False.
+        seed : int, optional
+            Seed for the random choice of pruning candidates. Every call of
+            ``prune`` restarts from this seed, so pruning the same model twice
+            proposes the same candidates. The global random state is not used.
+            None draws fresh entropy. Default is None.
+        rescale_spec_rad : None, float or "initial", optional
+            Keep the spectral radius of the reservoir fixed. After an edge is removed (also for every
+            candidate, before it is scored) the remaining weights are rescaled to this radius. A float is
+            the target radius (the model that is pruned is rescaled to it and its readout refit first),
+            ``"initial"`` is the radius of the model that is pruned. None (default) does not rescale:
+            the radius then changes as edges are removed. A reservoir without a directed cycle has
+            radius 0 and cannot be rescaled; the rescaling stops there, with a warning.
 
         Raises
         ------
@@ -227,6 +293,14 @@ class EdgePruner:
         self.return_best_model = return_best_model
         self.remove_isolated_nodes = remove_isolated_nodes
         self.parallel = parallel
+        # Spectral radius that is kept fixed (resolved in prune for "initial")
+        _check_rescale_spec_rad(rescale_spec_rad)
+        self.rescale_spec_rad = rescale_spec_rad
+        self._target_spec_rad = None
+        # Random stream for the candidate selection
+        check_seed(seed)
+        self.seed = seed
+        self._rng = np.random.default_rng(seed)
 
         # Initialize history dict to store the history of the pruning process in a
         #  nested dictionary
@@ -270,14 +344,46 @@ class EdgePruner:
             Nested dictionary recording, per pruning iteration, the model
             state before and after pruning, the evaluated candidates and
             their scores, and any nodes removed as a side effect.
+
+        Raises
+        ------
+        ValueError
+            If ``'min_edges'`` is a stopping criterion and ``min_num_edges`` is larger than the number of
+            edges of the model, or for invalid models and data.
         """
 
         # Sanity checks for the input parameter types and values
         self._validate_pruning_params(model, data_train, data_val)
 
+        # Restart the random stream of the candidate selection from the seed
+        self._rng = np.random.default_rng(self.seed)
+        self._warned_zero_spec_rad = False
+
+        # a pruner can be used for several models: start with an empty history and no patience used up
+        self.history = {}
+        self._best_loss = None
+        self._patience_counter = 0
+
         # Obtain training and testing data
         x_test, y_test = data_val[0], data_val[1]
         x_train, y_train = data_train[0], data_train[1]
+
+        # Keep the spectral radius fixed: resolve the target and bring the starting model to it
+        self._target_spec_rad = None
+        if self.rescale_spec_rad is not None:
+            _start_spec_rad = model.reservoir_layer.spec_rad
+            if _start_spec_rad <= 0:
+                raise ValueError('rescale_spec_rad needs a reservoir with a directed cycle: '
+                                 'the spectral radius of the model is 0.')
+            if self.rescale_spec_rad == 'initial':
+                self._target_spec_rad = float(_start_spec_rad)
+            else:
+                self._target_spec_rad = float(self.rescale_spec_rad)
+                if not np.isclose(_start_spec_rad, self._target_spec_rad, rtol=1e-6):
+                    # the pruned model starts at the target radius, with a readout trained for it
+                    model = copy.deepcopy(model)
+                    model.reservoir_layer.set_spec_rad(self._target_spec_rad)
+                    model.fit(x=x_train, y=y_train)
 
         # Assigning the parameters to instance variables that can not be set
         #   in the initializer, as they depend on the model and data
@@ -293,6 +399,14 @@ class EdgePruner:
                 edge_indices = [(r, c) for r, c in edge_indices if r < c]
 
         self._curr_num_edges = len(edge_indices)
+
+        # a minimum above the edge count could never be reached: nothing would be pruned, silently
+        if 'min_edges' in self.stopping_criterion and self.min_num_edges > self._curr_num_edges:
+            raise ValueError(
+                f'min_num_edges ({self.min_num_edges}) is larger than the number of edges of the '
+                f'model ({self._curr_num_edges}): there is nothing to prune. Use a smaller '
+                f'min_num_edges.'
+            )
 
         # Initialize the quantities that affect the stop condition
         self._curr_loss = model.evaluate(x=x_test, y=y_test,
@@ -396,7 +510,7 @@ class EdgePruner:
                   f'resulting in loss {self._curr_loss:.6f}')
 
             prev_loss = self._curr_loss_history[-2]
-            loss_improvement = (prev_loss-self._curr_loss) / prev_loss
+            loss_improvement = (prev_loss-self._curr_loss) / prev_loss if prev_loss != 0 else 0.0
             print(
                 'Loss improvement to previous iteration by '
                 f'{loss_improvement:+.3%}\n'
@@ -409,6 +523,18 @@ class EdgePruner:
             # model = _candidate_models[idx_prune]
             model = self._curr_model
             _graph = model.reservoir_layer.weights
+
+            # Pruning can remove every directed cycle. The reservoir is then a
+            #   feed-forward network: it still runs, but it can no longer be rescaled
+            #   to a target spectral radius (set_hp(spec_rad=...) raises an error).
+            if not self._warned_zero_spec_rad and model.reservoir_layer.spec_rad == 0:
+                warnings.warn(
+                    f'Pruning iteration {self._iter_count} removed the last directed '
+                    'cycle from the reservoir: its spectral radius is now 0'
+                    + (' and it can no longer be rescaled.' if self._target_spec_rad is not None else '.'),
+                    RuntimeWarning,
+                )
+                self._warned_zero_spec_rad = True
 
             # Store the model and loss for later use
             _pruned_models.append(copy.deepcopy(model))
@@ -432,7 +558,7 @@ class EdgePruner:
         if self.return_best_model:
             idx_best = np.argmin(_pruned_models_losses)
             model = copy.deepcopy(_pruned_models[idx_best])
-            print(f'\nReturning model form iteration {idx_best-1} as the best')
+            print(f'\nReturning the model after {idx_best} pruned edges as the best')
 
         # Fit the final model, and evaluate it
         model.fit(x=x_train, y=y_train)
@@ -506,7 +632,8 @@ class EdgePruner:
         selector = EdgeSelector(
             graph=graph,
             strategy=self.edge_selection_strat,
-            directed=self.directed
+            directed=self.directed,
+            rng=self._rng,
             )
 
         # Obtain edges for pruning
@@ -940,7 +1067,7 @@ class EdgePruner:
             results = parallel(
                 delayed(_evaluate_candidate_standalone)
                 (model, c, x_train, y_train, x_test, y_test,
-                 self.performance_criterion, self.graph_analyzer)
+                 self.performance_criterion, self.graph_analyzer, self._target_spec_rad)
                 for c in tqdm(candidates, desc='Evaluating candidates')
                 )
             _candidate_scores, _candidate_models, _cand_graph_props_after = \
@@ -1003,8 +1130,8 @@ class EdgePruner:
         # Get info on candidate egde and graph before removal
         _graph = _model.reservoir_layer.weights
 
-        # Remove candidate edge from reservoir
-        _model.remove_reservoir_edges(edges=[candidate])
+        # Remove candidate edge from reservoir (and rescale to the fixed spectral radius, if requested)
+        _remove_edge(_model, candidate, self._target_spec_rad)
 
         # Re-fit (retrain) pruned model
         _model.fit(x=x_train, y=y_train)
@@ -1290,6 +1417,15 @@ class EdgePruner:
             raise ValueError(
                 f"Unknown metric '{performance_criterion}'. "
                 f'Available metrics: {available_metrics()}'
+            )
+        if not is_loss(performance_criterion):
+            # candidates are ranked by the lowest value, so a score for which higher is
+            #   better (e.g. r2) would select the worst candidate
+            raise ValueError(
+                f"performance_criterion '{performance_criterion}' is a score for which "
+                'higher is better, but pruning minimizes the criterion. Use a loss '
+                "(e.g. 'mse', 'mae', 'rmse', 'nrmse'); a score such as 'r2' can be "
+                'tracked through the metrics argument.'
             )
 
         # Validate structural criterion

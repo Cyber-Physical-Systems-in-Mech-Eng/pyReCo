@@ -1,7 +1,8 @@
-import random
 import networkx as nx
 import numpy as np
 import warnings
+
+from pyreco.utils_random import RngLike, make_rng
 
 
 class EdgeSelector:
@@ -16,6 +17,13 @@ class EdgeSelector:
     strategy : str, optional
         Strategy used for edge selection.
         Default is "random_uniform_wo_repl".
+    directed : bool, optional
+        Whether the graph is directed. Only used for np.ndarray inputs.
+        Default is True.
+    rng : np.random.Generator, int or None, optional
+        Source of randomness. A Generator is used as is (and advanced by every
+        selection), an int seeds a new one, None draws fresh entropy. The global
+        random state is never used.
 
     Attributes
     ----------
@@ -60,6 +68,7 @@ class EdgeSelector:
         graph: nx.Graph | np.ndarray = None,
         strategy: str = 'random_uniform_wo_repl',
         directed: bool = True,
+        rng: RngLike = None,
     ):
         # Sanity checks for passed graph and selection strategy
         self._validate_graph(graph, directed)
@@ -69,6 +78,7 @@ class EdgeSelector:
         edge_indices = self._extract_edges(graph, directed)
 
         # Assign values to attributes
+        self.rng = make_rng(rng)
         self.graph = graph
         self.directed = directed
         self.edge_indices = edge_indices
@@ -135,7 +145,10 @@ class EdgeSelector:
             Randomly sampled edge indices as (source, target) tuples.
         '''
 
-        return random.sample(self.edge_indices, self.num_select_edges)
+        idx = self.rng.choice(
+            len(self.edge_indices), size=self.num_select_edges, replace=False
+        )
+        return [self.edge_indices[i] for i in idx]
 
     def _validate_graph(self, graph, directed):
         '''

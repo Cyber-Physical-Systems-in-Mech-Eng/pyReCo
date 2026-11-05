@@ -1,3 +1,9 @@
+"""
+Minimal working example: the short model API (pyreco.models.ReservoirComputer).
+
+Question: how do I fit and evaluate a reservoir computer in a few lines, without assembling layers? Task: sine -> 2 * cosine.
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 from pyreco.models import ReservoirComputer as RC

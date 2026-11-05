@@ -1,3 +1,8 @@
+"""
+EdgePruner: constructor validation, validation of the data passed to prune(), the pruning loop and its
+history, the stopping criteria, best-model selection, isolated nodes, parallel candidate evaluation.
+"""
+
 import copy
 
 import numpy as np
@@ -102,9 +107,8 @@ def _count_edges(model):
     return graph.number_of_edges()
 
 
-# Test __init__ function
-
 class TestInit:
+    """Defaults and argument validation of the constructor."""
 
     def test_default_values(self):
         # Constructor defaults match the documented values
@@ -143,169 +147,67 @@ class TestInit:
         # History starts out as empty dict
         assert EdgePruner().history == {}
 
-    def test_invalid_edge_selection_strat_type(self):
-        # edge_selection_strat must be a string
-        with pytest.raises(TypeError):
-            EdgePruner(edge_selection_strat=42)
+    @pytest.mark.parametrize(
+        "kwargs, error",
+        [
+            # strategy names: wrong type, unknown name, and 'structure' that is registered but not implemented
+            (dict(edge_selection_strat=42), TypeError),
+            (dict(edge_selection_strat="not_a_strategy"), NotImplementedError),
+            (dict(pruning_criterion=["performance"]), TypeError),
+            (dict(pruning_criterion="unknown"), NotImplementedError),
+            (dict(pruning_criterion="structure"), NotImplementedError),
+            # candidate_fraction is a float in (0, 1]
+            (dict(candidate_fraction=1), TypeError),
+            (dict(candidate_fraction=0.0), ValueError),
+            (dict(candidate_fraction=1.5), ValueError),
+            # stopping criteria: a non-empty list of known names
+            (dict(stopping_criterion="patience"), TypeError),
+            (dict(stopping_criterion=[]), ValueError),
+            (dict(stopping_criterion=["unknown"]), NotImplementedError),
+            # integer limits
+            (dict(min_num_nodes=3.0), TypeError),
+            (dict(min_num_nodes=2), ValueError),  # larger than 2
+            (dict(min_num_edges=2.0), TypeError),
+            (dict(min_num_edges=-1), ValueError),  # at least 0
+            (dict(patience=1.0), TypeError),
+            (dict(patience=-1), ValueError),
+            # criteria and metrics: strings that name a known loss / edge property / metric
+            (dict(performance_criterion=1), TypeError),
+            (dict(performance_criterion="not_a_metric"), ValueError),
+            (dict(structural_criterion=1), TypeError),
+            (dict(structural_criterion="not_a_property"), ValueError),
+            (dict(metrics=1), TypeError),
+            (dict(metrics=["mse", 1]), TypeError),
+            (dict(metrics=["not_a_metric"]), ValueError),
+            # flags are booleans, analyzers are instances of their class
+            (dict(return_best_model="yes"), TypeError),
+            (dict(remove_isolated_nodes="yes"), TypeError),
+            (dict(directed="yes"), TypeError),
+            (dict(parallel="yes"), TypeError),
+            (dict(graph_analyzer="not an analyzer"), TypeError),
+            (dict(node_analyzer="not an analyzer"), TypeError),
+            (dict(edge_analyzer="not an analyzer"), TypeError),
+        ],
+    )
+    def test_invalid_arguments_are_rejected(self, kwargs, error):
+        """Every constructor argument is validated, wrong types (TypeError) and values (ValueError)."""
+        with pytest.raises(error):
+            EdgePruner(**kwargs)
 
-    def test_invalid_edge_selection_strat_unknown(self):
-        # edge_selection_strat must be a recognized strategy name
-        with pytest.raises(NotImplementedError):
-            EdgePruner(edge_selection_strat='not_a_strategy')
-
-    def test_invalid_candidate_fraction_type(self):
-        # candidate_fraction must be a float, not an int
-        with pytest.raises(TypeError):
-            EdgePruner(candidate_fraction=1)
-
-    def test_invalid_candidate_fraction_too_low(self):
-        # candidate_fraction must be > 0
-        with pytest.raises(ValueError):
-            EdgePruner(candidate_fraction=0.0)
-
-    def test_invalid_candidate_fraction_too_high(self):
-        # candidate_fraction must be <= 1
-        with pytest.raises(ValueError):
-            EdgePruner(candidate_fraction=1.5)
-
-    def test_invalid_pruning_criterion_type(self):
-        # pruning_criterion must be a string
-        with pytest.raises(TypeError):
-            EdgePruner(pruning_criterion=['performance'])
-
-    def test_invalid_pruning_criterion_unknown(self):
-        # pruning_criterion must be a recognized strategy name
-        with pytest.raises(NotImplementedError):
-            EdgePruner(pruning_criterion='unknown')
-
-    def test_structural_pruning_blocked(self):
-        # 'structure' is registered but not implemented yet
+    def test_structural_pruning_is_not_implemented_yet(self):
         with pytest.raises(NotImplementedError, match="not implemented"):
-            EdgePruner(pruning_criterion='structure')
-
-    def test_invalid_stopping_criterion_type(self):
-        # stopping_criterion must be a list
-        with pytest.raises(TypeError):
-            EdgePruner(stopping_criterion='patience')
-
-    def test_empty_stopping_criterion_raises(self):
-        # stopping_criterion must not be empty
-        with pytest.raises(ValueError):
-            EdgePruner(stopping_criterion=[])
-
-    def test_invalid_stopping_criterion_value(self):
-        # Each entry must be a recognized stopping criterion name
-        with pytest.raises(NotImplementedError):
-            EdgePruner(stopping_criterion=['unknown'])
-
-    def test_invalid_min_num_nodes_type(self):
-        # min_num_nodes must be an int
-        with pytest.raises(TypeError):
-            EdgePruner(min_num_nodes=3.0)
-
-    def test_invalid_min_num_nodes_value(self):
-        # min_num_nodes must be larger than 2
-        with pytest.raises(ValueError):
-            EdgePruner(min_num_nodes=2)
-
-    def test_invalid_min_num_edges_type(self):
-        # min_num_edges must be an int
-        with pytest.raises(TypeError):
-            EdgePruner(min_num_edges=2.0)
-
-    def test_invalid_min_num_edges_value(self):
-        # min_num_edges must be >= 0
-        with pytest.raises(ValueError):
-            EdgePruner(min_num_edges=-1)
+            EdgePruner(pruning_criterion="structure")
 
     def test_min_num_edges_zero_allowed(self):
-        # 0 is a valid (boundary) value for min_num_edges
+        """0 is a valid boundary value for min_num_edges."""
         assert EdgePruner(min_num_edges=0).min_num_edges == 0
-
-    def test_invalid_patience_type(self):
-        # patience must be an int
-        with pytest.raises(TypeError):
-            EdgePruner(patience=1.0)
-
-    def test_invalid_patience_negative(self):
-        # patience must be >= 0
-        with pytest.raises(ValueError):
-            EdgePruner(patience=-1)
-
-    def test_invalid_performance_criterion_type(self):
-        # performance_criterion must be a string
-        with pytest.raises(TypeError):
-            EdgePruner(performance_criterion=1)
-
-    def test_invalid_performance_criterion_unknown(self):
-        # performance_criterion must be a recognized loss metric name
-        with pytest.raises(ValueError):
-            EdgePruner(performance_criterion='not_a_metric')
-
-    def test_invalid_structural_criterion_type(self):
-        # structural_criterion must be a string
-        with pytest.raises(TypeError):
-            EdgePruner(structural_criterion=1)
-
-    def test_invalid_structural_criterion_unknown(self):
-        # structural_criterion must be a recognized edge property name
-        with pytest.raises(ValueError):
-            EdgePruner(structural_criterion='not_a_property')
-
-    def test_invalid_metrics_type(self):
-        # metrics must be a list or a string
-        with pytest.raises(TypeError):
-            EdgePruner(metrics=1)
-
-    def test_invalid_metrics_list_element_type(self):
-        # Every entry in metrics list must be string
-        with pytest.raises(TypeError):
-            EdgePruner(metrics=['mse', 1])
-
-    def test_invalid_metrics_unknown_value(self):
-        # Every metric name in list must be recognized
-        with pytest.raises(ValueError):
-            EdgePruner(metrics=['not_a_metric'])
-
-    def test_invalid_return_best_model_type(self):
-        # return_best_model must be a boolean
-        with pytest.raises(TypeError):
-            EdgePruner(return_best_model='yes')
-
-    def test_invalid_graph_analyzer_type(self):
-        # graph_analyzer, when given, must be GraphAnalyzer instance
-        with pytest.raises(TypeError):
-            EdgePruner(graph_analyzer='not an analyzer')
-
-    def test_invalid_node_analyzer_type(self):
-        # node_analyzer, when given, must be NodeAnalyzer instance
-        with pytest.raises(TypeError):
-            EdgePruner(node_analyzer='not an analyzer')
-
-    def test_invalid_edge_analyzer_type(self):
-        # edge_analyzer, when given, must be EdgeAnalyzer instance
-        with pytest.raises(TypeError):
-            EdgePruner(edge_analyzer='not an analyzer')
-
-    def test_invalid_remove_isolated_nodes_type(self):
-        # remove_isolated_nodes must be boolean
-        with pytest.raises(TypeError):
-            EdgePruner(remove_isolated_nodes='yes')
-
-    def test_invalid_directed_type(self):
-        # directed must be a boolean
-        with pytest.raises(TypeError):
-            EdgePruner(directed='yes')
-
-    def test_invalid_parallel_type(self):
-        # parallel must be  boolean
-        with pytest.raises(TypeError):
-            EdgePruner(parallel='yes')
 
 
 # Test prune() parameter validation
 
 class TestPruningParams:
+    """prune() validates the model and the (X, y) tuples before it does anything."""
+
 
     def test_invalid_model_type(self, small_data):
         # model must be RC instance
@@ -366,6 +268,38 @@ class TestPruningParams:
 # Tes pruning loop and history structure
 
 class TestPruningLoop:
+    """One edge is removed per iteration; the history records candidates, winner and snapshots."""
+
+
+    def test_min_num_edges_above_the_edge_count_is_an_error(self, small_model, small_data):
+        # a minimum that can never be reached would silently prune nothing: it is an error instead
+        data_train, data_val = small_data
+        n_edges = int(np.count_nonzero(small_model.reservoir_layer.weights))
+        pruner = EdgePruner(stopping_criterion=['min_edges'], min_num_edges=n_edges + 1)
+        with pytest.raises(ValueError, match="min_num_edges"):
+            pruner.prune(model=small_model, data_train=data_train, data_val=data_val)
+        # the model is untouched, and a minimum equal to the edge count is allowed (nothing to prune)
+        assert int(np.count_nonzero(small_model.reservoir_layer.weights)) == n_edges
+        EdgePruner(stopping_criterion=['min_edges'], min_num_edges=n_edges).prune(
+            model=small_model, data_train=data_train, data_val=data_val)
+
+    def test_min_num_edges_is_only_checked_for_the_min_edges_criterion(self, small_model, small_data):
+        # with another stopping criterion the minimum plays no role, whatever its value
+        data_train, data_val = small_data
+        n_edges = int(np.count_nonzero(small_model.reservoir_layer.weights))
+        EdgePruner(stopping_criterion=['patience'], patience=0, min_num_edges=n_edges + 10).prune(
+            model=small_model, data_train=data_train, data_val=data_val)
+
+    def test_a_pruner_can_be_used_again(self, small_model, small_data):
+        # history, best loss and patience start afresh in every prune() call
+        data_train, data_val = small_data
+        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'], min_num_edges=6)
+        _, first = pruner.prune(model=copy.deepcopy(small_model), data_train=data_train, data_val=data_val)
+        n_first = len(first)
+        pruner.min_num_edges = int(np.count_nonzero(small_model.reservoir_layer.weights)) - 1
+        _, second = pruner.prune(model=copy.deepcopy(small_model), data_train=data_train, data_val=data_val)
+        assert n_first > 1 and len(second) == 1  # no entries of the first run are left over
+        assert set(second) == {0}
 
     def test_returns_model_and_history(self, small_model, small_data):
         # prune() returns a fitted RC model and a non-empty history dict
@@ -508,6 +442,8 @@ class TestPruningLoop:
 # Test stopping criteria
 
 class TestStoppingCriteria:
+    """Patience, minimum number of edges and their combination end the loop at the defined moment."""
+
 
     def test_patience_zero_loss_never_worsens_across_kept_iterations(self, small_model,
                                                                      small_data):
@@ -570,6 +506,8 @@ class TestStoppingCriteria:
 # Test return_best_model
 
 class TestReturnBestModel:
+    """return_best_model chooses between the best and the last iteration."""
+
 
     def test_true_picks_lowest_recorded_loss(self, small_model, small_data):
         # return_best_model=True returns model with the lowest recorded loss
@@ -598,6 +536,8 @@ class TestReturnBestModel:
 # Test isolated node handling
 
 class TestIsolatedNodes:
+    """Nodes without edges are detected and removed, except input and readout nodes where that would break the model."""
+
 
     def test_get_isolated_nodes_detects_isolated_node(self, isolatable_model):
         # Detects node with zero edges (node 5) in fixture
@@ -737,6 +677,8 @@ class TestIsolatedNodes:
 # Test parallel vs serial
 
 class TestParallel:
+    """Candidates evaluated in worker processes give the same winner as the serial loop."""
+
 
     def test_parallel_runs_without_error(self, small_model, small_data):
         # parallel=True produces valid model and history
@@ -775,6 +717,8 @@ class TestParallel:
 # Test edge cases
 
 class TestEdgeCases:
+    """Corner cases of the candidate selection."""
+
 
     def test_tiny_candidate_fraction_always_proposes_at_least_one_edge(self,
                                                                        small_model,

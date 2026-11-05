@@ -11,11 +11,28 @@ import math
 from typing import Union
 import copy
 from pyreco.graph_analyzer import GraphAnalyzer
+from pyreco.metrics import is_loss
 from pyreco.node_analyzer import NodeAnalyzer
 
 
 class NetworkPruner:
-    # implements a pruning object for pyreco objects.
+    r"""
+    Prune the nodes of the reservoir network one after the other.
+
+    In iteration :math:`k` a random fraction :math:`\varphi` (``candidate_fraction``) of the nodes
+    :math:`V_k` are candidates :math:`C_k`. For every candidate :math:`v` the node is removed tentatively
+    (its row and column of the adjacency matrix and the connected read-in and readout weights), the
+    readout is retrained, and the loss :math:`L_\mathrm{val}` on the validation data is computed. The node
+    whose removal hurts least is removed for good,
+
+    .. math::
+
+        v^*_k = \arg\min_{v \in C_k} L_\mathrm{val}\!\left( A_k \setminus v \right), \qquad
+        V_{k+1} = V_k \setminus \{ v^*_k \} .
+
+    The pruning stops at a target score, at a local minimum of the validation loss (with a ``patience``) or
+    at a minimum number of nodes.
+    """
 
     def __init__(
         self,
@@ -37,31 +54,29 @@ class NetworkPruner:
         """
         Initializer for the pruning class.
 
-        Parameters:
-        - target_score (float): The test set score that the user aims at. Pruning stops
-        once this score is reached.
-
-        - stop_at_minimum (bool): Whether to stop at the local minimum of the test set
-        score. When set to False, pruning continues until the minimal number of nodes
-        in <min_num_nodes>.
-
-        - min_num_nodes (int): Stop pruning when arriving at this number of nodes.
-        Conflicts if stop_at_minimum is set to True but also a min_num_nodes is given.
-
-        - patience (int): We allow a patience, i.e. keep pruning after we reached a
-        (local) minimum of the test set score. Depends on the size of the original
-        reservoir network, defaults to 10% of initial reservoir nodes.
-
-        - candidate_fraction (float): number of randomly chosen reservoir nodes during
-        every pruning iteration that is a candidate for pruning. Refers to the fraction of nodes w.r.t. current number of nodes during pruning iteration.
-
-        - remove_isolated_nodes (bool): Whether to remove isolated nodes during pruning.
-
-        - criterion (str): The criterion to be used for steering the node pruning. Default is "mse".
-
-        - metrics (list or str): The metrics to be used for evaluating the pruned model. Default is ["mse"].
-
-        - maintain_spectral_radius (bool): Whether to maintain the spectral radius of the reservoir layer during pruning.
+        Parameters
+        ----------
+        target_score : float, optional
+            The test set score that the user aims at. Pruning stops once this score is reached.
+        stop_at_minimum : bool, default=True
+            Whether to stop at the local minimum of the test set score. When False, pruning continues
+            until the minimal number of nodes ``min_num_nodes``.
+        min_num_nodes : int, default=3
+            Stop pruning when arriving at this number of nodes (larger than 2). Conflicts with
+            ``stop_at_minimum=True``.
+        patience : int, default=0
+            Number of iterations to keep pruning after a (local) minimum of the test set score was
+            reached.
+        candidate_fraction : float, default=0.1
+            Fraction of the current nodes that are chosen randomly as candidates in every iteration.
+        remove_isolated_nodes : bool, default=False
+            Whether to remove isolated nodes during pruning.
+        criterion : str, default="mse"
+            The criterion that steers the node pruning.
+        metrics : list or str, default=["mse"]
+            The metrics used for evaluating the pruned model.
+        maintain_spectral_radius : bool, default=False
+            Whether to maintain the spectral radius of the reservoir layer during pruning.
         """
 
         # Sanity checks for the input parameter types and values
@@ -86,6 +101,14 @@ class NetworkPruner:
 
         if not isinstance(criterion, str):
             raise TypeError("criterion must be a string")
+        if not is_loss(criterion):  # also raises a ValueError for unknown metrics
+            # candidates are ranked by the lowest value, so a score for which higher is
+            # better (e.g. r2) would select the worst candidate
+            raise ValueError(
+                f"criterion '{criterion}' is a score for which higher is better, but "
+                "pruning minimizes the criterion. Use a loss (e.g. 'mse', 'mae', 'rmse', "
+                "'nrmse'); a score such as 'r2' can be tracked through the metrics argument."
+            )
 
         if graph_analyzer is not None and not isinstance(graph_analyzer, GraphAnalyzer):
             raise TypeError("graph_analyzer must be an instance of GraphAnalyzer")
@@ -622,7 +645,7 @@ def dictlist_to_dict(dict_list):
 
 
 def append_to_dict(dict1, dict2):
-    # appends entries in dict1 to existing dict 2
+    """Append the value of every key of ``dict1`` to the list that ``dict2`` holds under the same key; returns ``dict2``."""
 
     for key in list(dict1.keys()):
         if key in list(dict2.keys()):
