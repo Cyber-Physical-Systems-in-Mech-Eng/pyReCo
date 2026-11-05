@@ -16,8 +16,33 @@ from pyreco.edge_analyzer import EdgeAnalyzer, available_extractors
 from pyreco.metrics import available_metrics, is_loss
 
 
+def _remove_edge(model, candidate, target_spec_rad=None):
+    """
+    Remove one edge from the reservoir of ``model`` and, if ``target_spec_rad`` is given, rescale the
+    remaining weights to that spectral radius. A reservoir without a directed cycle has spectral radius 0
+    and cannot be rescaled: it is left as it is.
+    """
+    model.remove_reservoir_edges(edges=[candidate])
+    layer = model.reservoir_layer
+    if target_spec_rad is not None and layer.spec_rad > 0:
+        try:
+            layer.set_spec_rad(target_spec_rad)
+        except ValueError:  # the radius is numerically zero
+            pass
+
+
+def _check_rescale_spec_rad(value):
+    """Raise for a ``rescale_spec_rad`` that is not None, "initial" or a positive finite number."""
+    if value is None or (isinstance(value, str) and value == 'initial'):
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        raise TypeError(f'rescale_spec_rad must be None, "initial" or a number, got {value!r}')
+    if not np.isfinite(value) or value <= 0:
+        raise ValueError(f'rescale_spec_rad must be positive and finite, got {value!r}')
+
+
 def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y_test,
-                                   criterion, graph_analyzer):
+                                   criterion, graph_analyzer, target_spec_rad=None):
     """
     Evaluate a single candidate edge removal, independent of 'EdgePruner'.
     Standalone (module-level) counterpart to
@@ -43,6 +68,9 @@ def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y
         Performance metric used to score the candidate.
     graph_analyzer : GraphAnalyzer
         Analyzer used to extract graph-level properties after pruning.
+    target_spec_rad : float, optional
+        Spectral radius that the reservoir is rescaled to after removing the edge. None (default) does
+        not rescale.
 
     Returns
     -------
@@ -55,7 +83,7 @@ def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y
         Graph-level properties of the reservoir after removing 'candidate'.
     """
     _model = copy.deepcopy(model)
-    _model.remove_reservoir_edges(edges=[candidate])
+    _remove_edge(_model, candidate, target_spec_rad)
     _model.fit(x=x_train, y=y_train)
     _score = _model.evaluate(x=x_test, y=y_test, metrics=criterion)[0]
     _graph = _model.reservoir_layer.weights
@@ -118,6 +146,7 @@ class EdgePruner:
         directed: bool = True,
         parallel: bool = False,
         seed: int = None,
+        rescale_spec_rad: Union[None, float, str] = None,
     ):
         """
         Initializer for the edge pruning class.
@@ -193,6 +222,13 @@ class EdgePruner:
             ``prune`` restarts from this seed, so pruning the same model twice
             proposes the same candidates. The global random state is not used.
             None draws fresh entropy. Default is None.
+        rescale_spec_rad : None, float or "initial", optional
+            Keep the spectral radius of the reservoir fixed. After an edge is removed (also for every
+            candidate, before it is scored) the remaining weights are rescaled to this radius. A float is
+            the target radius (the model that is pruned is rescaled to it and its readout refit first),
+            ``"initial"`` is the radius of the model that is pruned. None (default) does not rescale:
+            the radius then changes as edges are removed. A reservoir without a directed cycle has
+            radius 0 and cannot be rescaled; the rescaling stops there, with a warning.
 
         Raises
         ------
@@ -257,6 +293,10 @@ class EdgePruner:
         self.return_best_model = return_best_model
         self.remove_isolated_nodes = remove_isolated_nodes
         self.parallel = parallel
+        # Spectral radius that is kept fixed (resolved in prune for "initial")
+        _check_rescale_spec_rad(rescale_spec_rad)
+        self.rescale_spec_rad = rescale_spec_rad
+        self._target_spec_rad = None
         # Random stream for the candidate selection
         check_seed(seed)
         self.seed = seed
@@ -327,6 +367,23 @@ class EdgePruner:
         # Obtain training and testing data
         x_test, y_test = data_val[0], data_val[1]
         x_train, y_train = data_train[0], data_train[1]
+
+        # Keep the spectral radius fixed: resolve the target and bring the starting model to it
+        self._target_spec_rad = None
+        if self.rescale_spec_rad is not None:
+            _start_spec_rad = model.reservoir_layer.spec_rad
+            if _start_spec_rad <= 0:
+                raise ValueError('rescale_spec_rad needs a reservoir with a directed cycle: '
+                                 'the spectral radius of the model is 0.')
+            if self.rescale_spec_rad == 'initial':
+                self._target_spec_rad = float(_start_spec_rad)
+            else:
+                self._target_spec_rad = float(self.rescale_spec_rad)
+                if not np.isclose(_start_spec_rad, self._target_spec_rad, rtol=1e-6):
+                    # the pruned model starts at the target radius, with a readout trained for it
+                    model = copy.deepcopy(model)
+                    model.reservoir_layer.set_spec_rad(self._target_spec_rad)
+                    model.fit(x=x_train, y=y_train)
 
         # Assigning the parameters to instance variables that can not be set
         #   in the initializer, as they depend on the model and data
@@ -473,7 +530,8 @@ class EdgePruner:
             if not self._warned_zero_spec_rad and model.reservoir_layer.spec_rad == 0:
                 warnings.warn(
                     f'Pruning iteration {self._iter_count} removed the last directed '
-                    'cycle from the reservoir: its spectral radius is now 0.',
+                    'cycle from the reservoir: its spectral radius is now 0'
+                    + (' and it can no longer be rescaled.' if self._target_spec_rad is not None else '.'),
                     RuntimeWarning,
                 )
                 self._warned_zero_spec_rad = True
@@ -1009,7 +1067,7 @@ class EdgePruner:
             results = parallel(
                 delayed(_evaluate_candidate_standalone)
                 (model, c, x_train, y_train, x_test, y_test,
-                 self.performance_criterion, self.graph_analyzer)
+                 self.performance_criterion, self.graph_analyzer, self._target_spec_rad)
                 for c in tqdm(candidates, desc='Evaluating candidates')
                 )
             _candidate_scores, _candidate_models, _cand_graph_props_after = \
@@ -1072,8 +1130,8 @@ class EdgePruner:
         # Get info on candidate egde and graph before removal
         _graph = _model.reservoir_layer.weights
 
-        # Remove candidate edge from reservoir
-        _model.remove_reservoir_edges(edges=[candidate])
+        # Remove candidate edge from reservoir (and rescale to the fixed spectral radius, if requested)
+        _remove_edge(_model, candidate, self._target_spec_rad)
 
         # Re-fit (retrain) pruned model
         _model.fit(x=x_train, y=y_train)
