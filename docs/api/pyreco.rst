@@ -68,14 +68,6 @@ pyreco.plotting module
    :undoc-members:
    :show-inheritance:
 
-pyreco.remove\_transients module
---------------------------------
-
-.. automodule:: pyreco.remove_transients
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 pyreco.utils\_data module
 -------------------------
 

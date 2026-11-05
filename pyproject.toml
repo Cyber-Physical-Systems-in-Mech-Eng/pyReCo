@@ -52,3 +52,20 @@ benchmarks = ["tensorflow"]
 [project.urls]
 Homepage = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo"
 Issues = "https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo/issues"
+
+[tool.pytest.ini_options]
+addopts = "--cov=pyreco --cov-report=term-missing"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["pyreco"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

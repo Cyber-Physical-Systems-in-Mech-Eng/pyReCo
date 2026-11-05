@@ -13,12 +13,6 @@ This is the official documentation of **pyReCo**. pyReCo is a Python Reservoir C
 
 .. toctree::
    :maxdepth: 1
-   :caption: Installation / Getting started
-
-   INSTALLATION
-
-.. toctree::
-   :maxdepth: 1
    :caption: Documentation: Modules and Functions
 
    api/modules
@@ -27,7 +21,6 @@ This is the official documentation of **pyReCo**. pyReCo is a Python Reservoir C
    :maxdepth: 1
    :caption: News and Changes
 
-   NEWS
    CHANGELOG
 
 .. toctree::
