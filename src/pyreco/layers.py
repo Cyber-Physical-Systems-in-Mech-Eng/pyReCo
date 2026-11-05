@@ -662,12 +662,12 @@ class RandomReservoirLayer(ReservoirLayer):
         isolated nodes; the global random state is never used. The random choices made when a model
         is compiled (read-in weights, initial state, input and readout nodes) are seeded by the model,
         see ``RC(seed=...)``.
-    weight_distribution : {"positive", "sign", "uniform", "normal"}, default="positive"
+    weight_distribution : {"positive", "sign", "uniform", "normal"}, default="uniform"
         Distribution of the weights :math:`w_{uv}` before the rescaling:
 
         * ``"positive"``: all weights equal 1 (a binary graph),
         * ``"sign"``: :math:`\pm 1` with equal probability,
-        * ``"uniform"``: :math:`\mathcal{U}(-1, 1)`,
+        * ``"uniform"``: :math:`\mathcal{U}(-1, 1)` (default, as in most echo state networks),
         * ``"normal"``: :math:`\mathcal{N}(0, 1)`.
 
         The graph (which edges exist) is the same for all of them. Signed weights are common for
@@ -689,7 +689,7 @@ class RandomReservoirLayer(ReservoirLayer):
         spec_rad: float = 0.9,
         init_res_sampling="zeros",
         seed=None,
-        weight_distribution: str = "positive",
+        weight_distribution: str = "uniform",
     ):
         # Call the parent class's __init__ method
         super().__init__(

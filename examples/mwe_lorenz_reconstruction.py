@@ -93,7 +93,7 @@ model = build([X, Y], [Z])
 print("reconstruct z from (x, y), 300 nodes")
 print(f"  NRMSE  validation {score(model, val, [X, Y], [Z]):.4f}   test {score(model, test, [X, Y], [Z]):.4f}")
 
-# the defaults of the layers (all-positive weights, no bias) with the same hyperparameters
+# the all-positive weights of the 2.x reservoir and no bias, with the same hyperparameters
 default = build([X, Y], [Z], input_bias=0.0, reservoir={"weight_distribution": "positive"})
 print(f"  with positive weights and no bias: test {score(default, test, [X, Y], [Z]):.4f}")
 

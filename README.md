@@ -181,7 +181,7 @@ The targets are **not** transformed: predictions are returned in the units of `y
 
 ### Signed weights and the input bias
 
-By default all edges of a `RandomReservoirLayer` have the same, positive weight (a binary Erdős-Rényi graph that is scaled to the spectral radius). Many echo state networks use random weights of both signs, which helps on tasks with nonlinear memory such as NARMA10. `weight_distribution` draws the weight of every existing edge after the graph, so the graph itself is the same for all choices: `'positive'` (default), `'sign'` (+1 or -1), `'uniform'` (on [-1, 1]) or `'normal'`. The read-in weights have the same option in `InputLayer(weight_distribution='normal' | 'uniform' | 'sign')`.
+By default the edges of a `RandomReservoirLayer` have random weights on [-1, 1] (an Erdős-Rényi graph that is scaled to the spectral radius), as in most echo state networks. Weights of both signs help on tasks with nonlinear memory such as NARMA10; `'positive'` gives the binary graph with all weights equal to 1. `weight_distribution` draws the weight of every existing edge after the graph, so the graph itself is the same for all choices: `'positive'` (all 1), `'sign'` (+1 or -1), `'uniform'` (on [-1, 1], default) or `'normal'`. The read-in weights have the same option in `InputLayer(weight_distribution='normal' | 'uniform' | 'sign')`.
 
 `compile(input_bias=b)` adds a constant input to every reservoir node, `b` times a fixed random sign per node (default `0`, no bias). Without a bias, and with the zero-mean inputs of the z-scoring, the states of a `tanh` reservoir are odd functions of the input, so even functions such as `x**2` cannot be learned. The bias, like `input_scaling`, can be tuned as a hyperparameter (`model.set_hp(input_bias=0.5)`).
 

@@ -30,6 +30,23 @@ def test_default_is_the_binary_graph_of_before():
     assert np.array_equal(a, gen_ER_graph(nodes=30, density=0.2, seed=4, weight_distribution="positive"))
 
 
+def test_reservoir_layer_default_is_uniform_and_positive_is_the_old_binary_graph():
+    """RandomReservoirLayer draws U(-1, 1) weights unless told otherwise; "positive" is the 2.x graph on the same edges."""
+    def weights(**kwargs):
+        model = RC(seed=0)
+        model.add(InputLayer(input_shape=(10, 1)))
+        model.add(RandomReservoirLayer(nodes=30, density=0.2, seed=4, **kwargs))
+        model.add(ReadoutLayer(output_shape=(1, 1)))
+        model.compile()
+        return model.reservoir_layer.weights
+
+    default, uniform, positive = weights(), weights(weight_distribution="uniform"), weights(weight_distribution="positive")
+    assert np.array_equal(default, uniform)
+    assert (default < 0).any() and (default > 0).any()
+    assert (positive >= 0).all() and len(np.unique(positive[positive != 0])) == 1
+    assert np.array_equal(default != 0, positive != 0)
+
+
 @pytest.mark.parametrize("distribution", WEIGHT_DISTRIBUTIONS)
 def test_every_distribution_has_the_same_er_support_and_the_requested_spectral_radius(distribution):
     """The edge positions come from the same ER graph; only the weights differ and are rescaled to rho(A) = spec_rad."""

@@ -147,8 +147,8 @@ Upgrading from 2.x: see [UPGRADING.md](UPGRADING.md).
   `"uniform"` on [-1, 1] or `"sign"` (+1/-1, equal magnitude). The model seed keeps them reproducible
   and the bias uses its own random stream, so existing seeds give the same models as before.
 * `RandomReservoirLayer(weight_distribution=...)` (and `gen_ER_graph`) can draw signed weights on
-  the edges of the ER graph: `"positive"` (default, all weights equal, as before), `"sign"` (+1 or
-  -1), `"uniform"` (on [-1, 1]) or `"normal"`. The graph itself is the same for every distribution,
+  the edges of the ER graph: `"uniform"` (on [-1, 1], the default), `"positive"` (all weights equal 1, the 2.x graph),
+  `"sign"` (+1 or -1) or `"normal"`. The graph itself is the same for every distribution,
   the weights are drawn after it and the network is scaled to the spectral radius as before. On the
   NARMA10 setup of the literature the non-negative weights were the largest single reason for the
   accuracy plateau. Along with it: `compute_density` counts negative weights (it counted only

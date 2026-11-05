@@ -32,6 +32,9 @@ These are not errors, so check your numbers:
   the inputs `x(0), ..., x(d + j)`. For sequence-to-scalar tasks, where the target lies at the end of the input window,
   pass `discard_transients = n_in - n_out`; the default 0 pairs the targets with the first states.
   `predict()` returns all steps after the warm-up (shape `(n_batch, T - d, n_out)`).
+* **Reservoir weights.** The edges of `RandomReservoirLayer` have weights drawn from U(-1, 1) (`weight_distribution="uniform"`).
+  In 2.x all edges had the weight 1 (a binary graph). Use `weight_distribution="positive"` for that graph; the graph
+  (which edges exist) is the same for a given seed.
 * **Seeds.** Every random draw comes from a generator made from `seed`, each choice from its own stream.
   The same seed gives different networks than in 2.x.
 * **`r2`** is averaged per channel instead of pooled over all channels (identical for one channel).
@@ -40,9 +43,8 @@ These are not errors, so check your numbers:
 
 ## New, optional
 
-Defaults reproduce the 2.x model structure; these only act when you switch them on:
-`compile(input_bias=...)`, signed weights (`RandomReservoirLayer(weight_distribution="sign" | "uniform" | "normal")`,
-default all positive as before), `InputLayer(weight_distribution=...)`,
+Except for the reservoir weights (see the results section above), the defaults reproduce the 2.x model structure; these only act when you switch them on:
+`compile(input_bias=...)`, `InputLayer(weight_distribution=...)`,
 `edge_analyzer.operating_point_statistics(model, x)`, and the commented quick start `examples/mwe_quickstart.py`.
 
 ## Unchanged and still experimental
