@@ -182,10 +182,10 @@ class Study:
 
 class CheckpointedEdgePruner(EdgePruner):
     """
-    ``EdgePruner`` that stores a compact record after every iteration and drops the heavy history.
+    ``EdgePruner`` that stores a compact record after every iteration and keeps nothing in its history.
 
-    It overrides the (private) hook ``_history_update_after_pruning``, which the pruner calls after it has
-    removed an edge for good. The pruner itself evaluates the candidates, so the pruning is unchanged.
+    It overrides the (private) hook ``_store_iteration``, which the pruner calls after it has removed an edge
+    for good. The pruner itself evaluates the candidates, so the pruning is unchanged.
     """
 
     def __init__(self, study, **kwargs):
@@ -193,13 +193,10 @@ class CheckpointedEdgePruner(EdgePruner):
         self.study = study
         self._last_time = time.time()
 
-    def _history_update_after_pruning(self, model, graph, idx_prune, candidates, removed_nodes):
-        super()._history_update_after_pruning(model, graph, idx_prune, candidates, removed_nodes)
-
+    def _store_iteration(self, model, entry, candidate_val_losses):
         study = self.study
-        entry = self.history.pop(self._iter_count)  # keep the scores of the candidates, drop the rest
-        scores = [candidate["score"] for candidate in entry["candidates"].values()]
-        u, v = entry["winner"]
+        scores = list(candidate_val_losses)  # keep the scores of the candidates, drop the rest
+        u, v = entry["winner_edge"]
         previous_weights = study.weights_before_step
         record = study.snapshot(
             model, iteration=study.records[-1]["iteration"] + 1, winner=(u, v, previous_weights[u, v]),
@@ -266,6 +263,7 @@ def run_pruning(study, args):
         metrics=["nrmse"],
         return_best_model=False,  # the last model, not the best one
         parallel=not args.serial,
+        features=[],  # the script keeps its own record (see snapshot)
         seed=study.config["seed"],
     )
     start = time.time()

@@ -1,3 +1,21 @@
+# Upgrading from pyReCo 3.x to 4.0
+
+Only the edge pruning changes. The history that `EdgePruner.prune` returns has a new layout, and the analyzer
+arguments are gone. See `EdgePruner.prune` for all entries and [CHANGELOG.md](CHANGELOG.md).
+
+| 3.x | 4.0 |
+|---|---|
+| `history[i]["starting_model"]` | `history[i - 1]["state"]` (the reservoir that survived the previous iteration), or `history["initial"]` for `i = 0`. The two were identical. |
+| `history[i]["final_model"]` | `history[i]["state"]` |
+| `["loss"]`, `["num_edges"]`, `["num_nodes"]` of a model record | `["val_loss"]` (and `["train_loss"]`), `len(state["edges"])`, `state["weights"].shape[0]` |
+| `["graph_props"]["density"]` | `state["network"]["density"]` (the same quantities, and more: see `pyreco.features`) |
+| `history[i]["winner"]` | `history[i]["winner_edge"]` |
+| `history[i]["candidates"][(u, v)]["score"]`, `["edge_props"]`, `["graph_props_after"]` | `EdgePruner(record_candidates=True)`, then `history[i]["candidates"]` is a table of arrays (`val_loss`, `train_loss`, `network`, `removed_edge`); `history[i]["winner_row"]` is the winner's row. Without the flag the candidates are not kept. |
+| `EdgePruner(graph_analyzer=..., node_analyzer=..., edge_analyzer=...)` | `EdgePruner(features=[...])`, see `pyreco.features`. |
+| `record_candidates=True` with `["weights"]` per candidate | Removed: rebuild a candidate from its parent state by zeroing the edge. |
+
+---
+
 # Upgrading from pyReCo 2.x to 3.0
 
 Most 2.x scripts need a few lines changed; some results will differ numerically even for the same
