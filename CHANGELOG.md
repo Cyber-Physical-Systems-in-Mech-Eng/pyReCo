@@ -3,6 +3,21 @@
 Noteworthy changes of new releases of pyReCo have been documented in this file since version
 0.0.2.
 
+## pyReCo-3.0.1
+
+Compatible with 3.0.0: new keys in the pruning history and one new optional argument.
+
+* `EdgePruner` records the training loss: `history[i]['starting_model']` and `history[i]['final_model']` have a
+  new key `'train_loss'`, the loss (`performance_criterion`) on the training data. `'loss'` is, as before, the loss
+  on the validation data.
+* `EdgePruner(record_candidates=True)` keeps every reservoir that is tried: each entry of
+  `history[i]['candidates']` gets `'weights'` (the sparse reservoir matrix after the edge was removed, and
+  rescaled if `rescale_spec_rad` is set) and `'train_score'` (the training loss of the refit candidate); `'score'`
+  stays the validation loss. Default False: the history is as before, plus `'train_loss'`. It costs one forward
+  pass and one sparse matrix per candidate.
+* The serial and the parallel evaluation of a pruning candidate share one function (private `_evaluate_candidate_*`
+  helpers return a fourth value now).
+
 ## pyReCo-3.0.0
 
 Upgrading from 2.x: see [UPGRADING.md](UPGRADING.md).

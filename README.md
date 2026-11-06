@@ -285,6 +285,8 @@ print(f"scores (test MSE before/after): {model.evaluate(X_test, y_test)[0]:.4f} 
 
 Edges are directed: `weights[u, v]` is the edge from node `u` to node `v`. Note that pruning can remove the last directed cycle of the network: its spectral radius is then 0 and it cannot be rescaled to a target spectral radius anymore (the pruner warns once if this happens).
 
+With `EdgePruner(record_candidates=True)` the history also keeps the reservoir matrix of every candidate (`history[i]['candidates'][(u, v)]['weights']`) with its training and validation loss (`'train_score'`, `'score'`). The surviving model of each iteration has `'loss'` (validation) and `'train_loss'` in `history[i]['final_model']`.
+
 
 ### Hyperparameter tuning
 
@@ -382,7 +384,7 @@ If you use pyReCo in your research, please cite it. GitHub's "Cite this reposito
 @software{pyreco,
   title   = {pyReCo: A Python Reservoir Computing Library for Time Series Forecasting and Research},
   author  = {Yadav, Manish and Disson, Klara and Stender, Merten},
-  version = {3.0.0},
+  version = {3.0.1},
   year    = {2026},
   license = {Apache-2.0},
   url     = {https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo}
@@ -391,4 +393,4 @@ If you use pyReCo in your research, please cite it. GitHub's "Cite this reposito
 
 **APA**
 
-Yadav, M., Disson, K., & Stender, M. (2026). *pyReCo: A Python reservoir computing library for time series forecasting and research* (Version 3.0.0) [Computer software]. Technische Universität Berlin. https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo
+Yadav, M., Disson, K., & Stender, M. (2026). *pyReCo: A Python reservoir computing library for time series forecasting and research* (Version 3.0.1) [Computer software]. Technische Universität Berlin. https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo

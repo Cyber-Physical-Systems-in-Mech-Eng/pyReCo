@@ -7,6 +7,7 @@ import copy
 
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 from pyreco.custom_models import RC
 from pyreco.edge_analyzer import EdgeAnalyzer
@@ -126,6 +127,7 @@ class TestInit:
         assert pruner.remove_isolated_nodes is False
         assert pruner.directed is True
         assert pruner.parallel is False
+        assert pruner.record_candidates is False
         assert pruner.edge_selection_strat == 'random_uniform_wo_repl'
 
     def test_default_analyzers_created(self):
@@ -340,7 +342,7 @@ class TestPruningLoop:
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
         expected = {
-            'weights', 'input_nodes', 'readout_nodes', 'loss', 'num_nodes',
+            'weights', 'input_nodes', 'readout_nodes', 'loss', 'train_loss', 'num_nodes',
             'num_edges', 'metrics', 'graph_props',
         }
         assert set(history[0]['starting_model'].keys()) == expected
@@ -712,6 +714,85 @@ class TestParallel:
         assert history_serial[0]['winner'] == history_parallel[0]['winner']
         assert history_serial[0]['final_model']['loss'] == \
             pytest.approx(history_parallel[0]['final_model']['loss'])
+
+
+class TestRecordCandidates:
+    """record_candidates keeps every tried reservoir with its training and validation loss."""
+
+    @staticmethod
+    def run(model, data, removals=3, **kwargs):
+        n_edges = _count_edges(model)
+        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
+                            min_num_edges=n_edges - removals, return_best_model=False, seed=0,
+                            **kwargs)
+        return pruner.prune(model=copy.deepcopy(model), data_train=data[0], data_val=data[1])[1]
+
+    def test_the_flag_must_be_a_bool(self):
+        with pytest.raises(TypeError, match='record_candidates'):
+            EdgePruner(record_candidates='yes')
+
+    def test_default_keeps_the_candidate_entries_and_adds_the_training_loss_of_the_survivors(
+            self, small_model, small_data):
+        history = self.run(small_model, small_data)
+        for record in history.values():
+            for candidate in record['candidates'].values():
+                assert set(candidate) == {'score', 'edge_props', 'graph_props_after'}
+            for state in ('starting_model', 'final_model'):
+                assert np.isfinite(record[state]['train_loss'])
+
+    def test_every_candidate_has_a_training_loss_and_a_reservoir_matrix(self, small_model, small_data):
+        history = self.run(small_model, small_data, record_candidates=True)
+        for record in history.values():
+            n_nodes = record['starting_model']['num_nodes']
+            n_edges = record['starting_model']['num_edges']
+            for (u, v), candidate in record['candidates'].items():
+                assert np.isfinite(candidate['train_score'])
+                assert np.isfinite(candidate['score'])
+                assert sp.issparse(candidate['weights'])
+                assert candidate['weights'].shape == (n_nodes, n_nodes)
+                assert candidate['weights'].nnz == n_edges - 1
+                assert candidate['weights'][u, v] == 0
+
+    def test_the_selected_candidate_is_the_surviving_model(self, small_model, small_data):
+        history = self.run(small_model, small_data, record_candidates=True)
+        for record in history.values():
+            winner = record['candidates'][record['winner']]
+            final = record['final_model']
+            assert (winner['weights'] != final['weights']).nnz == 0
+            assert winner['score'] == pytest.approx(final['loss'])
+            assert winner['train_score'] == pytest.approx(final['train_loss'])
+
+    def test_the_survivor_of_one_iteration_starts_the_next(self, small_model, small_data):
+        history = self.run(small_model, small_data)
+        assert history[1]['starting_model']['train_loss'] == pytest.approx(
+            history[0]['final_model']['train_loss'])
+
+    def test_candidate_matrices_have_the_fixed_spectral_radius(self, small_data):
+        X_train, y_train = small_data[0]
+        model = RC(seed=0)
+        model.add(InputLayer(input_shape=X_train.shape[1:]))
+        model.add(RandomReservoirLayer(nodes=10, density=0.5, spec_rad=0.8, leakage_rate=0.3, seed=1))
+        model.add(ReadoutLayer(y_train.shape[1:], fraction_out=0.9))
+        model.compile(optimizer=RidgeSK(alpha=0.5), metrics=['mean_squared_error'])
+        model.fit(X_train, y_train)
+
+        history = self.run(model, small_data, removals=1, record_candidates=True,
+                           rescale_spec_rad='initial')
+        for candidate in history[0]['candidates'].values():
+            radius = np.abs(np.linalg.eigvals(candidate['weights'].toarray())).max()
+            assert radius == pytest.approx(model.reservoir_layer.spec_rad, rel=1e-6)
+
+    def test_parallel_and_serial_record_the_same(self, small_model, small_data):
+        serial = self.run(small_model, small_data, record_candidates=True, parallel=False)
+        parallel = self.run(small_model, small_data, record_candidates=True, parallel=True)
+        assert serial.keys() == parallel.keys()
+        for i in serial:
+            assert serial[i]['candidates'].keys() == parallel[i]['candidates'].keys()
+            for edge, candidate in serial[i]['candidates'].items():
+                other = parallel[i]['candidates'][edge]
+                assert candidate['score'] == pytest.approx(other['score'])
+                assert candidate['train_score'] == pytest.approx(other['train_score'])
+                assert (candidate['weights'] != other['weights']).nnz == 0
 
 
 # Test edge cases
