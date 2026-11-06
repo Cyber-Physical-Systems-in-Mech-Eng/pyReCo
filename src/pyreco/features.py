@@ -1,16 +1,16 @@
 r"""
 Named features of a reservoir network and of a single edge.
 
-A *feature* is a function that returns one number. Two kinds exist:
+A *feature* is a function that returns one number. Three kinds exist:
 
 * a **network feature** describes a reservoir computer (its reservoir network, or the activity of its nodes
-  on data): ``f(ctx) -> float``, with ``ctx`` a :class:`NetworkContext`;
-* an **edge feature** describes one edge :math:`u \to v` of a reservoir computer: ``f(ctx, u, v) -> float``,
-  with ``ctx`` an :class:`EdgeContext`.
+  on data): ``f(ctx) -> float``;
+* an **edge feature** describes one edge :math:`u \to v` of a reservoir computer: ``f(ctx, u, v) -> float``;
+* a **node feature** describes one node :math:`v`: ``f(ctx, v) -> float``.
 
-Every feature has a unique name. :class:`pyreco.edge_pruning.EdgePruner` evaluates the features that you
-ask for (``EdgePruner(features=[...])``) for every candidate of a pruning iteration and stores the numbers
-under their names, instead of the candidate reservoirs themselves.
+``ctx`` is a :class:`FeatureContext`. Every feature has a unique name. :class:`pyreco.edge_pruning.EdgePruner`
+evaluates the features that you ask for (``EdgePruner(features=[...])``) and stores the numbers under their
+names, instead of the reservoirs themselves.
 
 The context offers what a feature may need (the weight matrix, the state of the nodes on the data, a networkx
 graph) and computes each of these only when a feature asks for it, once, and shares it between the features.
@@ -30,9 +30,15 @@ graph) and computes each of these only when a feature asks for it, once, and sha
         '''Mean square of the signal that the edge delivers.'''
         return ctx.weights[u, v] ** 2 * ctx.node_mean_sq_activity[u]
 
+    @node_feature("node_abs_weight_in")
+    def node_abs_weight_in(ctx, v):
+        '''Sum of the absolute weights of the incoming edges.'''
+        return np.abs(ctx.weights[:, v]).sum()
+
     EdgePruner(features=["density", "frobenius_norm", "edge_signal_power"])
 
-:func:`available_network_features` and :func:`available_edge_features` list the names and descriptions.
+:func:`available_network_features`, :func:`available_edge_features` and :func:`available_node_features`
+list the names and descriptions.
 """
 
 from functools import cached_property
@@ -55,14 +61,17 @@ from pyreco.utils_networks import (
 RESERVED_NAMES = ("edges", "score")
 _NETWORK_FEATURES: Dict[str, Callable] = {}
 _EDGE_FEATURES: Dict[str, Callable] = {}
+_NODE_FEATURES: Dict[str, Callable] = {}
 
-#: Features that ``EdgePruner`` computes if ``features`` is not given: cheap, no pass through the data.
+#: Features that ``EdgePruner`` computes if ``features`` is not given. Those that use the activity of the
+#: nodes need one pass of the model through the training data.
 DEFAULT_NETWORK_FEATURES = [
     "density",
     "spectral_radius",
     "av_in_degree",
     "av_out_degree",
     "clustering_coefficient",
+    "mean_sq_activity",
 ]
 DEFAULT_EDGE_FEATURES = [
     "weight",
@@ -71,15 +80,21 @@ DEFAULT_EDGE_FEATURES = [
     "betweenness",
     "source_out_degree",
     "target_in_degree",
+    "source_mean_sq_activity",
+    "target_mean_sq_activity",
+]
+DEFAULT_NODE_FEATURES = [
+    "node_mean_sq_activity",
 ]
 
 
 # --------------------------------------------------------------------------------------------- contexts
 
 
-class NetworkContext:
+class FeatureContext:
     """
-    What a network feature may look at: one reservoir computer and the data to run it on.
+    What a feature may look at: one reservoir computer and the data to run it on. One context is shared by all
+    features (and all edges and nodes) of a reservoir; each attribute is computed on first use.
 
     Parameters
     ----------
@@ -96,7 +111,13 @@ class NetworkContext:
         Reservoir matrix, ``weights[u, v]`` is the edge from node ``u`` to node ``v``.
     node_mean_sq_activity : ndarray of shape (N,)
         Mean squared activity :math:`\\langle r_v^2 \\rangle` of every node, see :func:`mean_sq_activity`.
-        Needs one pass of the model through ``x_train``, done on first use.
+        Needs one pass of the model through ``x_train``.
+    graph : nx.DiGraph
+        The reservoir network as a networkx graph.
+    scc_map : dict
+        Node -> id of its strongly connected component.
+    edge_betweenness, node_betweenness : dict
+        Betweenness centrality of the edges ``(u, v)`` and of the nodes (unweighted, as in networkx).
     """
 
     def __init__(self, model, x_train: np.ndarray):
@@ -118,22 +139,6 @@ class NetworkContext:
                 f"{model.num_transients_to_remove}: no state is left to measure the activity."
             )
         return (states ** 2).mean(axis=(0, 1))
-
-
-class EdgeContext(NetworkContext):
-    """
-    What an edge feature may look at: a :class:`NetworkContext` of the reservoir computer in which the edge
-    exists, shared by all edges of one pruning iteration.
-
-    Attributes
-    ----------
-    graph : nx.DiGraph
-        The reservoir network as a networkx graph.
-    scc_map : dict
-        Node -> id of its strongly connected component.
-    edge_betweenness, node_betweenness : dict
-        Betweenness centrality of the edges ``(u, v)`` and of the nodes (unweighted, as in networkx).
-    """
 
     @cached_property
     def graph(self) -> nx.DiGraph:
@@ -162,7 +167,7 @@ def _register(level: str, registry: Dict[str, Callable], name: str):
         raise ValueError(f"The name {name!r} is reserved for a column of the pruning history: choose another name.")
 
     def decorator(func: Callable) -> Callable:
-        for other in (_NETWORK_FEATURES, _EDGE_FEATURES):
+        for other in (_NETWORK_FEATURES, _EDGE_FEATURES, _NODE_FEATURES):
             known = other.get(name)
             # redefining a function with the same name and place (re-running a notebook cell) is fine
             same = known is not None and (known.__module__, known.__qualname__) == (func.__module__, func.__qualname__)
@@ -191,6 +196,11 @@ def edge_feature(name: str):
     return _register("edge", _EDGE_FEATURES, name)
 
 
+def node_feature(name: str):
+    """Decorator that registers ``f(ctx, v) -> float`` as the node feature ``name`` (see the module docstring)."""
+    return _register("node", _NODE_FEATURES, name)
+
+
 def _describe(registry: Dict[str, Callable]) -> Dict[str, str]:
     return {name: (func.__doc__ or "").strip().split("\n")[0] for name, func in registry.items()}
 
@@ -205,21 +215,26 @@ def available_edge_features() -> Dict[str, str]:
     return _describe(_EDGE_FEATURES)
 
 
-def resolve_features(features: Optional[Iterable[Union[str, Callable]]] = None) -> Tuple[Dict, Dict]:
+def available_node_features() -> Dict[str, str]:
+    """Names and one-line descriptions of the registered node features."""
+    return _describe(_NODE_FEATURES)
+
+
+def resolve_features(features: Optional[Iterable[Union[str, Callable]]] = None) -> Tuple[Dict, Dict, Dict]:
     """
     Turn a list of feature names and decorated functions into the functions to call.
 
     Parameters
     ----------
     features : list of str or callable, optional
-        Registered names, or functions decorated with :func:`network_feature` / :func:`edge_feature`, network
-        and edge features mixed. None selects ``DEFAULT_NETWORK_FEATURES`` and ``DEFAULT_EDGE_FEATURES``.
-        An empty list selects nothing.
+        Registered names, or functions decorated with :func:`network_feature`, :func:`edge_feature` or
+        :func:`node_feature`, all levels mixed. None selects ``DEFAULT_NETWORK_FEATURES``,
+        ``DEFAULT_EDGE_FEATURES`` and ``DEFAULT_NODE_FEATURES``. An empty list selects nothing.
 
     Returns
     -------
-    network, edge : dict
-        Name -> function for the network features and for the edge features, in the order given.
+    network, edge, node : dict
+        Name -> function for the network, edge and node features, in the order given.
 
     Raises
     ------
@@ -229,31 +244,30 @@ def resolve_features(features: Optional[Iterable[Union[str, Callable]]] = None) 
         For an unknown name or a name that is listed twice.
     """
     if features is None:
-        features = DEFAULT_NETWORK_FEATURES + DEFAULT_EDGE_FEATURES
+        features = DEFAULT_NETWORK_FEATURES + DEFAULT_EDGE_FEATURES + DEFAULT_NODE_FEATURES
     if isinstance(features, (str, bytes)) or not isinstance(features, Iterable):
         raise TypeError(f"features must be a list of names or decorated functions, got {features!r}.")
 
-    network, edge = {}, {}
+    resolved = {"network": {}, "edge": {}, "node": {}}
     for entry in features:
         if isinstance(entry, str):
-            func = _NETWORK_FEATURES.get(entry) or _EDGE_FEATURES.get(entry)
+            func = _NETWORK_FEATURES.get(entry) or _EDGE_FEATURES.get(entry) or _NODE_FEATURES.get(entry)
             if func is None:
                 raise ValueError(
                     f"Unknown feature {entry!r}. Network features: {sorted(_NETWORK_FEATURES)}. "
-                    f"Edge features: {sorted(_EDGE_FEATURES)}."
+                    f"Edge features: {sorted(_EDGE_FEATURES)}. Node features: {sorted(_NODE_FEATURES)}."
                 )
         elif callable(entry) and hasattr(entry, "feature_level"):
             func = entry
         else:
             raise TypeError(
                 f"{entry!r} is neither the name of a feature nor a function decorated with "
-                "@network_feature(name) or @edge_feature(name)."
+                "@network_feature(name), @edge_feature(name) or @node_feature(name)."
             )
-        target = network if func.feature_level == "network" else edge
-        if func.feature_name in network or func.feature_name in edge:
+        if any(func.feature_name in level for level in resolved.values()):
             raise ValueError(f"The feature {func.feature_name!r} is listed twice.")
-        target[func.feature_name] = func
-    return network, edge
+        resolved[func.feature_level][func.feature_name] = func
+    return resolved["network"], resolved["edge"], resolved["node"]
 
 
 # ------------------------------------------------------------------------------------------ evaluation
@@ -266,17 +280,24 @@ def _as_float(name: str, value) -> float:
     return float(array.reshape(()))
 
 
-def evaluate_network_features(network: Dict[str, Callable], ctx: NetworkContext) -> Dict[str, float]:
+def evaluate_network_features(network: Dict[str, Callable], ctx: FeatureContext) -> Dict[str, float]:
     """Call the (resolved) network features: ``{name: float}``."""
     return {name: _as_float(name, func(ctx)) for name, func in network.items()}
 
 
-def evaluate_edge_features(edge: Dict[str, Callable], ctx: EdgeContext, edges: List[tuple]) -> Dict[str, np.ndarray]:
+def evaluate_edge_features(edge: Dict[str, Callable], ctx: FeatureContext, edges) -> Dict[str, np.ndarray]:
     """Call the (resolved) edge features for every edge: ``{name: array of shape (len(edges),)}``."""
     return {
         name: np.array([_as_float(name, func(ctx, int(u), int(v))) for u, v in edges], dtype=float)
         for name, func in edge.items()
     }
+
+
+def evaluate_node_features(node: Dict[str, Callable], ctx: FeatureContext) -> Dict[str, np.ndarray]:
+    """Call the (resolved) node features for every node: ``{name: array of shape (N,)}``."""
+    n_nodes = ctx.weights.shape[0]
+    return {name: np.array([_as_float(name, func(ctx, v)) for v in range(n_nodes)], dtype=float)
+            for name, func in node.items()}
 
 
 def compute_network_features(model, x_train: np.ndarray, features=None) -> Dict[str, float]:
@@ -298,8 +319,8 @@ def compute_network_features(model, x_train: np.ndarray, features=None) -> Dict[
     dict
         Feature name -> float.
     """
-    network, _ = resolve_features(DEFAULT_NETWORK_FEATURES if features is None else features)
-    return evaluate_network_features(network, NetworkContext(model, x_train))
+    network, _, _ = resolve_features(DEFAULT_NETWORK_FEATURES if features is None else features)
+    return evaluate_network_features(network, FeatureContext(model, x_train))
 
 
 def compute_edge_features(model, x_train: np.ndarray, edges: List[tuple], features=None) -> Dict[str, np.ndarray]:
@@ -323,8 +344,31 @@ def compute_edge_features(model, x_train: np.ndarray, edges: List[tuple], featur
     dict
         Feature name -> array with one value per edge, in the order of ``edges``.
     """
-    _, edge = resolve_features(DEFAULT_EDGE_FEATURES if features is None else features)
-    return evaluate_edge_features(edge, EdgeContext(model, x_train), edges)
+    _, edge, _ = resolve_features(DEFAULT_EDGE_FEATURES if features is None else features)
+    return evaluate_edge_features(edge, FeatureContext(model, x_train), edges)
+
+
+def compute_node_features(model, x_train: np.ndarray, features=None) -> Dict[str, np.ndarray]:
+    """
+    Node features of a fitted reservoir computer.
+
+    Parameters
+    ----------
+    model : RC
+        Fitted model.
+    x_train : ndarray of shape (n_batch, n_timesteps, n_features)
+        Data for the state-dependent features.
+    features : list of str or callable, optional
+        As in :func:`resolve_features`; only the node features of the list are computed. Default: the default
+        node features.
+
+    Returns
+    -------
+    dict
+        Feature name -> array with one value per node.
+    """
+    _, _, node = resolve_features(DEFAULT_NODE_FEATURES if features is None else features)
+    return evaluate_node_features(node, FeatureContext(model, x_train))
 
 
 # ------------------------------------------------------------------------------------ network features
@@ -445,4 +489,13 @@ def _source_mean_sq_activity(ctx, u, v):
 @edge_feature("target_mean_sq_activity")
 def _target_mean_sq_activity(ctx, u, v):
     """Mean squared activity of the receiving node v (see ``mean_sq_activity``); needs a pass through the data."""
+    return ctx.node_mean_sq_activity[v]
+
+
+# --------------------------------------------------------------------------------------- node features
+
+
+@node_feature("node_mean_sq_activity")
+def _node_mean_sq_activity(ctx, v):
+    """Mean squared activity of the node (see ``mean_sq_activity``); needs a pass through the data."""
     return ctx.node_mean_sq_activity[v]
