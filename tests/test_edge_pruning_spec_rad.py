@@ -77,12 +77,12 @@ def test_a_float_rescales_the_starting_model_and_the_pruned_one(model, data):
 def test_the_candidates_are_scored_at_the_fixed_radius(model, data):
     (X_train, y_train), (X_val, y_val) = data
     edge = tuple(int(i) for i in np.argwhere(model.reservoir_layer.weights != 0)[0])
-    scored, candidate, _, _ = _evaluate_candidate_standalone(
+    candidate = _evaluate_candidate_standalone(
         model, edge, X_train, y_train, X_val, y_val, "mse", GraphAnalyzer(), target_spec_rad=0.8
-    )
+    ).model
     assert np.isclose(candidate.reservoir_layer.spec_rad, 0.8, rtol=1e-6)
     assert candidate.reservoir_layer.weights[edge] == 0
-    plain = _evaluate_candidate_standalone(model, edge, X_train, y_train, X_val, y_val, "mse", GraphAnalyzer())[1]
+    plain = _evaluate_candidate_standalone(model, edge, X_train, y_train, X_val, y_val, "mse", GraphAnalyzer()).model
     assert not np.isclose(plain.reservoir_layer.spec_rad, 0.8, rtol=1e-3)
 
 

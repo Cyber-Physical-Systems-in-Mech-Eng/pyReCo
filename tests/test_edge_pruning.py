@@ -128,6 +128,7 @@ class TestInit:
         assert pruner.directed is True
         assert pruner.parallel is False
         assert pruner.record_candidates is False
+        assert pruner.features is None
         assert pruner.edge_selection_strat == 'random_uniform_wo_repl'
 
     def test_default_analyzers_created(self):
@@ -331,7 +332,7 @@ class TestPruningLoop:
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
         assert set(history[0].keys()) == {
-            'starting_model', 'candidates', 'winner', 'removed_nodes', 'final_model'
+            'starting_model', 'candidates', 'candidate_features', 'winner', 'removed_nodes', 'final_model'
         }
 
     def test_starting_and_final_model_have_expected_keys(self, small_model, small_data):
@@ -343,7 +344,7 @@ class TestPruningLoop:
                                   data_val=data_val)
         expected = {
             'weights', 'input_nodes', 'readout_nodes', 'loss', 'train_loss', 'num_nodes',
-            'num_edges', 'metrics', 'graph_props',
+            'num_edges', 'metrics', 'graph_props', 'features',
         }
         assert set(history[0]['starting_model'].keys()) == expected
         assert set(history[0]['final_model'].keys()) == expected
@@ -793,6 +794,142 @@ class TestRecordCandidates:
                 assert candidate['score'] == pytest.approx(other['score'])
                 assert candidate['train_score'] == pytest.approx(other['train_score'])
                 assert (candidate['weights'] != other['weights']).nnz == 0
+
+
+class TestFeatures:
+    """The named features: one table per iteration with an array per name, and the features of the survivor."""
+
+    @staticmethod
+    def run(model, data, removals=3, **kwargs):
+        n_edges = _count_edges(model)
+        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
+                            min_num_edges=n_edges - removals, return_best_model=False, seed=0,
+                            **kwargs)
+        return pruner.prune(model=copy.deepcopy(model), data_train=data[0], data_val=data[1])[1]
+
+    def test_an_unknown_feature_raises_when_the_pruner_is_created(self):
+        with pytest.raises(ValueError, match="Unknown feature 'nope'"):
+            EdgePruner(features=['density', 'nope'])
+
+    def test_the_default_table(self, small_model, small_data):
+        from pyreco.features import DEFAULT_EDGE_FEATURES, DEFAULT_NETWORK_FEATURES
+        history = self.run(small_model, small_data)
+        for record in history.values():
+            table = record['candidate_features']
+            n = len(record['candidates'])
+            assert set(table) == {'edges', 'score', 'network', 'edge'}
+            assert table['edges'].shape == (n, 2)
+            assert list(table['network']) == DEFAULT_NETWORK_FEATURES
+            assert list(table['edge']) == DEFAULT_EDGE_FEATURES
+            for column in [table['score'], *table['network'].values(), *table['edge'].values()]:
+                assert column.shape == (n,) and column.dtype == float
+
+    def test_the_table_agrees_with_the_per_candidate_entries(self, small_model, small_data):
+        history = self.run(small_model, small_data)
+        for record in history.values():
+            table = record['candidate_features']
+            for row, (u, v) in enumerate(table['edges']):
+                entry = record['candidates'][(int(u), int(v))]
+                assert table['score'][row] == entry['score']
+                for name in ('density', 'spectral_radius', 'clustering_coefficient'):
+                    assert table['network'][name][row] == pytest.approx(entry['graph_props_after'][name])
+                for name in ('is_reciprocal', 'in_scc', 'betweenness'):
+                    assert table['edge'][name][row] == pytest.approx(entry['edge_props'][name])
+
+    def test_the_edge_features_are_measured_before_the_removal(self, small_model, small_data):
+        history = self.run(small_model, small_data)
+        for record in history.values():
+            before = record['starting_model']['weights'].toarray()
+            table = record['candidate_features']
+            weights = [before[u, v] for u, v in table['edges']]
+            assert table['edge']['weight'] == pytest.approx(weights)
+            assert table['edge']['source_out_degree'] == pytest.approx(
+                [np.count_nonzero(before[u]) for u, _ in table['edges']])
+
+    def test_the_survivor_has_its_own_features(self, small_model, small_data):
+        history = self.run(small_model, small_data)
+        for record in history.values():
+            final = record['final_model']
+            table = record['candidate_features']
+            row = int(np.flatnonzero((table['edges'] == record['winner']).all(axis=1))[0])
+            assert final['features']['network']['density'] == pytest.approx(final['graph_props']['density'])
+            assert final['features']['edge'] == {name: column[row] for name, column in table['edge'].items()}
+            assert final['features']['network']['density'] == pytest.approx(table['network']['density'][row])
+
+    def test_the_survivor_of_one_iteration_starts_the_next(self, small_model, small_data):
+        history = self.run(small_model, small_data)
+        assert history[1]['starting_model']['features']['network'] == pytest.approx(
+            history[0]['final_model']['features']['network'])
+        assert set(history[0]['starting_model']['features']) == {'network'}
+
+    def test_the_features_of_the_survivor_are_measured_after_isolated_nodes_are_removed(
+            self, isolatable_model, isolatable_data):
+        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'], min_num_edges=3,
+                            remove_isolated_nodes=True, return_best_model=False, seed=0)
+        history = pruner.prune(isolatable_model, *isolatable_data)[1]
+        final = history[0]['final_model']
+        assert final['num_nodes'] == 5  # node 5 was isolated
+        assert history[0]['starting_model']['num_nodes'] == 6
+        assert final['features']['network']['density'] == pytest.approx(final['graph_props']['density'])
+
+    def test_an_empty_list_switches_the_features_off(self, small_model, small_data):
+        history = self.run(small_model, small_data, features=[])
+        for record in history.values():
+            assert 'candidate_features' not in record
+            assert 'features' not in record['starting_model'] and 'features' not in record['final_model']
+
+    def test_the_selection_decides_what_is_stored(self, small_model, small_data):
+        history = self.run(small_model, small_data, features=['abs_weight', 'density'])
+        table = history[0]['candidate_features']
+        assert list(table['network']) == ['density'] and list(table['edge']) == ['abs_weight']
+        history = self.run(small_model, small_data, features=['density'])
+        assert history[0]['candidate_features']['edge'] == {}
+        assert list(history[0]['final_model']['features']['network']) == ['density']
+
+    def test_the_activity_features_and_a_custom_feature(self, small_model, small_data):
+        from pyreco import features as F
+
+        @F.network_feature('test_n_edges')
+        def n_edges(ctx):
+            return np.count_nonzero(ctx.weights)
+
+        try:
+            names = ['mean_sq_activity', 'source_mean_sq_activity', 'target_mean_sq_activity', n_edges]
+            history = self.run(small_model, small_data, features=names)
+        finally:
+            del F._NETWORK_FEATURES['test_n_edges']
+        record = history[0]
+        table = record['candidate_features']
+        assert list(table['network']) == ['mean_sq_activity', 'test_n_edges']
+        assert np.all((table['network']['mean_sq_activity'] > 0) & (table['network']['mean_sq_activity'] < 1))
+        assert np.all(table['network']['test_n_edges'] == record['starting_model']['num_edges'] - 1)
+        assert np.all(table['edge']['source_mean_sq_activity'] > 0)
+
+    def test_the_candidates_are_scored_on_the_training_inputs_for_the_activity(self, small_model, small_data):
+        # the activity of a candidate is that of the refit candidate: removing edges changes it
+        history = self.run(small_model, small_data, features=['mean_sq_activity'])
+        activity = history[0]['candidate_features']['network']['mean_sq_activity']
+        assert len(np.unique(activity)) > 1
+
+    def test_parallel_and_serial_give_the_same_table(self, small_model, small_data):
+        names = ['density', 'spectral_radius', 'mean_sq_activity', 'weight', 'betweenness', 'source_mean_sq_activity']
+        serial = self.run(small_model, small_data, features=names, parallel=False)
+        parallel = self.run(small_model, small_data, features=names, parallel=True)
+        for i in serial:
+            a, b = serial[i]['candidate_features'], parallel[i]['candidate_features']
+            assert (a['edges'] == b['edges']).all()
+            assert a['score'] == pytest.approx(b['score'])
+            for level in ('network', 'edge'):
+                assert a[level].keys() == b[level].keys()
+                for name in a[level]:
+                    assert a[level][name] == pytest.approx(b[level][name])
+
+    def test_the_table_is_smaller_than_the_candidate_dicts(self, small_model, small_data):
+        import pickle
+        history = self.run(small_model, small_data)
+        table = pickle.dumps([r['candidate_features'] for r in history.values()])
+        entries = pickle.dumps([r['candidates'] for r in history.values()])
+        assert len(table) < len(entries)
 
 
 # Test edge cases

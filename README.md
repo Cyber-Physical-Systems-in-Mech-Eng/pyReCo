@@ -285,7 +285,45 @@ print(f"scores (test MSE before/after): {model.evaluate(X_test, y_test)[0]:.4f} 
 
 Edges are directed: `weights[u, v]` is the edge from node `u` to node `v`. Note that pruning can remove the last directed cycle of the network: its spectral radius is then 0 and it cannot be rescaled to a target spectral radius anymore (the pruner warns once if this happens).
 
-With `EdgePruner(record_candidates=True)` the history also keeps the reservoir matrix of every candidate (`history[i]['candidates'][(u, v)]['weights']`) with its training and validation loss (`'train_score'`, `'score'`). The surviving model of each iteration has `'loss'` (validation) and `'train_loss'` in `history[i]['final_model']`.
+#### Features of the candidates
+
+In every iteration the pruner measures named *features* of every candidate reservoir and of every edge that a
+candidate removes, and stores them compactly: one array per name, not one dict per candidate.
+
+```python
+pruner = EdgePruner(candidate_fraction=0.2, stopping_criterion=['min_edges'], min_num_edges=n_edges - 6, seed=0,
+                    features=['density', 'spectral_radius', 'mean_sq_activity',   # of the reservoir
+                              'weight', 'betweenness', 'source_mean_sq_activity'])  # of the removed edge
+pruned_model, history = pruner.prune(model, (X_train, y_train), (X_test, y_test))
+
+table = history[0]['candidate_features']  # arrays with one entry per candidate, same order
+table['edges'], table['score'], table['network']['density'], table['edge']['weight']
+history[0]['final_model']['features']      # the features of the reservoir that survives iteration 0
+```
+
+`pyreco.features.available_network_features()` and `available_edge_features()` list the names. Without the
+argument the structural defaults are measured; `features=[]` switches it off. `mean_sq_activity` (the mean
+squared state of the nodes after the warm-up) and the two edge versions need a pass through the training data per
+candidate. Your own feature is a function with a decorator, also in another package:
+
+```py
+from pyreco.features import network_feature, edge_feature
+
+@network_feature("frobenius_norm")
+def frobenius_norm(ctx):
+    """Frobenius norm of the reservoir matrix."""   # the first line is the description
+    return np.linalg.norm(ctx.weights)
+
+@edge_feature("signal_power")
+def signal_power(ctx, u, v):
+    return ctx.weights[u, v] ** 2 * ctx.node_mean_sq_activity[u]
+
+EdgePruner(features=["density", frobenius_norm, "signal_power"])
+```
+
+`record_candidates=True` additionally keeps the sparse matrix and the training loss of every candidate
+(`history[i]['candidates'][(u, v)]['weights']`, `['train_score']`); this grows quickly with the number of edges.
+The surviving model of each iteration has `'loss'` (validation) and `'train_loss'` in `history[i]['final_model']`.
 
 
 ### Hyperparameter tuning
@@ -384,7 +422,7 @@ If you use pyReCo in your research, please cite it. GitHub's "Cite this reposito
 @software{pyreco,
   title   = {pyReCo: A Python Reservoir Computing Library for Time Series Forecasting and Research},
   author  = {Yadav, Manish and Disson, Klara and Stender, Merten},
-  version = {3.0.1},
+  version = {3.1.0},
   year    = {2026},
   license = {Apache-2.0},
   url     = {https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo}
@@ -393,4 +431,4 @@ If you use pyReCo in your research, please cite it. GitHub's "Cite this reposito
 
 **APA**
 
-Yadav, M., Disson, K., & Stender, M. (2026). *pyReCo: A Python reservoir computing library for time series forecasting and research* (Version 3.0.1) [Computer software]. Technische Universität Berlin. https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo
+Yadav, M., Disson, K., & Stender, M. (2026). *pyReCo: A Python reservoir computing library for time series forecasting and research* (Version 3.1.0) [Computer software]. Technische Universität Berlin. https://github.com/Cyber-Physical-Systems-in-Mech-Eng/pyReCo
