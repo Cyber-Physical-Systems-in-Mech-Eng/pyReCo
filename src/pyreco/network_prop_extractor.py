@@ -4,8 +4,9 @@ Whole-network and per-node properties of an adjacency matrix in one call.
 :class:`NetworkQuantifier` returns scalar properties of the network (density, spectral radius, mean
 degrees, clustering) and :class:`NodePropExtractor` returns, for every node, properties such as its
 degree or its PageRank. Both build on the extractor functions of :mod:`pyreco.utils_networks`. The
-single-edge and single-node analyzers that the pruning uses are :class:`pyreco.edge_analyzer.EdgeAnalyzer`,
-:class:`pyreco.node_analyzer.NodeAnalyzer` and :class:`pyreco.graph_analyzer.GraphAnalyzer`.
+analyzers of :class:`pyreco.pruning.NetworkPruner` are :class:`pyreco.edge_analyzer.EdgeAnalyzer`,
+:class:`pyreco.node_analyzer.NodeAnalyzer` and :class:`pyreco.graph_analyzer.GraphAnalyzer`; the edge pruning
+measures the named features of :mod:`pyreco.features`.
 """
 
 import warnings

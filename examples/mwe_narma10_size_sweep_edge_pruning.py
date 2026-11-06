@@ -201,9 +201,10 @@ with smoke.stage("edge pruning"):
     tuned.fit(x_prune, y_prune)  # the pruner starts from a model trained on the pruning data
     reference_val = tuned.evaluate(x_val, y_val)[0]
     _, history = pruner.prune(copy.deepcopy(tuned), (x_prune, y_prune), (x_val, y_val))
-    steps = [history[k] for k in sorted(history)]
-    edges = [steps[0]["starting_model"]["num_edges"]] + [s["final_model"]["num_edges"] for s in steps]
-    losses = [steps[0]["starting_model"]["loss"]] + [s["final_model"]["loss"] for s in steps]
+    # the reservoir before the pruning and the one that survives each iteration
+    states = [history["initial"]] + [history[k]["state"] for k in sorted(k for k in history if isinstance(k, int))]
+    edges = [len(state["edges"]) for state in states]
+    losses = [state["val_loss"] for state in states]
 
     smoke.check(edges[0] == n_edges, f"history starts with {edges[0]} edges, the model has {n_edges}")
     smoke.check(all(a - b == 1 for a, b in zip(edges, edges[1:])), "an iteration did not remove exactly one edge")
@@ -213,8 +214,7 @@ with smoke.stage("edge pruning"):
     ok = [i for i, loss in enumerate(losses) if loss <= (1 + TOLERANCE) * reference_val]
     sparsest = max(ok)
     sparse_model = copy.deepcopy(tuned)
-    sparse_model.reservoir_layer.set_weights(history[sorted(history)[sparsest - 1]]["final_model"]["weights"].toarray()
-                                             if sparsest > 0 else tuned.reservoir_layer.weights)
+    sparse_model.reservoir_layer.set_weights(states[sparsest]["weights"].toarray())
     sparse_model.fit(x_prune, y_prune)
     refit_val = sparse_model.evaluate(x_val, y_val)[0]
     smoke.check(

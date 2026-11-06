@@ -9,7 +9,6 @@ import pytest
 
 from pyreco.custom_models import RC
 from pyreco.edge_pruning import EdgePruner, _evaluate_candidate_standalone, _remove_edge
-from pyreco.graph_analyzer import GraphAnalyzer
 from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
 from pyreco.optimizers import RidgeSK
 from pyreco.utils_data import sequence_to_sequence as seq_2_seq
@@ -77,12 +76,12 @@ def test_a_float_rescales_the_starting_model_and_the_pruned_one(model, data):
 def test_the_candidates_are_scored_at_the_fixed_radius(model, data):
     (X_train, y_train), (X_val, y_val) = data
     edge = tuple(int(i) for i in np.argwhere(model.reservoir_layer.weights != 0)[0])
-    scored, candidate, _ = _evaluate_candidate_standalone(
-        model, edge, X_train, y_train, X_val, y_val, "mse", GraphAnalyzer(), target_spec_rad=0.8
-    )
+    candidate = _evaluate_candidate_standalone(
+        model, edge, X_train, y_train, X_val, y_val, "mse", target_spec_rad=0.8
+    ).model
     assert np.isclose(candidate.reservoir_layer.spec_rad, 0.8, rtol=1e-6)
     assert candidate.reservoir_layer.weights[edge] == 0
-    plain = _evaluate_candidate_standalone(model, edge, X_train, y_train, X_val, y_val, "mse", GraphAnalyzer())[1]
+    plain = _evaluate_candidate_standalone(model, edge, X_train, y_train, X_val, y_val, "mse").model
     assert not np.isclose(plain.reservoir_layer.spec_rad, 0.8, rtol=1e-3)
 
 

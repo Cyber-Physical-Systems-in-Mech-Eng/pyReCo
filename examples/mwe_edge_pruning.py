@@ -61,27 +61,26 @@ pruner = EdgePruner(
     remove_isolated_nodes=True,
     metrics=["mse"],
     return_best_model=True,
+    record_candidates=True,  # also keep a table of all candidates of every iteration
 )
 
 model_pruned, history = pruner.prune(
     model=model, data_train=(X_train, y_train), data_val=(X_test, y_test)
 )
 
-n_iterations = len(history)
-print(f"took {n_iterations} iterations to prune the model")
+# The history holds the reservoir before the pruning ("initial") and, per iteration, the one that survived it
+iterations = [i for i in history if isinstance(i, int)]
+print(f"took {len(iterations)} iterations to prune the model")
+states = [history["initial"]] + [history[i]["state"] for i in iterations]
 
-# Extract per-iteration loss, node count, and edge count from history
-losses = [history[i]["starting_model"]["loss"] for i in range(n_iterations)]
-num_edges = [history[i]["starting_model"]["num_edges"] for i in range(n_iterations)]
-num_nodes = [history[i]["starting_model"]["num_nodes"] for i in range(n_iterations)]
+# Extract the loss, the node count, and the edge count over the iterations
+losses = [state["val_loss"] for state in states]
+num_edges = [len(state["edges"]) for state in states]
+num_nodes = [state["weights"].shape[0] for state in states]
 
-# Extract graph properties across iterations
-# graph_props is a dict of property name -> scalar, collect into arrays
-graph_prop_keys = list(history[0]["starting_model"]["graph_props"].keys())
-graph_props_over_time = {
-    key: [history[i]["starting_model"]["graph_props"][key] for i in range(n_iterations)]
-    for key in graph_prop_keys
-}
+# Extract the network features (density, spectral radius, ...) over the iterations
+graph_prop_keys = list(history["initial"]["network"])
+graph_props_over_time = {key: [state["network"][key] for state in states] for key in graph_prop_keys}
 
 for key in graph_prop_keys:
     print(
@@ -104,21 +103,16 @@ plt.show()
 
 
 # Investigate a single decision: which edge was pruned and what were the
-#   candidate edge properties?
-iteration = 2
-candidates = history[iteration]["candidates"]
-winner = history[iteration]["winner"]
-
-candidate_edges = list(candidates.keys())
-candidate_scores = [candidates[e]["score"] for e in candidate_edges]
-candidate_betweenness = [candidates[e]["edge_props"]["betweenness"] for e in
-                         candidate_edges]
+#   properties of the candidate edges?
+iteration = min(2, len(iterations) - 1)
+candidates = history[iteration]["candidates"]  # arrays with one entry per candidate
+winner = history[iteration]["winner_edge"]
 
 plt.figure()
-plt.hist(x=candidate_betweenness)
+plt.hist(x=candidates["removed_edge"]["betweenness"])
 plt.title(
     f"pruned edge {winner} had betweenness "
-    f"{candidates[winner]['edge_props']['betweenness']:.4f} in iteration {iteration}"
+    f"{history[iteration]['removed_edge']['betweenness']:.4f} in iteration {iteration}"
 )
 plt.legend(["pruning candidate edges"])
 plt.xlabel("betweenness")

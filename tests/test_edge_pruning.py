@@ -7,15 +7,28 @@ import copy
 
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 from pyreco.custom_models import RC
-from pyreco.edge_analyzer import EdgeAnalyzer
 from pyreco.edge_pruning import EdgePruner
-from pyreco.graph_analyzer import GraphAnalyzer
+from pyreco.features import DEFAULT_EDGE_FEATURES, DEFAULT_NETWORK_FEATURES, DEFAULT_NODE_FEATURES
 from pyreco.layers import InputLayer, RandomReservoirLayer, ReadoutLayer
-from pyreco.node_analyzer import NodeAnalyzer
 from pyreco.optimizers import RidgeSK
 from pyreco.utils_data import sequence_to_sequence as seq_2_seq
+
+
+def iteration_ids(history):
+    """The keys of the iterations, in order (the history also holds 'initial')."""
+    return sorted(key for key in history if isinstance(key, int))
+
+
+def n_edges_of(state):
+    return len(state['edges'])
+
+
+def parent_of(history, iteration):
+    """The state at the start of an iteration: the previous state, or the initial one."""
+    return history['initial'] if iteration == 0 else history[iteration - 1]['state']
 
 
 # Fixtures, to reuse for testing
@@ -126,22 +139,15 @@ class TestInit:
         assert pruner.remove_isolated_nodes is False
         assert pruner.directed is True
         assert pruner.parallel is False
+        assert pruner.record_candidates is False
+        assert pruner.features is None
         assert pruner.edge_selection_strat == 'random_uniform_wo_repl'
 
-    def test_default_analyzers_created(self):
-        # Graph/node/edge analyzers are auto-created when not provided
-        pruner = EdgePruner()
-        assert isinstance(pruner.graph_analyzer, GraphAnalyzer)
-        assert isinstance(pruner.node_analyzer, NodeAnalyzer)
-        assert isinstance(pruner.edge_analyzer, EdgeAnalyzer)
-
-    def test_custom_analyzers_stored(self):
-        # Analyzers by users are stored (same object references)
-        ga, na, ea = GraphAnalyzer(), NodeAnalyzer(), EdgeAnalyzer()
-        pruner = EdgePruner(graph_analyzer=ga, node_analyzer=na, edge_analyzer=ea)
-        assert pruner.graph_analyzer is ga
-        assert pruner.node_analyzer is na
-        assert pruner.edge_analyzer is ea
+    def test_the_analyzer_arguments_are_gone(self):
+        # the features replace the analyzers
+        for name in ('graph_analyzer', 'node_analyzer', 'edge_analyzer'):
+            with pytest.raises(TypeError):
+                EdgePruner(**{name: None})
 
     def test_history_starts_empty(self):
         # History starts out as empty dict
@@ -179,14 +185,14 @@ class TestInit:
             (dict(metrics=1), TypeError),
             (dict(metrics=["mse", 1]), TypeError),
             (dict(metrics=["not_a_metric"]), ValueError),
-            # flags are booleans, analyzers are instances of their class
+            # flags are booleans
             (dict(return_best_model="yes"), TypeError),
             (dict(remove_isolated_nodes="yes"), TypeError),
             (dict(directed="yes"), TypeError),
             (dict(parallel="yes"), TypeError),
-            (dict(graph_analyzer="not an analyzer"), TypeError),
-            (dict(node_analyzer="not an analyzer"), TypeError),
-            (dict(edge_analyzer="not an analyzer"), TypeError),
+            (dict(record_candidates="yes"), TypeError),
+            (dict(features="density"), TypeError),
+            (dict(features=["not_a_feature"]), ValueError),
         ],
     )
     def test_invalid_arguments_are_rejected(self, kwargs, error):
@@ -298,8 +304,8 @@ class TestPruningLoop:
         n_first = len(first)
         pruner.min_num_edges = int(np.count_nonzero(small_model.reservoir_layer.weights)) - 1
         _, second = pruner.prune(model=copy.deepcopy(small_model), data_train=data_train, data_val=data_val)
-        assert n_first > 1 and len(second) == 1  # no entries of the first run are left over
-        assert set(second) == {0}
+        assert n_first > 3 and len(second) == 3  # no entries of the first run are left over
+        assert set(second) == {'initial', 'features', 0}
 
     def test_returns_model_and_history(self, small_model, small_data):
         # prune() returns a fitted RC model and a non-empty history dict
@@ -319,81 +325,93 @@ class TestPruningLoop:
                             min_num_edges=8)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        assert sorted(history.keys()) == list(range(len(history)))
+        assert iteration_ids(history) == list(range(len(history) - 2))
+        assert set(history) == {'initial', 'features', *iteration_ids(history)}
 
     def test_history_entry_has_expected_top_level_keys(self, small_model, small_data):
-        # Iteration's history entry exposes exactly these top-level keys
+        # Iteration's history entry exposes exactly these top-level keys; the candidate table only on request
         data_train, data_val = small_data
         pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
                             min_num_edges=8)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
         assert set(history[0].keys()) == {
-            'starting_model', 'candidates', 'winner', 'removed_nodes', 'final_model'
+            'state', 'winner_edge', 'winner_row', 'removed_edge', 'removed_nodes'
         }
 
-    def test_starting_and_final_model_have_expected_keys(self, small_model, small_data):
-        # starting_model/final_model snapshots both expose the same set of fields
+    def test_the_state_of_the_initial_reservoir_and_of_the_survivors_have_the_same_entries(
+            self, small_model, small_data):
         data_train, data_val = small_data
         pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
                             min_num_edges=8)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        expected = {
-            'weights', 'input_nodes', 'readout_nodes', 'loss', 'num_nodes',
-            'num_edges', 'metrics', 'graph_props',
-        }
-        assert set(history[0]['starting_model'].keys()) == expected
-        assert set(history[0]['final_model'].keys()) == expected
+        expected = {'weights', 'input_nodes', 'readout_nodes', 'val_loss', 'train_loss', 'metrics', 'edges',
+                    'network', 'edge', 'node'}
+        assert set(history['initial']) == expected
+        assert set(history[0]['state']) == expected
+        assert list(history['initial']['metrics']) == ['mse']
 
-    def test_candidates_entry_structure(self, small_model, small_data):
-        # Each candidate is keyed by (u, v) edge tuple, with its score,
-        #   edge_props, graph_props_after
+    def test_the_history_lists_the_names_of_the_features(self, small_model, small_data):
+        data_train, data_val = small_data
+        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'], min_num_edges=8,
+                            features=['density', 'abs_weight', 'weight', 'node_mean_sq_activity', 'spectral_radius'])
+        _, history = pruner.prune(model=small_model, data_train=data_train, data_val=data_val)
+        assert history['features'] == {'network': ['density', 'spectral_radius'], 'edge': ['abs_weight', 'weight'],
+                                       'node': ['node_mean_sq_activity']}
+        for key in ('network', 'edge', 'node'):
+            assert list(history[0]['state'][key]) == history['features'][key]
+        _, history = EdgePruner(features=[], stopping_criterion=['min_edges'], min_num_edges=8).prune(
+            copy.deepcopy(small_model), data_train, data_val)
+        assert history['features'] == {'network': [], 'edge': [], 'node': []}
+
+    def test_the_old_keys_are_gone(self, small_model, small_data):
         data_train, data_val = small_data
         pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
                             min_num_edges=8)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        candidates = history[0]['candidates']
-        assert len(candidates) > 0
-        for edge, props in candidates.items():
-            assert isinstance(edge, tuple) and len(edge) == 2
-            assert set(props.keys()) == {'score', 'edge_props', 'graph_props_after'}
+        for old in ('starting_model', 'final_model', 'candidates', 'winner', 'candidate_features'):
+            assert old not in history[0]
 
-    def test_winner_is_among_that_iterations_candidates(self, small_model, small_data):
-        # Pruned edge (winner candidate) is always among iteration's candidates
+    def test_the_state_describes_its_reservoir(self, small_model, small_data):
         data_train, data_val = small_data
         pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
                             min_num_edges=8)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        for entry in history.values():
-            assert entry['winner'] in entry['candidates']
+        for key in ['initial'] + iteration_ids(history):
+            state = history[key] if key == 'initial' else history[key]['state']
+            weights = state['weights'].toarray()
+            n_nodes, n_edges = weights.shape[0], n_edges_of(state)
+            assert (np.argwhere(weights != 0) == state['edges']).all()
+            assert all(column.shape == (n_edges,) for column in state['edge'].values())
+            assert all(column.shape == (n_nodes,) for column in state['node'].values())
+            assert state['network']['density'] == pytest.approx(n_edges / (n_nodes * (n_nodes - 1)))
+            assert np.isfinite(state['val_loss']) and np.isfinite(state['train_loss'])
 
-    def test_winner_has_lowest_score_among_candidates(self, small_model, small_data):
-        # Winner is candidate with lowest score in iteration
+    def test_the_initial_state_is_the_model_that_was_passed(self, small_model, small_data):
         data_train, data_val = small_data
-        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
-                            min_num_edges=8)
-        _, history = pruner.prune(model=small_model, data_train=data_train,
-                                  data_val=data_val)
-        for entry in history.values():
-            candidates = entry['candidates']
-            winner_score = candidates[entry['winner']]['score']
-            assert winner_score == min(c['score'] for c in candidates.values())
+        _, history = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
+                                min_num_edges=8, seed=0).prune(copy.deepcopy(small_model), data_train, data_val)
+        initial = history['initial']
+        assert (initial['weights'].toarray() == small_model.reservoir_layer.weights).all()
+        assert initial['val_loss'] == pytest.approx(small_model.evaluate(data_val[0], data_val[1], metrics='mse')[0])
+        assert initial['train_loss'] == pytest.approx(
+            small_model.evaluate(data_train[0], data_train[1], metrics='mse')[0])
 
-    def test_winner_edge_is_zeroed_in_final_snapshot(self, small_model, small_data):
-        # Comparing starting and final weight snapshot for iteration, the winner edge
+    def test_winner_edge_is_zeroed_in_the_state(self, small_model, small_data):
+        # Comparing the parent and the new weights for iteration, the winner edge
         #   must go from nonzero to zero
         data_train, data_val = small_data
         pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
                             min_num_edges=8)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        for entry in history.values():
-            u, v = entry['winner']
-            assert entry['starting_model']['weights'][u, v] != 0
-            assert entry['final_model']['weights'][u, v] == 0
+        for i in iteration_ids(history):
+            u, v = history[i]['winner_edge']
+            assert parent_of(history, i)['weights'][u, v] != 0
+            assert history[i]['state']['weights'][u, v] == 0
 
     def test_edge_count_decreases_by_one_per_iteration(self, small_model, small_data):
         # One edge is removed per completed iteration
@@ -402,20 +420,8 @@ class TestPruningLoop:
                             min_num_edges=8)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        for entry in history.values():
-            assert entry['final_model']['num_edges'] == \
-                entry['starting_model']['num_edges'] - 1
-
-    def test_loss_continuity_between_iterations(self, small_model, small_data):
-        # Iteration's final loss is next iteration's starting loss
-        data_train, data_val = small_data
-        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
-                            min_num_edges=8)
-        _, history = pruner.prune(model=small_model, data_train=data_train,
-                                  data_val=data_val)
-        for it in range(len(history) - 1):
-            assert history[it]['final_model']['loss'] == \
-                pytest.approx(history[it + 1]['starting_model']['loss'])
+        for i in iteration_ids(history):
+            assert n_edges_of(history[i]['state']) == n_edges_of(parent_of(history, i)) - 1
 
     def test_stops_exactly_at_min_edges(self, small_model, small_data):
         # Pruning stops when edge count reaches min_num_edges
@@ -424,8 +430,8 @@ class TestPruningLoop:
                             min_num_edges=8)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        last_iter = max(history.keys())
-        assert history[last_iter]['final_model']['num_edges'] == 8
+        last_iter = max(iteration_ids(history))
+        assert n_edges_of(history[last_iter]['state']) == 8
 
     def test_returned_model_has_fewer_edges_than_original(self, small_model,
                                                           small_data):
@@ -455,7 +461,7 @@ class TestStoppingCriteria:
                             patience=0)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        losses = [history[it]['final_model']['loss'] for it in sorted(history.keys())]
+        losses = [history[it]['state']['val_loss'] for it in iteration_ids(history)]
         assert all(losses[i + 1] <= losses[i] + 1e-9 for i in range(len(losses) - 1))
 
     def test_patience_n_tolerates_at_most_n_trailing_non_improvements(self, small_model,
@@ -466,7 +472,7 @@ class TestStoppingCriteria:
                             patience=2)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        losses = [history[it]['final_model']['loss'] for it in sorted(history.keys())]
+        losses = [history[it]['state']['val_loss'] for it in iteration_ids(history)]
         running_best = float('inf')
         trailing_non_improvements = 0
         for loss in losses:
@@ -484,8 +490,8 @@ class TestStoppingCriteria:
                             min_num_edges=6)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        last_iter = max(history.keys())
-        assert history[last_iter]['final_model']['num_edges'] == 6
+        last_iter = max(iteration_ids(history))
+        assert n_edges_of(history[last_iter]['state']) == 6
 
     def test_multiple_stopping_criteria_combined(self, small_model, small_data):
         # Pruning stops as soon as one of specified criteria triggers
@@ -498,9 +504,9 @@ class TestStoppingCriteria:
         )
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        assert len(history) > 0
-        last_iter = max(history.keys())
-        assert history[last_iter]['final_model']['num_edges'] >= 2
+        assert len(history) > 1
+        last_iter = max(iteration_ids(history))
+        assert n_edges_of(history[last_iter]['state']) >= 2
 
 
 # Test return_best_model
@@ -517,8 +523,8 @@ class TestReturnBestModel:
         model, history = pruner.prune(model=small_model, data_train=data_train,
                                       data_val=data_val)
         final_loss = model.evaluate(x=data_val[0], y=data_val[1], metrics='mse')[0]
-        all_losses = [history[0]['starting_model']['loss']] + \
-            [history[it]['final_model']['loss'] for it in sorted(history.keys())]
+        all_losses = [history['initial']['val_loss']] + \
+            [history[it]['state']['val_loss'] for it in iteration_ids(history)]
         assert final_loss <= min(all_losses) + 1e-6
 
     def test_false_returns_last_iteration_model(self, small_model, small_data):
@@ -528,8 +534,8 @@ class TestReturnBestModel:
                             patience=2, return_best_model=False)
         model, history = pruner.prune(model=small_model, data_train=data_train,
                                       data_val=data_val)
-        last_iter = max(history.keys())
-        expected_edges = history[last_iter]['final_model']['num_edges']
+        last_iter = max(iteration_ids(history))
+        expected_edges = n_edges_of(history[last_iter]['state'])
         assert _count_edges(model) == expected_edges
 
 
@@ -657,16 +663,17 @@ class TestIsolatedNodes:
         )
 
         assert 5 in history[0]['removed_nodes']
-        assert history[0]['final_model']['num_nodes'] == 5
+        assert history[0]['state']['weights'].shape[0] == 5
+        assert history['initial']['weights'].shape[0] == 6
         # readout nodes [1, 2] are both below removed index (5)
         #   -> ids must be unaffected by the removal
-        assert list(history[0]['final_model']['readout_nodes']) == [1, 2]
+        assert list(history[0]['state']['readout_nodes']) == [1, 2]
 
         # Node count never goes up once reduced
-        node_counts = [history[0]['final_model']['num_nodes']]
-        for it in sorted(history.keys())[1:]:
-            assert history[it]['starting_model']['num_nodes'] == node_counts[-1]
-            node_counts.append(history[it]['final_model']['num_nodes'])
+        node_counts = [history[0]['state']['weights'].shape[0]]
+        for it in iteration_ids(history)[1:]:
+            assert parent_of(history, it)['weights'].shape[0] == node_counts[-1]
+            node_counts.append(history[it]['state']['weights'].shape[0])
         assert all(node_counts[i + 1] <= node_counts[i] for i in
                    range(len(node_counts) - 1))
         assert node_counts[-1] <= 5
@@ -709,9 +716,218 @@ class TestParallel:
             model=copy.deepcopy(small_model), data_train=data_train, data_val=data_val
         )
 
-        assert history_serial[0]['winner'] == history_parallel[0]['winner']
-        assert history_serial[0]['final_model']['loss'] == \
-            pytest.approx(history_parallel[0]['final_model']['loss'])
+        assert history_serial[0]['winner_edge'] == history_parallel[0]['winner_edge']
+        assert history_serial[0]['state']['val_loss'] == \
+            pytest.approx(history_parallel[0]['state']['val_loss'])
+
+
+class TestCandidates:
+    """record_candidates keeps a table of all candidates; without it only the winner is described."""
+
+    @staticmethod
+    def run(model, data, removals=3, **kwargs):
+        n_edges = _count_edges(model)
+        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'],
+                            min_num_edges=n_edges - removals, return_best_model=False, seed=0,
+                            **kwargs)
+        return pruner.prune(model=copy.deepcopy(model), data_train=data[0], data_val=data[1])[1]
+
+    def test_the_default_keeps_no_candidates(self, small_model, small_data):
+        history = self.run(small_model, small_data)
+        assert all('candidates' not in history[i] for i in iteration_ids(history))
+
+    def test_the_table(self, small_model, small_data):
+        history = self.run(small_model, small_data, record_candidates=True)
+        for i in iteration_ids(history):
+            table = history[i]['candidates']
+            n = n_edges_of(parent_of(history, i))
+            assert set(table) == {'edges', 'val_loss', 'train_loss', 'network', 'removed_edge'}
+            assert table['edges'].shape == (n, 2)  # candidate_fraction=1: every edge
+            for column in [table['val_loss'], table['train_loss'], *table['network'].values(),
+                           *table['removed_edge'].values()]:
+                assert column.shape == (n,) and column.dtype == float and np.isfinite(column).all()
+            assert list(table['network']) == DEFAULT_NETWORK_FEATURES
+            assert list(table['removed_edge']) == DEFAULT_EDGE_FEATURES
+
+    def test_the_winner_is_a_row_of_the_table_with_the_lowest_validation_loss(self, small_model, small_data):
+        history = self.run(small_model, small_data, record_candidates=True)
+        for i in iteration_ids(history):
+            table, row = history[i]['candidates'], history[i]['winner_row']
+            assert tuple(table['edges'][row]) == history[i]['winner_edge']
+            assert table['val_loss'][row] == table['val_loss'].min()
+            # the surviving reservoir is the winning candidate
+            assert history[i]['state']['val_loss'] == pytest.approx(table['val_loss'][row])
+            assert history[i]['state']['train_loss'] == pytest.approx(table['train_loss'][row])
+            for name in DEFAULT_NETWORK_FEATURES:
+                assert history[i]['state']['network'][name] == pytest.approx(table['network'][name][row])
+
+    def test_the_removed_edge_of_a_candidate_is_its_row_in_the_parents_edge_table(self, small_model, small_data):
+        history = self.run(small_model, small_data, record_candidates=True)
+        for i in iteration_ids(history):
+            parent, table = parent_of(history, i), history[i]['candidates']
+            for row, (u, v) in enumerate(table['edges']):
+                parent_row = int(np.flatnonzero((parent['edges'] == (u, v)).all(axis=1))[0])
+                for name, column in parent['edge'].items():
+                    assert table['removed_edge'][name][row] == column[parent_row]
+                assert table['removed_edge']['weight'][row] == parent['weights'][u, v]
+
+    def test_the_removed_edge_of_the_winner(self, small_model, small_data):
+        for record in (False, True):
+            history = self.run(small_model, small_data, record_candidates=record)
+            for i in iteration_ids(history):
+                parent, (u, v) = parent_of(history, i), history[i]['winner_edge']
+                row = int(np.flatnonzero((parent['edges'] == (u, v)).all(axis=1))[0])
+                assert history[i]['removed_edge'] == {name: column[row] for name, column in parent['edge'].items()}
+
+    def test_the_network_features_of_a_candidate_are_those_of_its_reservoir(self, small_model, small_data):
+        from pyreco.features import compute_network_features
+        history = self.run(small_model, small_data, removals=1, record_candidates=True)
+        table, parent = history[0]['candidates'], history['initial']
+        for row in (0, len(table['edges']) // 2, len(table['edges']) - 1):
+            u, v = table['edges'][row]
+            candidate = copy.deepcopy(small_model)
+            candidate.remove_reservoir_edges(edges=[(int(u), int(v))])
+            candidate.fit(*small_data[0])
+            expected = compute_network_features(candidate, small_data[0][0], DEFAULT_NETWORK_FEATURES)
+            for name, value in expected.items():
+                assert table['network'][name][row] == pytest.approx(value)
+            assert table['val_loss'][row] == pytest.approx(candidate.evaluate(*small_data[1], metrics='mse')[0])
+            assert table['train_loss'][row] == pytest.approx(candidate.evaluate(*small_data[0], metrics='mse')[0])
+
+    def test_candidate_features_have_the_fixed_spectral_radius(self, small_data):
+        X_train, y_train = small_data[0]
+        model = RC(seed=0)
+        model.add(InputLayer(input_shape=X_train.shape[1:]))
+        model.add(RandomReservoirLayer(nodes=10, density=0.5, spec_rad=0.8, leakage_rate=0.3, seed=1))
+        model.add(ReadoutLayer(y_train.shape[1:], fraction_out=0.9))
+        model.compile(optimizer=RidgeSK(alpha=0.5), metrics=['mean_squared_error'])
+        model.fit(X_train, y_train)
+
+        history = self.run(model, small_data, removals=1, record_candidates=True, rescale_spec_rad='initial')
+        assert history[0]['candidates']['network']['spectral_radius'] == pytest.approx(
+            model.reservoir_layer.spec_rad, rel=1e-6)
+        assert history[0]['state']['network']['spectral_radius'] == pytest.approx(
+            model.reservoir_layer.spec_rad, rel=1e-6)
+
+    def test_parallel_and_serial_record_the_same(self, small_model, small_data):
+        serial = self.run(small_model, small_data, record_candidates=True, parallel=False)
+        parallel = self.run(small_model, small_data, record_candidates=True, parallel=True)
+        assert serial.keys() == parallel.keys()
+        for i in iteration_ids(serial):
+            a, b = serial[i]['candidates'], parallel[i]['candidates']
+            assert (a['edges'] == b['edges']).all()
+            for name in ('val_loss', 'train_loss'):
+                assert a[name] == pytest.approx(b[name])
+            for level in ('network', 'removed_edge'):
+                for name in a[level]:
+                    assert a[level][name] == pytest.approx(b[level][name])
+
+    def test_the_table_stays_small(self, small_model, small_data):
+        import pickle
+        history = self.run(small_model, small_data, record_candidates=True)
+        table = pickle.dumps([history[i]['candidates'] for i in iteration_ids(history)])
+        n_candidates = sum(len(history[i]['candidates']['edges']) for i in iteration_ids(history))
+        assert len(table) < 600 * n_candidates  # bytes per candidate: a few floats, not a matrix
+
+
+class TestFeatures:
+    """The named features of the initial reservoir and of the survivors."""
+
+    @staticmethod
+    def run(model, data, removals=3, **kwargs):
+        return TestCandidates.run(model, data, removals, **kwargs)
+
+    def test_the_default_features(self, small_model, small_data):
+        history = self.run(small_model, small_data)
+        for key in ['initial'] + iteration_ids(history):
+            state = history[key] if key == 'initial' else history[key]['state']
+            assert list(state['network']) == DEFAULT_NETWORK_FEATURES
+            assert list(state['edge']) == DEFAULT_EDGE_FEATURES
+            assert list(state['node']) == DEFAULT_NODE_FEATURES
+        assert list(history[0]['removed_edge']) == DEFAULT_EDGE_FEATURES
+
+    def test_the_activity_is_measured_on_the_training_inputs(self, small_model, small_data):
+        from pyreco.features import FeatureContext
+        history = self.run(small_model, small_data)
+        activity = FeatureContext(small_model, small_data[0][0]).node_mean_sq_activity
+        assert history['initial']['node']['node_mean_sq_activity'] == pytest.approx(activity)
+        assert history['initial']['network']['mean_sq_activity'] == pytest.approx(activity.mean())
+        assert (history['initial']['edge']['source_mean_sq_activity'] > 0).all()
+
+    def test_the_features_of_the_survivor_are_measured_after_isolated_nodes_are_removed(
+            self, isolatable_model, isolatable_data):
+        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'], min_num_edges=3,
+                            remove_isolated_nodes=True, return_best_model=False, seed=0)
+        history = pruner.prune(isolatable_model, *isolatable_data)[1]
+        state = history[0]['state']
+        assert state['weights'].shape[0] == 5 and history['initial']['weights'].shape[0] == 6
+        assert state['node']['node_mean_sq_activity'].shape == (5,)
+        assert history['initial']['node']['node_mean_sq_activity'].shape == (6,)
+        assert state['network']['density'] == pytest.approx(n_edges_of(state) / (5 * 4))
+        # the removed edge belongs to the parent reservoir with six nodes
+        assert history[0]['winner_edge'] in {tuple(e) for e in history['initial']['edges']}
+
+    def test_an_empty_list_measures_nothing(self, small_model, small_data):
+        history = self.run(small_model, small_data, features=[], record_candidates=True)
+        for key in ['initial'] + iteration_ids(history):
+            state = history[key] if key == 'initial' else history[key]['state']
+            assert state['network'] == {} and state['edge'] == {} and state['node'] == {}
+        assert history[0]['removed_edge'] == {}
+        assert history[0]['candidates']['network'] == {} and history[0]['candidates']['removed_edge'] == {}
+        assert np.isfinite(history[0]['candidates']['val_loss']).all()
+
+    def test_the_selection_decides_what_is_stored(self, small_model, small_data):
+        history = self.run(small_model, small_data, features=['abs_weight', 'density', 'node_mean_sq_activity'],
+                           record_candidates=True)
+        state = history[0]['state']
+        assert list(state['network']) == ['density'] and list(state['edge']) == ['abs_weight']
+        assert list(state['node']) == ['node_mean_sq_activity']
+        assert list(history[0]['candidates']['network']) == ['density']
+        assert list(history[0]['candidates']['removed_edge']) == ['abs_weight']
+
+    def test_a_custom_feature(self, small_model, small_data):
+        from pyreco import features as F
+
+        @F.network_feature('test_n_edges')
+        def n_edges(ctx):
+            return np.count_nonzero(ctx.weights)
+
+        @F.node_feature('test_in_degree')
+        def in_degree(ctx, v):
+            return np.count_nonzero(ctx.weights[:, v])
+
+        try:
+            history = self.run(small_model, small_data, features=[n_edges, in_degree, 'weight'],
+                               record_candidates=True)
+        finally:
+            del F._NETWORK_FEATURES['test_n_edges'], F._NODE_FEATURES['test_in_degree']
+        assert history['initial']['network']['test_n_edges'] == n_edges_of(history['initial'])
+        assert (history[0]['candidates']['network']['test_n_edges'] == n_edges_of(history['initial']) - 1).all()
+        assert history[0]['state']['node']['test_in_degree'].sum() == n_edges_of(history[0]['state'])
+
+    def test_the_activity_of_the_candidates_differs(self, small_model, small_data):
+        history = self.run(small_model, small_data, features=['mean_sq_activity'], record_candidates=True)
+        assert len(np.unique(history[0]['candidates']['network']['mean_sq_activity'])) > 1
+
+    def test_the_default_run_is_small(self, small_model, small_data):
+        import pickle
+        history = self.run(small_model, small_data)
+        with_candidates = self.run(small_model, small_data, record_candidates=True)
+        assert len(pickle.dumps(history)) < len(pickle.dumps(with_candidates))
+
+    def test_the_store_hook_gets_the_record_and_the_candidate_losses(self, small_model, small_data):
+        seen = []
+
+        class Light(EdgePruner):
+            def _store_iteration(self, model, entry, candidate_val_losses):
+                seen.append((entry['winner_edge'], len(candidate_val_losses), model.reservoir_layer.nodes))
+
+        n_edges = _count_edges(small_model)
+        pruner = Light(candidate_fraction=1.0, stopping_criterion=['min_edges'], min_num_edges=n_edges - 2,
+                       return_best_model=False, seed=0)
+        _, history = pruner.prune(copy.deepcopy(small_model), *small_data)
+        assert set(history) == {'initial', 'features'}  # no iteration was kept
+        assert [count for _, count, _ in seen] == [n_edges, n_edges - 1]
 
 
 # Test edge cases
@@ -729,4 +945,6 @@ class TestEdgeCases:
                             min_num_edges=8)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        assert all(len(entry['candidates']) >= 1 for entry in history.values())
+        pruner.record_candidates = True
+        _, history = pruner.prune(model=small_model, data_train=data_train, data_val=data_val)
+        assert all(len(history[i]['candidates']['edges']) >= 1 for i in iteration_ids(history))

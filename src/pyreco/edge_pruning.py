@@ -8,11 +8,16 @@ from tqdm import tqdm
 from pyreco.custom_models import RC
 from pyreco.edge_selector import EdgeSelector
 from pyreco.utils_random import check_seed
-from typing import Union
+from typing import NamedTuple, Optional, Union
 import copy
-from pyreco.graph_analyzer import GraphAnalyzer
-from pyreco.node_analyzer import NodeAnalyzer
-from pyreco.edge_analyzer import EdgeAnalyzer, available_extractors
+from pyreco.edge_analyzer import available_extractors
+from pyreco.features import (
+    FeatureContext,
+    evaluate_edge_features,
+    evaluate_network_features,
+    evaluate_node_features,
+    resolve_features,
+)
 from pyreco.metrics import available_metrics, is_loss
 
 
@@ -41,8 +46,18 @@ def _check_rescale_spec_rad(value):
         raise ValueError(f'rescale_spec_rad must be positive and finite, got {value!r}')
 
 
+class _CandidateResult(NamedTuple):
+    """Outcome of removing one edge: the refit model with its validation loss, and what is recorded."""
+
+    score: float  # loss on the validation data
+    model: RC  # copy of the model with the edge removed, refit
+    train_score: Optional[float] = None  # loss on the training data, only if recorded
+    network_features: Optional[dict] = None  # name -> float, features of the candidate model, only if recorded
+
+
 def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y_test,
-                                   criterion, graph_analyzer, target_spec_rad=None):
+                                   criterion, target_spec_rad=None, record=False,
+                                   network_features=None):
     """
     Evaluate a single candidate edge removal, independent of 'EdgePruner'.
     Standalone (module-level) counterpart to
@@ -66,29 +81,31 @@ def _evaluate_candidate_standalone(model, candidate, x_train, y_train, x_test, y
         Validation target data.
     criterion : str
         Performance metric used to score the candidate.
-    graph_analyzer : GraphAnalyzer
-        Analyzer used to extract graph-level properties after pruning.
     target_spec_rad : float, optional
         Spectral radius that the reservoir is rescaled to after removing the edge. None (default) does
         not rescale.
+    record : bool, optional
+        Also compute the training loss and the network features of the candidate. Default is False.
+    network_features : dict, optional
+        Network features (name -> function, see 'pyreco.features.resolve_features') to evaluate on the
+        refit candidate if 'record' is True.
 
     Returns
     -------
-    score : float
-        Loss of the refit model with 'candidate' removed, evaluated on
-        (x_test, y_test) using 'criterion'.
-    model : RC
-        Deep copy of 'model' with 'candidate' removed and refit.
-    graph_props_after : dict
-        Graph-level properties of the reservoir after removing 'candidate'.
+    _CandidateResult
+        'score': loss of the refit model with 'candidate' removed, evaluated on (x_test, y_test) using
+        'criterion'; 'model': deep copy of 'model' with 'candidate' removed and refit; if 'record' is
+        True also 'train_score' (loss on (x_train, y_train)) and 'network_features'.
     """
     _model = copy.deepcopy(model)
     _remove_edge(_model, candidate, target_spec_rad)
     _model.fit(x=x_train, y=y_train)
     _score = _model.evaluate(x=x_test, y=y_test, metrics=criterion)[0]
-    _graph = _model.reservoir_layer.weights
-    _graph_props_after = graph_analyzer.extract_properties(graph=_graph)
-    return _score, _model, _graph_props_after
+    if not record:
+        return _CandidateResult(_score, _model)
+    _train_score = _model.evaluate(x=x_train, y=y_train, metrics=criterion)[0]
+    _features = evaluate_network_features(network_features or {}, FeatureContext(_model, x_train))
+    return _CandidateResult(_score, _model, _train_score, _features)
 
 
 class EdgePruner:
@@ -110,7 +127,10 @@ class EdgePruner:
     where :math:`A_k \setminus e` is the adjacency matrix with the entry of :math:`e` set to 0. The pruning
     stops when a stopping criterion is met: no improvement of the loss for ``patience`` iterations, a
     minimum number of nodes or edges. The history records the loss and the properties of the network
-    (density, spectral radius, degrees, ...) per iteration.
+    (density, spectral radius, degrees, ...) per iteration. The history holds the initial reservoir and,
+    per iteration, the reservoir that survives it, with its performance and its named ``features`` (network,
+    edge and node properties, see :mod:`pyreco.features`). With ``record_candidates=True`` it also holds a
+    compact table of all candidates of every iteration. See :meth:`prune` for the layout.
 
     Use :meth:`prune` to run it; the constructor arguments are documented below.
     """
@@ -139,14 +159,13 @@ class EdgePruner:
         structural_criterion: str = 'betweenness',
         metrics: Union[list, str] = ['mse'],
         return_best_model: bool = True,
-        graph_analyzer: GraphAnalyzer = None,
-        node_analyzer: NodeAnalyzer = None,
-        edge_analyzer: EdgeAnalyzer = None,
         remove_isolated_nodes: bool = False,
         directed: bool = True,
         parallel: bool = False,
         seed: int = None,
         rescale_spec_rad: Union[None, float, str] = None,
+        record_candidates: bool = False,
+        features: Optional[list] = None,
     ):
         """
         Initializer for the edge pruning class.
@@ -199,15 +218,6 @@ class EdgePruner:
             Whether to return the model with the lowest recorded loss
             instead of the last model produced before stopping. Default is
             True.
-        graph_analyzer : GraphAnalyzer, optional
-            Analyzer used to extract graph-level properties. A default
-            instance is created if not provided.
-        node_analyzer : NodeAnalyzer, optional
-            Analyzer used to extract node-level properties. A default
-            instance is created if not provided.
-        edge_analyzer : EdgeAnalyzer, optional
-            Analyzer used to extract edge-level properties. A default
-            instance is created if not provided.
         remove_isolated_nodes : bool, optional
             Whether to remove isolated nodes during pruning. Default is
             False.
@@ -229,6 +239,22 @@ class EdgePruner:
             ``"initial"`` is the radius of the model that is pruned. None (default) does not rescale:
             the radius then changes as edges are removed. A reservoir without a directed cycle has
             radius 0 and cannot be rescaled; the rescaling stops there, with a warning.
+        record_candidates : bool, optional
+            Keep a table of all candidates of every iteration, ``history[i]['candidates']`` (see
+            :meth:`prune`): the loss on the validation and on the training data and the network features of
+            every candidate reservoir. Costs one more forward pass through the training data per
+            candidate, plus one for the features that need the activity of the nodes. Default is False:
+            the candidates are evaluated for their validation loss only, and only the reservoir that wins
+            is described.
+        features : list of str or callable, optional
+            The named features to measure (see :mod:`pyreco.features`): names of registered features, or
+            functions decorated with ``@network_feature(name)``, ``@edge_feature(name)`` or
+            ``@node_feature(name)``, all levels mixed. They describe the initial reservoir and the reservoir
+            that survives each iteration (all three levels), and, with ``record_candidates``, every
+            candidate (network features). None (default) selects ``pyreco.features.DEFAULT_NETWORK_FEATURES``,
+            ``DEFAULT_EDGE_FEATURES`` and ``DEFAULT_NODE_FEATURES``; an empty list measures nothing. Features
+            that use the activity of the nodes (e.g. ``'mean_sq_activity'``) need one pass of the model
+            through the training data per reservoir that is described.
 
         Raises
         ------
@@ -254,21 +280,11 @@ class EdgePruner:
             structural_criterion,
             metrics,
             return_best_model,
-            graph_analyzer,
-            node_analyzer,
-            edge_analyzer,
             remove_isolated_nodes,
             directed,
             parallel,
+            record_candidates,
             )
-
-        # If not given create analyzer classes for properties to store
-        if graph_analyzer is None:
-            graph_analyzer = GraphAnalyzer()
-        if node_analyzer is None:
-            node_analyzer = NodeAnalyzer()
-        if edge_analyzer is None:
-            edge_analyzer = EdgeAnalyzer()
 
         # Assigning the parameters to instance variables
         # Parameters for pruning criterion
@@ -286,13 +302,14 @@ class EdgePruner:
         self.directed = directed
         # Parameters for tracking metrics
         self.metrics = metrics
-        self.graph_analyzer = graph_analyzer
-        self.node_analyzer = node_analyzer
-        self.edge_analyzer = edge_analyzer
         # Parameter bools for extra functionalities
         self.return_best_model = return_best_model
         self.remove_isolated_nodes = remove_isolated_nodes
         self.parallel = parallel
+        self.record_candidates = record_candidates
+        # Named features: name -> function, for the network, the edges and the nodes
+        self.features = features
+        self._network_features, self._edge_features, self._node_features = resolve_features(features)
         # Spectral radius that is kept fixed (resolved in prune for "initial")
         _check_rescale_spec_rad(rescale_spec_rad)
         self.rescale_spec_rad = rescale_spec_rad
@@ -311,6 +328,7 @@ class EdgePruner:
         # Needs to be attributes as the history updates depend on them
         self._curr_model = None
         self._curr_loss = None
+        self._curr_train_loss = None
         self._curr_num_nodes = None
         self._curr_num_edges = None
         self._curr_loss_history = []
@@ -341,9 +359,45 @@ class EdgePruner:
             recorded loss during pruning, otherwise the last model produced
             before stopping.
         history : dict
-            Nested dictionary recording, per pruning iteration, the model
-            state before and after pruning, the evaluated candidates and
-            their scores, and any nodes removed as a side effect.
+            The record of the pruning. ``history['initial']`` describes the reservoir before the
+            pruning, ``history[i]`` (``i = 0, 1, ...``) iteration ``i``, and ``history['features']`` lists
+            the names of the features that were measured, ``{'network': [...], 'edge': [...], 'node': [...]}``
+            (the keys of the ``'network'``, ``'edge'`` and ``'node'`` entries of the states).
+
+            A *state* describes one reservoir (the initial one, or the one that survives an iteration):
+
+            * ``'weights'`` (``scipy.sparse.csr_matrix``), ``'input_nodes'``, ``'readout_nodes'``: the
+              reservoir, enough to rebuild it;
+            * ``'val_loss'``, ``'train_loss'``: performance (``performance_criterion``) on the validation
+              and on the training data; ``'metrics'``: ``{name: value}`` of ``metrics`` on the validation data;
+            * ``'edges'``: array of shape (E, 2) with all edges ``(u, v)`` of the reservoir;
+            * ``'network'``: ``{name: float}``, the network features (structure and activity);
+            * ``'edge'``: ``{name: array of shape (E,)}``, the edge features of every edge, in the order of
+              ``'edges'``;
+            * ``'node'``: ``{name: array of shape (N,)}``, the node features of every node (e.g. the
+              activity of each node).
+
+            ``history[i]`` has
+
+            * ``'state'``: the state of the reservoir that results from iteration ``i`` (after the removal of
+              isolated nodes, if requested);
+            * ``'winner_edge'``: the edge ``(u, v)`` that was removed, ``'winner_row'``: its position among
+              the candidates of the iteration (the index into the arrays of ``'candidates'``);
+            * ``'removed_edge'``: ``{name: float}``, the edge features of the removed edge, measured in the
+              reservoir before the removal (the entry of the previous state's ``'edge'`` table, or of the
+              initial one);
+            * ``'removed_nodes'``: the isolated nodes that were removed in this iteration;
+            * ``'candidates'``, only with ``record_candidates=True``: ``{'edges': array of shape (n, 2),
+              'val_loss': array (n,), 'train_loss': array (n,), 'network': {name: array (n,)},
+              'removed_edge': {name: array (n,)}}``, one entry per candidate in the same order: its removed
+              edge, its performance, the network features of the candidate reservoir and the edge features of
+              the edge it removes. The winner is one of the rows (``'winner_row'``).
+
+            The winner is the candidate with the lowest validation loss. The state at the start of
+            iteration ``i + 1`` is ``history[i]['state']``. The training and validation data must be aligned
+            like in ``fit`` (targets shorter than the inputs by ``discard_transients``). The states of the
+            iterations in the patience window stay in the history: cutting it at the best state is up to the
+            caller.
 
         Raises
         ------
@@ -412,10 +466,20 @@ class EdgePruner:
         self._curr_loss = model.evaluate(x=x_test, y=y_test,
                                          metrics=self.performance_criterion)[0]
         self._curr_loss_history = [self._curr_loss]
+        self._curr_train_loss = model.evaluate(x=x_train, y=y_train,
+                                               metrics=self.performance_criterion)[0]
 
         # Initialize quantities that we track for the pruning history
         # These do not affect the pruning process
         self._curr_metrics = model.evaluate(x=x_test, y=y_test, metrics=self.metrics)
+
+        # The state of the reservoir before the pruning. The state of the previous iteration is the parent
+        #   of the candidates of the next one: their removed edges are rows of its edge table
+        parent_state = self._make_state(model, x_train)
+        self.history['initial'] = parent_state
+        self.history['features'] = {'network': list(self._network_features),
+                                    'edge': list(self._edge_features),
+                                    'node': list(self._node_features)}
 
         # Storing all pruned models during the pruning iteration
         # Allows to recover models from previous iterations, e.g. when the best model
@@ -434,9 +498,6 @@ class EdgePruner:
                 if not self._min_num_edges_stopping():
                     break
 
-            # Store initial model and properties in history
-            self._history_update_before_pruning(model, _graph)
-
             print(f'Currently at pruning iteration {self._iter_count} ...')
 
             print(
@@ -448,14 +509,13 @@ class EdgePruner:
             _curr_candidates = self._get_candidates(_graph)
 
             # Apply chosen pruning strategy on candidates to get scores for candidates
-            _candidate_scores, _candidate_models, _cand_graph_props_after = \
-                self._apply_pruning_strategy(model, _curr_candidates, x_train, y_train,
-                                             x_test, y_test)
+            _candidate_results = self._apply_pruning_strategy(model, _curr_candidates, x_train,
+                                                              y_train, x_test, y_test)
+            _candidate_scores = [result.score for result in _candidate_results]
+            _candidate_models = [result.model for result in _candidate_results]
 
-            # Store candidates and properties evaluated during iteration in history
-            self._history_update_candidate_iteration(_graph, _curr_candidates,
-                                                     _candidate_scores,
-                                                     _cand_graph_props_after)
+            # Where the removed edges are in the edge table of the parent
+            _parent_rows = self._rows_in_edge_table(parent_state, _curr_candidates)
 
             # Out of all candidates select candidate with best score (the one to prune)
             idx_prune, pruned_candidate = self._get_best_candidate(_curr_candidates,
@@ -498,9 +558,6 @@ class EdgePruner:
             #   pruning
             if self._check_stopping_criterion():
                 # Exit pruning loop if stopping criterion condition is met
-                # Remove partial history entry for this iteration before exiting to
-                #   return clean history
-                del self.history[self._iter_count]
                 break
 
             if isinstance(pruned_candidate, tuple):
@@ -545,10 +602,26 @@ class EdgePruner:
             self._curr_metrics = model.evaluate(
                 x=x_test, y=y_test, metrics=self.metrics
             )
+            # (after the isolated-node removal, which can refit the model)
+            self._curr_train_loss = model.evaluate(x=x_train, y=y_train,
+                                                   metrics=self.performance_criterion)[0]
 
-            # Store important data after pruning in history
-            self._history_update_after_pruning(model, _graph, idx_prune,
-                                               _curr_candidates, removed_nodes)
+            # The record of this iteration: the reservoir that survived, the edge that was removed
+            state = self._make_state(model, x_train)
+            winner_row = _parent_rows[idx_prune]
+            entry = {
+                'state': state,
+                'winner_edge': (int(_curr_candidates[idx_prune][0]), int(_curr_candidates[idx_prune][1])),
+                'winner_row': int(idx_prune),
+                'removed_edge': {name: float(values[winner_row])
+                                 for name, values in parent_state['edge'].items()},
+                'removed_nodes': removed_nodes,
+            }
+            if self.record_candidates:
+                entry['candidates'] = self._candidate_table(_curr_candidates, _candidate_results,
+                                                            _parent_rows, parent_state)
+            self._store_iteration(model, entry, _candidate_scores)
+            parent_state = state
 
             # Update iteration counter
             self._iter_count += 1
@@ -576,42 +649,57 @@ class EdgePruner:
 
     #   ######## PRUNING STEPS FUNCTIONS ##########
 
-    def _history_update_before_pruning(self, model, graph):
+    def _make_state(self, model, x_train):
         """
-        Record the state of the model at the start of a pruning iteration.
-
-        Parameters
-        ----------
-        model : RC
-            Model as it stands before this iteration's candidate edges
-            are evaluated.
-        graph : nx.Graph or np.ndarray
-            Reservoir's adjacency representation corresponding to
-            ``model``.
-
-        Returns
-        -------
-        None
-            Updates ``self.history[self._iter_count]['starting_model']`` in
-            place.
+        Describe one reservoir (the initial one, or the one that survives an iteration), with the loss
+        and the metrics that are current in ``self``. See :meth:`prune` for the entries.
         """
-
-        # Get graph properties of current model
-        graph_props = self.graph_analyzer.extract_properties(graph=graph)
-        # Store the properties of current model
-        self.history[self._iter_count] = {
-            'starting_model': {
-                'weights': sp.csr_matrix(graph) if isinstance(graph, np.ndarray)
-                else nx.to_scipy_sparse_array(graph),
-                'input_nodes': list(model.reservoir_layer.input_receiving_nodes),
-                'readout_nodes': list(model.readout_layer.readout_nodes),
-                'loss': self._curr_loss,
-                'num_nodes': self._curr_num_nodes,
-                'num_edges': self._curr_num_edges,
-                'metrics': self._curr_metrics,
-                'graph_props': graph_props,
-            }
+        weights = model.reservoir_layer.weights
+        edges = np.argwhere(weights != 0)  # row-major, the order of the edge table
+        context = FeatureContext(model, x_train)
+        metric_names = self.metrics if isinstance(self.metrics, list) else [self.metrics]
+        return {
+            'weights': sp.csr_matrix(weights),
+            'input_nodes': list(model.reservoir_layer.input_receiving_nodes),
+            'readout_nodes': list(model.readout_layer.readout_nodes),
+            'val_loss': self._curr_loss,
+            'train_loss': self._curr_train_loss,
+            'metrics': dict(zip(metric_names, self._curr_metrics)),
+            'edges': edges,
+            'network': evaluate_network_features(self._network_features, context),
+            'edge': evaluate_edge_features(self._edge_features, context, edges),
+            'node': evaluate_node_features(self._node_features, context),
         }
+
+    @staticmethod
+    def _rows_in_edge_table(state, edges):
+        """Row of every edge ``(u, v)`` of ``edges`` in the edge table of ``state``."""
+        row_of = {(int(u), int(v)): row for row, (u, v) in enumerate(state['edges'])}
+        return np.array([row_of[(int(u), int(v))] for u, v in edges], dtype=int)
+
+    def _candidate_table(self, candidates, results, rows, parent_state):
+        """
+        Table of all candidates of an iteration: arrays with one entry per candidate, in the order of
+        ``candidates``. ``rows`` are the positions of the removed edges in the edge table of the parent.
+        """
+        return {
+            'edges': np.array([(int(u), int(v)) for u, v in candidates], dtype=int).reshape(-1, 2),
+            'val_loss': np.array([result.score for result in results], dtype=float),
+            'train_loss': np.array([result.train_score for result in results], dtype=float),
+            'network': {name: np.array([result.network_features[name] for result in results], dtype=float)
+                        for name in self._network_features},
+            'removed_edge': {name: values[rows] for name, values in parent_state['edge'].items()},
+        }
+
+    def _store_iteration(self, model, entry, candidate_val_losses):
+        """
+        Put the record of the iteration that has just finished into the history.
+
+        This is the place to override in a subclass that wants to keep less (or write the record to disk): it
+        gets the model that survived, the record (see :meth:`prune`) and the validation loss of every
+        candidate, also if ``record_candidates`` is False.
+        """
+        self.history[self._iter_count] = entry
 
     def _get_candidates(self, graph):
         """
@@ -670,55 +758,13 @@ class EdgePruner:
 
         Returns
         -------
-        candidate_scores : list of float
-            Score for each candidate (lower is better, i.e. a better pruning
-            choice).
-        candidate_models : list of RC
-            Model resulting from removing each candidate edge.
-        cand_graph_props_after : list of dict
-            Graph-level properties of the reservoir after removing each
-            candidate.
+        list of _CandidateResult
+            One per candidate, in the order of ``candidates``: the score (lower is better, i.e. a better
+            pruning choice) and the model that results from removing the edge, and with
+            ``record_candidates`` its training loss and network features.
         """
         method = getattr(self, self.PRUNING_CRITERION[self.pruning_criterion])
         return method(model, candidates, x_train, y_train, x_test, y_test)
-
-    def _history_update_candidate_iteration(self, graph, candidates, candidate_scores,
-                                            cand_graph_props_after):
-        """
-        Record all evaluated candidates and their scores for this iteration.
-
-        Parameters
-        ----------
-        graph : nx.Graph or np.ndarray
-            Reservoir's weight matrix before pruning, used to
-            extract edge-level properties of the candidates.
-        candidates : list of tuple
-            Edge indices (u, v) that were evaluated as pruning candidates.
-        candidate_scores : list of float
-            Score for each candidate, in the same order as ``candidates``.
-        cand_graph_props_after : list of dict
-            Graph-level properties of the reservoir after removing each
-            candidate, in the same order as ``candidates``.
-
-        Returns
-        -------
-        None
-            Updates ``self.history[self._iter_count]['candidates']`` in
-            place.
-        """
-        # Get scores, edge properties and potential graph properties of candidates
-        cand_edge_props = self.edge_analyzer.extract_properties_batch(graph, candidates)
-
-        self.history[self._iter_count]['candidates'] = {
-            (int(c[0]), int(c[1])): {
-                'score': score,
-                'edge_props': edge_props,
-                'graph_props_after': graph_props,
-            }
-            for c, score, edge_props, graph_props in zip(
-                candidates, candidate_scores, cand_edge_props, cand_graph_props_after
-            )
-        }
 
     def _get_best_candidate(self, candidates, candidate_scores):
         """
@@ -950,49 +996,6 @@ class EdgePruner:
         # Criterion is not met
         return False
 
-    def _history_update_after_pruning(self, model, graph, idx_prune,
-                                      candidates, removed_nodes):
-        """
-        Record the outcome of a pruning iteration.
-
-        Parameters
-        ----------
-        model : RC
-            Model after the selected candidate edge has been pruned.
-        graph : nx.Graph or np.ndarray
-            ``model``'s reservoir adjacency representation.
-        idx_prune : int
-            Index, into ``candidates``, of the edge that was pruned.
-        candidates : list of tuple
-            Edge indices (u, v) that were evaluated this iteration.
-        removed_nodes : dict
-            Isolated nodes removed this iteration, as returned by
-            ``_remove_isolated_nodes``.
-
-        Returns
-        -------
-        None
-            Updates ``self.history[self._iter_count]`` in place with the
-            ``'winner'``, ``'removed_nodes'``, and ``'final_model'`` entries.
-        """
-        # Get final graph properties and winner
-        graph_props = self.graph_analyzer.extract_properties(graph=graph)
-        winner = candidates[idx_prune]
-        # Store winner, removed nodes and properties of winner model
-        self.history[self._iter_count]['winner'] = (int(winner[0]), int(winner[1]))
-        self.history[self._iter_count]['removed_nodes'] = removed_nodes
-        self.history[self._iter_count]['final_model'] = {
-            'weights': sp.csr_matrix(graph) if isinstance(graph, np.ndarray) else
-            nx.to_scipy_sparse_array(graph),
-            'input_nodes': list(model.reservoir_layer.input_receiving_nodes),
-            'readout_nodes': list(model.readout_layer.readout_nodes),
-            'loss': self._curr_loss,
-            'num_nodes': self._curr_num_nodes,
-            'num_edges': self._curr_num_edges,
-            'metrics': self._curr_metrics,
-            'graph_props': graph_props,
-        }
-
     #   ######## MODEL TRAINING FUNCTIONS #########
 
     def _retrain_model(self, model, x_train, y_train):
@@ -1042,60 +1045,39 @@ class EdgePruner:
 
         Returns
         -------
-        candidate_scores : list of float
-            Loss of the refit model for each candidate, in the same order as
-            ``candidates``.
-        candidate_models : list of RC
-            Refit model resulting from removing each candidate edge.
-        cand_graph_props_after : list of dict
-            Graph-level properties of the reservoir after removing each
-            candidate.
+        list of _CandidateResult
+            One per candidate, in the same order as ``candidates``: the validation loss of the refit model and
+            the refit model, and with ``record_candidates`` its training loss and network features.
         """
 
         if self.parallel:
-            # Parallelizing performance evaluation of candidates
-            # Kicking off parallelization of going through all candidates
-            # tqdm shows process in in bar chart
-            # n_jobs is number of jobs to run in parallel (-1 uses all CPU cores)
-            # backend -  loky is default
-            parallel = Parallel(n_jobs=-1, backend='loky')
-            # tqdm shows process in bar chart
-            # Generator returns results in order that they're given
-            # Call seperate evaluation function that doesn't pass the whole self object
-            #   (history gets larger with each iteration and therefore slows down when
-            #   it's spawned across multiple CPUs)
-            results = parallel(
+            # n_jobs=-1 uses all CPU cores, 'loky' is the default backend; tqdm shows a progress bar.
+            # The results come back in the order of the candidates. A separate evaluation function that
+            #   does not pass the whole self object is called: the history gets larger with each
+            #   iteration and would slow down the transfer to the workers.
+            results = Parallel(n_jobs=-1, backend='loky')(
                 delayed(_evaluate_candidate_standalone)
-                (model, c, x_train, y_train, x_test, y_test,
-                 self.performance_criterion, self.graph_analyzer, self._target_spec_rad)
+                (model, c, x_train, y_train, x_test, y_test, self.performance_criterion,
+                 self._target_spec_rad, self.record_candidates, self._network_features)
                 for c in tqdm(candidates, desc='Evaluating candidates')
                 )
-            _candidate_scores, _candidate_models, _cand_graph_props_after = \
-                zip(*results)
-            _candidate_scores = list(_candidate_scores)
-            _candidate_models = list(_candidate_models)
-            _cand_graph_props_after = list(_cand_graph_props_after)
         else:
             # Go through candidates one by one in a single process
-            # Initialize lists to track different metrics during pruning iteration
-            _candidate_scores, _candidate_models, _cand_graph_props_after = [], [], []
-            for candidate in candidates:
-                # Get model performance for removing candidate
-                score, cand_model, props_after = \
-                    self._evaluate_candidate_performance(model, candidate,
-                                                         x_train, y_train,
-                                                         x_test, y_test)
-                # Collect score, model and properties of candiate
-                _candidate_scores.append(score)
-                _candidate_models.append(cand_model)
-                _cand_graph_props_after.append(props_after)
+            results = [
+                self._evaluate_candidate_performance(model, candidate, x_train, y_train,
+                                                     x_test, y_test)
+                for candidate in candidates
+            ]
 
-        return _candidate_scores, _candidate_models, _cand_graph_props_after
+        return list(results)
 
     def _evaluate_candidate_performance(self, model, candidate,
                                         x_train, y_train, x_test, y_test):
         """
         Evaluate a single candidate edge removal (serial path).
+
+        Calls :func:`_evaluate_candidate_standalone` with the settings of the pruner and prints the
+        result.
 
         Parameters
         ----------
@@ -1114,46 +1096,21 @@ class EdgePruner:
 
         Returns
         -------
-        score : float
-            Loss of the refit model with ``candidate`` removed, evaluated on
-            (x_test, y_test) using ``self.performance_criterion``.
-        model : RC
-            Deep copy of ``model`` with ``candidate`` removed and refit.
-        graph_props_after : dict
-            Graph-level properties of the reservoir after removing
-            ``candidate``.
+        _CandidateResult
+            See :func:`_evaluate_candidate_standalone`; ``score`` is the loss of the refit model with
+            ``candidate`` removed, evaluated on (x_test, y_test) using ``self.performance_criterion``.
         """
-        # Single candidate run (had to be broken down to this to enable parallelization)
-        # Copy original model for candidate removal
-        _model = copy.deepcopy(model)
+        result = _evaluate_candidate_standalone(
+            model, candidate, x_train, y_train, x_test, y_test, self.performance_criterion,
+            self._target_spec_rad, self.record_candidates, self._network_features)
+        score = result.score
 
-        # Get info on candidate egde and graph before removal
-        _graph = _model.reservoir_layer.weights
+        label = f"{int(candidate[0])}-{int(candidate[1])}" if \
+                isinstance(candidate, tuple) else int(candidate)
+        print(f'Possible deletion of edge {label:<10} loss: {score:.6f}  '
+              f'({(self._curr_loss - score) / self._curr_loss:+.3%})')
 
-        # Remove candidate edge from reservoir (and rescale to the fixed spectral radius, if requested)
-        _remove_edge(_model, candidate, self._target_spec_rad)
-
-        # Re-fit (retrain) pruned model
-        _model.fit(x=x_train, y=y_train)
-
-        # Evaluate pruned model regarding performance criterion
-        _score = _model.evaluate(x=x_test, y=y_test,
-                                 metrics=self.performance_criterion)[0]
-
-        # Extract graph properties after pruning
-        _graph = _model.reservoir_layer.weights
-        _graph_props_after = self.graph_analyzer.extract_properties(graph=_graph)
-
-        if not self.parallel:
-            # Print candidate and score info if not parallelized
-            # Format candidate tuple cleanly
-            label = f"{int(candidate[0])}-{int(candidate[1])}" if \
-                    isinstance(candidate, tuple) else int(candidate)
-            print(f'Possible deletion of edge {label:<10} loss: {_score:.6f}  '
-                  f'({(self._curr_loss - _score) / self._curr_loss:+.3%})')
-
-        # Return canidate score, model and properties
-        return _score, _model, _graph_props_after
+        return result
 
     def _shortest_path_pruning(self, model):
         """
@@ -1288,12 +1245,10 @@ class EdgePruner:
         structural_criterion,
         metrics,
         return_best_model,
-        graph_analyzer,
-        node_analyzer,
-        edge_analyzer,
         remove_isolated_nodes,
         directed,
         parallel,
+        record_candidates=False,
     ):
         """
         Validate the types and values of parameters passed to ``__init__``.
@@ -1322,17 +1277,13 @@ class EdgePruner:
             See ``__init__``.
         return_best_model : bool
             See ``__init__``.
-        graph_analyzer : GraphAnalyzer or None
-            See ``__init__``.
-        node_analyzer : NodeAnalyzer or None
-            See ``__init__``.
-        edge_analyzer : EdgeAnalyzer or None
-            See ``__init__``.
         remove_isolated_nodes : bool
             See ``__init__``.
         directed : bool
             See ``__init__``.
         parallel : bool
+            See ``__init__``.
+        record_candidates : bool
             See ``__init__``.
 
         Raises
@@ -1453,18 +1404,6 @@ class EdgePruner:
         if not isinstance(return_best_model, bool):
             raise TypeError('return_best_model must be a boolean')
 
-        # Validate graph analyzer
-        if graph_analyzer is not None and not isinstance(graph_analyzer, GraphAnalyzer):
-            raise TypeError('graph_analyzer must be an instance of GraphAnalyzer')
-
-        # Validate node analyzer
-        if node_analyzer is not None and not isinstance(node_analyzer, NodeAnalyzer):
-            raise TypeError('node_analyzer must be an instance of NodeAnalyzer')
-
-        # Validate edge analyzer
-        if edge_analyzer is not None and not isinstance(edge_analyzer, EdgeAnalyzer):
-            raise TypeError('edge_analyzer must be an instance of EdgeAnalyzer')
-
         # Validate remove isolated nodes
         if not isinstance(remove_isolated_nodes, bool):
             raise TypeError('remove_isolated_nodes must be a boolean')
@@ -1476,6 +1415,10 @@ class EdgePruner:
         # Validate parallel
         if not isinstance(parallel, bool):
             raise TypeError('parallel must be a boolean')
+
+        # Validate record_candidates
+        if not isinstance(record_candidates, bool):
+            raise TypeError('record_candidates must be a boolean')
 
     def _validate_pruning_params(self, model, data_train, data_val):
         """

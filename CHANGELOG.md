@@ -3,6 +3,53 @@
 Noteworthy changes of new releases of pyReCo have been documented in this file since version
 0.0.2.
 
+## pyReCo-3.1.0
+
+Upgrading from 3.0: see [UPGRADING.md](UPGRADING.md).
+
+### Breaking Changes
+
+* The history that `EdgePruner.prune` returns has a new layout (details in `EdgePruner.prune`). `history['initial']`
+  describes the reservoir before the pruning, `history[i]` iteration `i`. The keys `starting_model`,
+  `final_model`, `winner`, and the dict `candidates` with a dict per candidate (`score`, `edge_props`,
+  `graph_props_after`) are gone: the state at the start of an iteration is the state of the previous one, so
+  it was stored twice. Instead `history[i]` has `state` (the reservoir that survives the iteration), `winner_edge`,
+  `winner_row`, `removed_edge` (the edge features of the removed edge), `removed_nodes`, and with
+  `record_candidates=True` `candidates`.
+* `EdgePruner` no longer takes `graph_analyzer`, `node_analyzer` and `edge_analyzer`: the named features
+  (below) replace them. `record_candidates` no longer stores a sparse matrix per candidate (the matrix of a candidate
+  is the one of its parent without the removed edge).
+
+### New
+
+* `pyreco.features`: named features of a reservoir network (`density`, `spectral_radius`, `av_in_degree`,
+  `av_out_degree`, `clustering_coefficient`, `mean_sq_activity`), of a single edge (`weight`, `abs_weight`, `sign`,
+  `is_reciprocal`, `in_scc`, `betweenness`, `source_out_degree`, `target_in_degree`, `source_betweenness`,
+  `target_betweenness`, `source_mean_sq_activity`, `target_mean_sq_activity`) and of a single node
+  (`node_mean_sq_activity`). `mean_sq_activity` is the mean squared activity of the nodes (second moment of the
+  states after the warm-up, on the training inputs); it and its edge and node versions need a pass through the data,
+  the others do not. Your own features are a function with a decorator: `@network_feature("name")`
+  (`f(ctx) -> float`), `@edge_feature("name")` (`f(ctx, u, v) -> float`) or `@node_feature("name")`
+  (`f(ctx, v) -> float`); `ctx` offers the weights, the activity, a networkx graph and more, each computed once and
+  only if used. `available_network_features()`, `available_edge_features()` and `available_node_features()` list
+  names and descriptions; `compute_network_features`, `compute_edge_features` and `compute_node_features` evaluate
+  them outside of the pruner.
+* `EdgePruner(features=[...])` chooses the features (default: `DEFAULT_NETWORK_FEATURES`, `DEFAULT_EDGE_FEATURES`
+  and `DEFAULT_NODE_FEATURES` of `pyreco.features`, `[]` measures nothing). Every state (`history['initial']`,
+  `history[i]['state']`) has `network` (a number per feature), `edge` (an array over all its edges, in the order of
+  `edges`) and `node` (an array over its nodes), its `val_loss`, `train_loss` and `metrics`, and the sparse
+  `weights`, `input_nodes` and `readout_nodes`.
+* `history['features']` lists the names of the features that were measured, `{'network': [...], 'edge': [...],
+  'node': [...]}`; the history keys are `'initial'`, `'features'` and the iterations `0, 1, ...`.
+* `EdgePruner(record_candidates=True)` keeps `history[i]['candidates']`, a table with one entry per candidate:
+  `edges`, `val_loss`, `train_loss`, `network` (the features of the candidate reservoir) and `removed_edge` (the
+  edge features of the edge that it removes, taken from the edge table of the reservoir before). It costs one more
+  pass through the training data per candidate; without it the candidates are only evaluated for the validation
+  loss. The winner is the row `history[i]['winner_row']`.
+* A subclass of `EdgePruner` can override `_store_iteration(model, entry, candidate_val_losses)` to keep less or to
+  write the records to disk (`examples/mwe_edge_pruning_to_isolation.py`).
+* The serial and the parallel evaluation of a pruning candidate share one function.
+
 ## pyReCo-3.0.0
 
 Upgrading from 2.x: see [UPGRADING.md](UPGRADING.md).
