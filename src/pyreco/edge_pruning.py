@@ -411,22 +411,21 @@ class EdgePruner:
             the iteration, the surviving model can be smaller. The records of the iterations in the
             patience window stay in the history: cutting it at the best state is up to the caller.
 
-            Unless ``features=[]``, the named features are stored compactly (arrays instead of one
-            dict per candidate; ``'<name>'`` below stands for the names of the features that were asked
-            for):
+            Unless ``features=[]``, the named features are stored in flat dicts, one entry per feature
+            name (``'<name>'`` below stands for the names that were asked for, network and edge features
+            alike):
 
-            * ``history[i]['candidate_features']``: ``'edges'`` (array of shape (n_candidates, 2), the
-              removed edges ``(u, v)``), ``'score'`` (array, the validation loss of every candidate),
-              ``'network'`` (``{'<name>': array}``, the network features of every candidate reservoir
-              after the removal) and ``'edge'`` (``{'<name>': array}``, the edge features of every removed
-              edge, measured in the reservoir before the removal). All arrays have one entry per candidate,
-              in the same order, so ``pandas.DataFrame`` of them is one table.
-            * ``history[i]['starting_model']['features']``: ``{'network': {'<name>': float}}`` of the
-              reservoir at the start of the iteration.
-            * ``history[i]['final_model']['features']``: ``{'network': {'<name>': float}, 'edge':
-              {'<name>': float}}``, the network features of the reservoir that results from the iteration
-              (after the removal of isolated nodes, if requested) and the edge features of the edge that was
-              removed.
+            * ``history[i]['candidate_features']``: ``{'edges': array of shape (n_candidates, 2) with the
+              removed edges (u, v), 'score': array with the validation loss of every candidate,
+              '<name>': array, ...}``. The arrays have one entry per candidate, in the same order, so
+              ``pandas.DataFrame(history[i]['candidate_features'])`` is one table once ``'edges'`` is split
+              into its two columns. A network feature is measured on the candidate reservoir (after the
+              removal), an edge feature on the removed edge in the reservoir before the removal.
+            * ``history[i]['starting_model']['features']``: ``{'<name>': float, ...}`` for the network
+              features of the reservoir at the start of the iteration.
+            * ``history[i]['final_model']['features']``: ``{'<name>': float, ...}``, the network features
+              of the reservoir that results from the iteration (after the removal of isolated nodes, if
+              requested) and the edge features of the edge that was removed.
 
         Raises
         ------
@@ -674,15 +673,14 @@ class EdgePruner:
 
     def _model_features(self, model, x_train, removed_edge_features=None):
         """
-        Network features of a model, with the edge features of the removed edge if given: ``{'network':
-        {name: float}, 'edge': {name: float}}``, or None if no features are asked for.
+        Network features of a model, with the edge features of the removed edge if given, in one flat dict
+        ``{name: float}``; None if no features are asked for.
         """
         if not (self._network_features or self._edge_features):
             return None
-        features = {'network': evaluate_network_features(self._network_features,
-                                                         NetworkContext(model, x_train))}
+        features = evaluate_network_features(self._network_features, NetworkContext(model, x_train))
         if removed_edge_features is not None:
-            features['edge'] = removed_edge_features
+            features.update(removed_edge_features)
         return features
 
     def _history_update_before_pruning(self, model, graph, features=None):
@@ -698,7 +696,7 @@ class EdgePruner:
             Reservoir's adjacency representation corresponding to
             ``model``.
         features : dict, optional
-            ``{'network': {name: float}}`` of ``model``, stored as ``'features'`` if given.
+            ``{name: float}``, the network features of ``model``, stored as ``'features'`` if given.
 
         Returns
         -------
@@ -835,9 +833,9 @@ class EdgePruner:
             self.history[self._iter_count]['candidate_features'] = {
                 'edges': np.array([(int(c[0]), int(c[1])) for c in candidates], dtype=int).reshape(-1, 2),
                 'score': np.array([result.score for result in results], dtype=float),
-                'network': {name: np.array([result.network_features[name] for result in results], dtype=float)
-                            for name in self._network_features},
-                'edge': edge_features,
+                **{name: np.array([result.network_features[name] for result in results], dtype=float)
+                   for name in self._network_features},
+                **edge_features,
             }
 
     def _get_best_candidate(self, candidates, candidate_scores):
@@ -1089,8 +1087,8 @@ class EdgePruner:
             Isolated nodes removed this iteration, as returned by
             ``_remove_isolated_nodes``.
         features : dict, optional
-            ``{'network': {name: float}, 'edge': {name: float}}``, stored as ``'features'`` of the final
-            model if given.
+            ``{name: float}``, the network features of ``model`` and the edge features of the removed edge,
+            stored as ``'features'`` of the final model if given.
 
         Returns
         -------

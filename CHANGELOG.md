@@ -18,12 +18,13 @@ Compatible with 3.0.0: new keys in the pruning history and new optional argument
   only if used. `available_network_features()` / `available_edge_features()` list names and descriptions;
   `compute_network_features` and `compute_edge_features` evaluate them outside of the pruner.
 * `EdgePruner(features=[...])` measures the named features in every iteration (default: the structural ones
-  above, `[]` switches it off). The numbers are stored compactly, an array per name instead of a dict per
-  candidate: `history[i]['candidate_features']` has `'edges'`, `'score'`, `'network'` (the features of every
-  candidate reservoir) and `'edge'` (the features of every removed edge, in the reservoir before the removal);
-  `history[i]['starting_model']['features']` and `history[i]['final_model']['features']` have the features of the
-  reservoir at the start of the iteration and of the one that survives it (with the features of the removed
-  edge). Existing keys are unchanged.
+  above, `[]` switches it off). The numbers are stored compactly in flat dicts with one entry per feature name,
+  network and edge features alike (the names `edges` and `score` are reserved): `history[i]['candidate_features']`
+  is `{'edges': (n, 2) array, 'score': array, '<name>': array, ...}` with one entry per candidate (a network
+  feature is measured on the candidate reservoir, an edge feature on the removed edge before the removal);
+  `history[i]['starting_model']['features']` and `history[i]['final_model']['features']` are `{'<name>': float}`
+  for the reservoir at the start of the iteration and for the one that survives it (including the features of
+  the removed edge). Existing keys are unchanged.
 * `EdgePruner` records the training loss: `history[i]['starting_model']` and `history[i]['final_model']` have a
   new key `'train_loss'`, the loss (`performance_criterion`) on the training data. `'loss'` is, as before, the loss
   on the validation data.

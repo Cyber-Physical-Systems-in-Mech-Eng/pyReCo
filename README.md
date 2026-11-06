@@ -288,7 +288,8 @@ Edges are directed: `weights[u, v]` is the edge from node `u` to node `v`. Note 
 #### Features of the candidates
 
 In every iteration the pruner measures named *features* of every candidate reservoir and of every edge that a
-candidate removes, and stores them compactly: one array per name, not one dict per candidate.
+candidate removes, and stores them compactly: one array per name (network and edge features in the same flat
+dict), not one dict per candidate.
 
 ```python
 pruner = EdgePruner(candidate_fraction=0.2, stopping_criterion=['min_edges'], min_num_edges=n_edges - 6, seed=0,
@@ -296,9 +297,9 @@ pruner = EdgePruner(candidate_fraction=0.2, stopping_criterion=['min_edges'], mi
                               'weight', 'betweenness', 'source_mean_sq_activity'])  # of the removed edge
 pruned_model, history = pruner.prune(model, (X_train, y_train), (X_test, y_test))
 
-table = history[0]['candidate_features']  # arrays with one entry per candidate, same order
-table['edges'], table['score'], table['network']['density'], table['edge']['weight']
-history[0]['final_model']['features']      # the features of the reservoir that survives iteration 0
+table = history[0]['candidate_features']  # {'edges': ..., 'score': ..., 'density': ..., 'weight': ..., ...}
+table['density'], table['weight']         # arrays with one entry per candidate, same order as table['edges']
+history[0]['final_model']['features']      # {'density': ..., 'weight': ...} of the reservoir that survives iteration 0
 ```
 
 `pyreco.features.available_network_features()` and `available_edge_features()` list the names. Without the

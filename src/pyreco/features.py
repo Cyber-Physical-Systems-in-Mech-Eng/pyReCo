@@ -51,6 +51,8 @@ from pyreco.utils_networks import (
 )
 
 # name -> function, one registry per level
+# names that the tables of the pruner use for other columns
+RESERVED_NAMES = ("edges", "score")
 _NETWORK_FEATURES: Dict[str, Callable] = {}
 _EDGE_FEATURES: Dict[str, Callable] = {}
 
@@ -156,6 +158,8 @@ class EdgeContext(NetworkContext):
 def _register(level: str, registry: Dict[str, Callable], name: str):
     if not isinstance(name, str) or not name:
         raise TypeError(f"The name of a feature must be a non-empty string, got {name!r}.")
+    if name in RESERVED_NAMES:
+        raise ValueError(f"The name {name!r} is reserved for a column of the pruning history: choose another name.")
 
     def decorator(func: Callable) -> Callable:
         for other in (_NETWORK_FEATURES, _EDGE_FEATURES):

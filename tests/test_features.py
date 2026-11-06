@@ -112,6 +112,14 @@ def test_a_custom_edge_feature_can_use_the_activity(model, data, edges, clean_re
     assert values == pytest.approx([weights[u, v] ** 2 * activity[u] for u, v in edges])
 
 
+def test_names_of_the_pruning_tables_are_reserved(clean_registry):
+    for name in ("edges", "score"):
+        with pytest.raises(ValueError, match="reserved"):
+            F.network_feature(name)
+        with pytest.raises(ValueError, match="reserved"):
+            F.edge_feature(name)
+
+
 def test_a_name_cannot_be_taken_twice(clean_registry):
     with pytest.raises(ValueError, match="exists already"):
         F.network_feature("density")(lambda ctx: 0.0)
