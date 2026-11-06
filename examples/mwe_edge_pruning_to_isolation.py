@@ -15,7 +15,7 @@ The script answers three questions:
 2. How do the properties of the network change (density, spectral radius, degree, clustering, number of
    isolated nodes, connected components)?
 3. How does the pruning change where the nodes work on their activation curve (mean slope of the
-   activation, fraction of time in saturation)? With the random input bias switched on (``--input-bias``)
+   activation, fraction of time in saturation)? With the random input bias switched on (``INPUT_BIAS``)
    this is the quantity that structural measures like the degree cannot see, see
    ``pyreco.edge_analyzer.operating_point_statistics``.
 
@@ -25,12 +25,9 @@ the same command: the network is rebuilt from the stored order of the removed ed
 checkpoints itself, so the script hooks into it and keeps only a compact record per iteration instead of
 the candidate details of the whole history (which would grow to gigabytes).
 
-Usage::
-
-    python mwe_edge_pruning_to_isolation.py                   # run (or resume) and plot
-    python mwe_edge_pruning_to_isolation.py --max-iterations 20   # only 20 more iterations (try it out)
-    python mwe_edge_pruning_to_isolation.py --plot-only       # plots of the stored records
-    python mwe_edge_pruning_to_isolation.py --input-bias 0.5 --seed 1   # another arm of the study
+Usage: ``python mwe_edge_pruning_to_isolation.py``. The settings are the constants SEED, INPUT_BIAS,
+MAX_ITERATIONS, PARALLEL, FRESH and PLOT_ONLY below the imports (for example ``MAX_ITERATIONS = 20`` to try it
+out, or ``PLOT_ONLY = True`` for the plots of the stored records).
 
 Output (in ``edge_pruning_to_isolation_bias<b>_seed<s>/``): ``records.json``, ``initial_weights.npy``,
 ``config.json``, ``pruning_performance.png``, ``pruning_network_properties.png``, ``pruning_steps.png``.
@@ -43,7 +40,6 @@ import os
 for _variable in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_variable, "1")
 
-import argparse
 import contextlib
 import copy
 import io
@@ -69,6 +65,15 @@ from pyreco.optimizers import RidgeSK
 from pyreco.utils_networks import extract_clustering_coefficient
 
 # ------------------------------------------------------------------------------ settings
+SEED = 0  # seed of the reservoir, the read-in weights and the data
+INPUT_BIAS = 0.0  # gain of the random per-node input bias (0 = off). It sets the operating point of the nodes and
+# can decide which edges matter: run the study with and without it and with several seeds
+MAX_ITERATIONS = None  # prune at most this many edges in this call (None: until no edge is left)
+PARALLEL = True  # evaluate the candidates in worker processes
+FRESH = False  # ignore stored records and start from scratch
+PLOT_ONLY = False  # only plot the stored records
+
+# ---- the reservoir and the data
 NODES = 50
 DENSITY = 0.5  # initial density of the reservoir (fraction of the N (N - 1) possible edges)
 SPEC_RAD = 0.9
@@ -78,21 +83,6 @@ WEIGHT_DISTRIBUTION = "uniform"  # signed weights; the all-positive default limi
 RIDGE_ALPHA = 1e-6
 N_IN = 30  # input window; the target belongs to the last input step (warm-up N_IN - 1)
 N_TRAIN, N_VAL = 400, 250  # windows used in the pruning (every candidate retrains the readout on them)
-
-
-def parse_arguments():
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--seed", type=int, default=0, help="seed of the reservoir, the read-in weights, the data")
-    parser.add_argument(
-        "--input-bias", type=float, default=0.0,
-        help="gain of the random per-node input bias (0 = off). It sets the operating point of the nodes and "
-             "can decide which edges matter: run the study with and without it and with several seeds.",
-    )
-    parser.add_argument("--max-iterations", type=int, default=None, help="prune at most this many edges in this call")
-    parser.add_argument("--serial", action="store_true", help="evaluate the candidates in one process")
-    parser.add_argument("--fresh", action="store_true", help="ignore stored records and start from scratch")
-    parser.add_argument("--plot-only", action="store_true", help="only plot the stored records")
-    return parser.parse_args()
 
 
 # ----------------------------------------------------------------------------- the study
@@ -217,7 +207,7 @@ class CheckpointedEdgePruner(EdgePruner):
 
 
 # ------------------------------------------------------------------------------ running
-def run_pruning(study, args):
+def run_pruning(study):
     """Run (or resume) the pruning, storing the records on the way."""
     study.directory.mkdir(exist_ok=True)
     config_file, weights_file, records_file = (
@@ -225,10 +215,10 @@ def run_pruning(study, args):
     )
 
     model = study.build_model()
-    resuming = records_file.exists() and not args.fresh
+    resuming = records_file.exists() and not FRESH
     if resuming:
         if json.loads(config_file.read_text()) != study.config:
-            raise SystemExit(f"{study.directory} was made with other settings; use --fresh to start again.")
+            raise SystemExit(f"{study.directory} was made with other settings; set FRESH = True to start again.")
         study.records = json.loads(records_file.read_text())
         initial_weights = np.load(weights_file)
         assert np.array_equal(initial_weights, model.reservoir_layer.weights), "the rebuilt network differs"
@@ -253,7 +243,7 @@ def run_pruning(study, args):
     study.weights_before_step = model.reservoir_layer.weights.copy()
 
     # prune until no edge is left (min_num_edges=0), or max_iterations edges in this call
-    min_num_edges = 0 if args.max_iterations is None else max(0, edges - args.max_iterations)
+    min_num_edges = 0 if MAX_ITERATIONS is None else max(0, edges - MAX_ITERATIONS)
     pruner = CheckpointedEdgePruner(
         study,
         candidate_fraction=1.0,  # try out all edges in every iteration
@@ -262,7 +252,7 @@ def run_pruning(study, args):
         min_num_edges=min_num_edges,
         metrics=["nrmse"],
         return_best_model=False,  # the last model, not the best one
-        parallel=not args.serial,
+        parallel=PARALLEL,
         features=[],  # the script keeps its own record (see snapshot)
         seed=study.config["seed"],
     )
@@ -369,10 +359,9 @@ def summarize(study):
 
 
 if __name__ == "__main__":
-    args = parse_arguments()
-    study = Study(args.seed, args.input_bias)
-    if not args.plot_only:
-        run_pruning(study, args)
+    study = Study(SEED, INPUT_BIAS)
+    if not PLOT_ONLY:
+        run_pruning(study)
     else:
         study.records = json.loads((study.directory / "records.json").read_text())
     summarize(study)
