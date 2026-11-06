@@ -1,9 +1,9 @@
-# Upgrading from pyReCo 3.x to 4.0
+# Upgrading from pyReCo 3.0 to 3.1
 
 Only the edge pruning changes. The history that `EdgePruner.prune` returns has a new layout, and the analyzer
 arguments are gone. See `EdgePruner.prune` for all entries and [CHANGELOG.md](CHANGELOG.md).
 
-| 3.x | 4.0 |
+| 3.0 | 3.1 |
 |---|---|
 | `history[i]["starting_model"]` | `history[i - 1]["state"]` (the reservoir that survived the previous iteration), or `history["initial"]` for `i = 0`. The two were identical. |
 | `history[i]["final_model"]` | `history[i]["state"]` |
