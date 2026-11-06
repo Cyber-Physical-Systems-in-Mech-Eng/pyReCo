@@ -202,7 +202,7 @@ with smoke.stage("edge pruning"):
     reference_val = tuned.evaluate(x_val, y_val)[0]
     _, history = pruner.prune(copy.deepcopy(tuned), (x_prune, y_prune), (x_val, y_val))
     # the reservoir before the pruning and the one that survives each iteration
-    states = [history["initial"]] + [history[k]["state"] for k in sorted(k for k in history if k != "initial")]
+    states = [history["initial"]] + [history[k]["state"] for k in sorted(k for k in history if isinstance(k, int))]
     edges = [len(state["edges"]) for state in states]
     losses = [state["val_loss"] for state in states]
 

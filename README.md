@@ -287,14 +287,15 @@ Edges are directed: `weights[u, v]` is the edge from node `u` to node `v`. Note 
 
 #### The history and the features of the reservoirs
 
-`prune` returns `(model, history)`. `history['initial']` describes the reservoir before the pruning and `history[i]`
-the iteration `i`. A *state* describes one reservoir: its performance and its named *features*.
+`prune` returns `(model, history)`. `history['initial']` describes the reservoir before the pruning, `history[i]`
+the iteration `i`, and `history['features']` lists the names of the features that were measured. A *state* describes one reservoir: its performance and its named *features*.
 
 ```python
 pruner = EdgePruner(candidate_fraction=0.2, stopping_criterion=['min_edges'], min_num_edges=n_edges - 6, seed=0,
                     record_candidates=True)  # also keep a table of all candidates (see below)
 pruned_model, history = pruner.prune(model, (X_train, y_train), (X_test, y_test))
 
+history['features']               # the names of the measured features: {'network': [...], 'edge': [...], 'node': [...]}
 state = history['initial']        # the reservoir before the pruning ...
 state = history[0]['state']       # ... or the one that survived iteration 0
 state['val_loss'], state['train_loss']  # performance on the validation and on the training data

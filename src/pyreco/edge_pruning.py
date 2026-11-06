@@ -360,7 +360,9 @@ class EdgePruner:
             before stopping.
         history : dict
             The record of the pruning. ``history['initial']`` describes the reservoir before the
-            pruning, ``history[i]`` (``i = 0, 1, ...``) iteration ``i``.
+            pruning, ``history[i]`` (``i = 0, 1, ...``) iteration ``i``, and ``history['features']`` lists
+            the names of the features that were measured, ``{'network': [...], 'edge': [...], 'node': [...]}``
+            (the keys of the ``'network'``, ``'edge'`` and ``'node'`` entries of the states).
 
             A *state* describes one reservoir (the initial one, or the one that survives an iteration):
 
@@ -475,6 +477,9 @@ class EdgePruner:
         #   of the candidates of the next one: their removed edges are rows of its edge table
         parent_state = self._make_state(model, x_train)
         self.history['initial'] = parent_state
+        self.history['features'] = {'network': list(self._network_features),
+                                    'edge': list(self._edge_features),
+                                    'node': list(self._node_features)}
 
         # Storing all pruned models during the pruning iteration
         # Allows to recover models from previous iterations, e.g. when the best model

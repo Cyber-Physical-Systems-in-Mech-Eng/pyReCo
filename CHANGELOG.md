@@ -39,6 +39,8 @@ Upgrading from 3.0: see [UPGRADING.md](UPGRADING.md).
   `history[i]['state']`) has `network` (a number per feature), `edge` (an array over all its edges, in the order of
   `edges`) and `node` (an array over its nodes), its `val_loss`, `train_loss` and `metrics`, and the sparse
   `weights`, `input_nodes` and `readout_nodes`.
+* `history['features']` lists the names of the features that were measured, `{'network': [...], 'edge': [...],
+  'node': [...]}`; the history keys are `'initial'`, `'features'` and the iterations `0, 1, ...`.
 * `EdgePruner(record_candidates=True)` keeps `history[i]['candidates']`, a table with one entry per candidate:
   `edges`, `val_loss`, `train_loss`, `network` (the features of the candidate reservoir) and `removed_edge` (the
   edge features of the edge that it removes, taken from the edge table of the reservoir before). It costs one more

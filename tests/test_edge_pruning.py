@@ -19,7 +19,7 @@ from pyreco.utils_data import sequence_to_sequence as seq_2_seq
 
 def iteration_ids(history):
     """The keys of the iterations, in order (the history also holds 'initial')."""
-    return sorted(key for key in history if key != 'initial')
+    return sorted(key for key in history if isinstance(key, int))
 
 
 def n_edges_of(state):
@@ -304,8 +304,8 @@ class TestPruningLoop:
         n_first = len(first)
         pruner.min_num_edges = int(np.count_nonzero(small_model.reservoir_layer.weights)) - 1
         _, second = pruner.prune(model=copy.deepcopy(small_model), data_train=data_train, data_val=data_val)
-        assert n_first > 2 and len(second) == 2  # no entries of the first run are left over
-        assert set(second) == {'initial', 0}
+        assert n_first > 3 and len(second) == 3  # no entries of the first run are left over
+        assert set(second) == {'initial', 'features', 0}
 
     def test_returns_model_and_history(self, small_model, small_data):
         # prune() returns a fitted RC model and a non-empty history dict
@@ -325,8 +325,8 @@ class TestPruningLoop:
                             min_num_edges=8)
         _, history = pruner.prune(model=small_model, data_train=data_train,
                                   data_val=data_val)
-        assert iteration_ids(history) == list(range(len(history) - 1))
-        assert set(history) == {'initial', *iteration_ids(history)}
+        assert iteration_ids(history) == list(range(len(history) - 2))
+        assert set(history) == {'initial', 'features', *iteration_ids(history)}
 
     def test_history_entry_has_expected_top_level_keys(self, small_model, small_data):
         # Iteration's history entry exposes exactly these top-level keys; the candidate table only on request
@@ -351,6 +351,19 @@ class TestPruningLoop:
         assert set(history['initial']) == expected
         assert set(history[0]['state']) == expected
         assert list(history['initial']['metrics']) == ['mse']
+
+    def test_the_history_lists_the_names_of_the_features(self, small_model, small_data):
+        data_train, data_val = small_data
+        pruner = EdgePruner(candidate_fraction=1.0, stopping_criterion=['min_edges'], min_num_edges=8,
+                            features=['density', 'abs_weight', 'weight', 'node_mean_sq_activity', 'spectral_radius'])
+        _, history = pruner.prune(model=small_model, data_train=data_train, data_val=data_val)
+        assert history['features'] == {'network': ['density', 'spectral_radius'], 'edge': ['abs_weight', 'weight'],
+                                       'node': ['node_mean_sq_activity']}
+        for key in ('network', 'edge', 'node'):
+            assert list(history[0]['state'][key]) == history['features'][key]
+        _, history = EdgePruner(features=[], stopping_criterion=['min_edges'], min_num_edges=8).prune(
+            copy.deepcopy(small_model), data_train, data_val)
+        assert history['features'] == {'network': [], 'edge': [], 'node': []}
 
     def test_the_old_keys_are_gone(self, small_model, small_data):
         data_train, data_val = small_data
@@ -913,7 +926,7 @@ class TestFeatures:
         pruner = Light(candidate_fraction=1.0, stopping_criterion=['min_edges'], min_num_edges=n_edges - 2,
                        return_best_model=False, seed=0)
         _, history = pruner.prune(copy.deepcopy(small_model), *small_data)
-        assert set(history) == {'initial'}  # nothing was kept
+        assert set(history) == {'initial', 'features'}  # no iteration was kept
         assert [count for _, count, _ in seen] == [n_edges, n_edges - 1]
 
 

@@ -69,7 +69,7 @@ model_pruned, history = pruner.prune(
 )
 
 # The history holds the reservoir before the pruning ("initial") and, per iteration, the one that survived it
-iterations = [i for i in history if i != "initial"]
+iterations = [i for i in history if isinstance(i, int)]
 print(f"took {len(iterations)} iterations to prune the model")
 states = [history["initial"]] + [history[i]["state"] for i in iterations]
 
